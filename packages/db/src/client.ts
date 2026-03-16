@@ -646,13 +646,26 @@ export async function applyPendingMigrations(url: string): Promise<void> {
   const initialState = await inspectMigrations(url);
   if (initialState.status === "upToDate") return;
 
-  const sql = createUtilitySql(url);
+  if (initialState.reason === "no-migration-journal-empty-db") {
+    const sql = createUtilitySql(url);
+    try {
+      const db = drizzlePg(sql);
+      await migratePg(db, { migrationsFolder: MIGRATIONS_FOLDER });
+    } finally {
+      await sql.end();
+    }
 
-  try {
-    const db = drizzlePg(sql);
-    await migratePg(db, { migrationsFolder: MIGRATIONS_FOLDER });
-  } finally {
-    await sql.end();
+    const bootstrappedState = await inspectMigrations(url);
+    if (bootstrappedState.status === "upToDate") return;
+    throw new Error(
+      `Failed to bootstrap migrations: ${bootstrappedState.pendingMigrations.join(", ")}`,
+    );
+  }
+
+  if (initialState.reason === "no-migration-journal-non-empty-db") {
+    throw new Error(
+      "Database has tables but no migration journal; automatic migration is unsafe. Initialize migration history manually.",
+    );
   }
 
   let state = await inspectMigrations(url);
@@ -665,7 +678,7 @@ export async function applyPendingMigrations(url: string): Promise<void> {
   }
 
   if (state.status !== "needsMigrations" || state.reason !== "pending-migrations") {
-    throw new Error("Migrations are still pending after attempted apply; run inspectMigrations for details.");
+    throw new Error("Migrations are still pending after migration-history reconciliation; run inspectMigrations for details.");
   }
 
   await applyPendingMigrationsManually(url, state.pendingMigrations);
