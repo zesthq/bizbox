@@ -43,10 +43,13 @@ import { PageTabBar } from "../components/PageTabBar";
 import type { HeartbeatRun, Issue, JoinRequest } from "@paperclipai/shared";
 import {
   ACTIONABLE_APPROVAL_STATUSES,
+  getApprovalsForTab,
   getLatestFailedRunsByAgent,
   getRecentTouchedIssues,
+  InboxApprovalFilter,
   type InboxTab,
   saveLastInboxTab,
+  shouldShowInboxSection,
 } from "../lib/inbox";
 import { useDismissedInboxItems } from "../hooks/useInboxBadge";
 
@@ -57,7 +60,6 @@ type InboxCategoryFilter =
   | "approvals"
   | "failed_runs"
   | "alerts";
-type InboxApprovalFilter = "all" | "actionable" | "resolved";
 type SectionKey =
   | "issues_i_touched"
   | "join_requests"
@@ -362,10 +364,7 @@ export function Inbox() {
   }, [heartbeatRuns]);
 
   const allApprovals = useMemo(
-    () =>
-      [...(approvals ?? [])].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      ),
+    () => getApprovalsForTab(approvals ?? [], "recent", "all"),
     [approvals],
   );
 
@@ -374,14 +373,10 @@ export function Inbox() {
     [allApprovals],
   );
 
-  const filteredAllApprovals = useMemo(() => {
-    if (allApprovalFilter === "all") return allApprovals;
-
-    return allApprovals.filter((approval) => {
-      const isActionable = ACTIONABLE_APPROVAL_STATUSES.has(approval.status);
-      return allApprovalFilter === "actionable" ? isActionable : !isActionable;
-    });
-  }, [allApprovals, allApprovalFilter]);
+  const approvalsToRender = useMemo(
+    () => getApprovalsForTab(approvals ?? [], tab, allApprovalFilter),
+    [approvals, tab, allApprovalFilter],
+  );
 
   const agentName = (id: string | null) => {
     if (!id) return null;
@@ -516,21 +511,36 @@ export function Inbox() {
     allCategoryFilter === "everything" || allCategoryFilter === "failed_runs";
   const showAlertsCategory = allCategoryFilter === "everything" || allCategoryFilter === "alerts";
 
-  const approvalsToRender = tab === "all" ? filteredAllApprovals : actionableApprovals;
-  const showTouchedSection =
-    tab === "all"
-      ? showTouchedCategory && hasTouchedIssues
-      : tab === "unread"
-        ? unreadTouchedIssues.length > 0
-        : hasTouchedIssues;
+  const showTouchedSection = shouldShowInboxSection({
+    tab,
+    hasItems: tab === "unread" ? unreadTouchedIssues.length > 0 : hasTouchedIssues,
+    showOnRecent: hasTouchedIssues,
+    showOnUnread: unreadTouchedIssues.length > 0,
+    showOnAll: showTouchedCategory && hasTouchedIssues,
+  });
   const showJoinRequestsSection =
     tab === "all" ? showJoinRequestsCategory && hasJoinRequests : tab === "unread" && hasJoinRequests;
-  const showApprovalsSection = tab === "all"
-    ? showApprovalsCategory && filteredAllApprovals.length > 0
-    : actionableApprovals.length > 0;
-  const showFailedRunsSection =
-    tab === "all" ? showFailedRunsCategory && hasRunFailures : tab === "unread" && hasRunFailures;
-  const showAlertsSection = tab === "all" ? showAlertsCategory && hasAlerts : tab === "unread" && hasAlerts;
+  const showApprovalsSection = shouldShowInboxSection({
+    tab,
+    hasItems: approvalsToRender.length > 0,
+    showOnRecent: approvalsToRender.length > 0,
+    showOnUnread: actionableApprovals.length > 0,
+    showOnAll: showApprovalsCategory && approvalsToRender.length > 0,
+  });
+  const showFailedRunsSection = shouldShowInboxSection({
+    tab,
+    hasItems: hasRunFailures,
+    showOnRecent: hasRunFailures,
+    showOnUnread: hasRunFailures,
+    showOnAll: showFailedRunsCategory && hasRunFailures,
+  });
+  const showAlertsSection = shouldShowInboxSection({
+    tab,
+    hasItems: hasAlerts,
+    showOnRecent: hasAlerts,
+    showOnUnread: hasAlerts,
+    showOnAll: showAlertsCategory && hasAlerts,
+  });
 
   const visibleSections = [
     showFailedRunsSection ? "failed_runs" : null,

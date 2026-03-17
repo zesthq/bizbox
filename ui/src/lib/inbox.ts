@@ -12,6 +12,7 @@ export const ACTIONABLE_APPROVAL_STATUSES = new Set(["pending", "revision_reques
 export const DISMISSED_KEY = "paperclip:inbox:dismissed";
 export const INBOX_LAST_TAB_KEY = "paperclip:inbox:last-tab";
 export type InboxTab = "recent" | "unread" | "all";
+export type InboxApprovalFilter = "all" | "actionable" | "resolved";
 
 export interface InboxBadgeData {
   inbox: number;
@@ -102,6 +103,46 @@ export function getRecentTouchedIssues(issues: Issue[]): Issue[] {
 
 export function getUnreadTouchedIssues(issues: Issue[]): Issue[] {
   return issues.filter((issue) => issue.isUnreadForMe);
+}
+
+export function getApprovalsForTab(
+  approvals: Approval[],
+  tab: InboxTab,
+  filter: InboxApprovalFilter,
+): Approval[] {
+  const sortedApprovals = [...approvals].sort(
+    (a, b) => normalizeTimestamp(b.updatedAt) - normalizeTimestamp(a.updatedAt),
+  );
+
+  if (tab === "recent") return sortedApprovals;
+  if (tab === "unread") {
+    return sortedApprovals.filter((approval) => ACTIONABLE_APPROVAL_STATUSES.has(approval.status));
+  }
+  if (filter === "all") return sortedApprovals;
+
+  return sortedApprovals.filter((approval) => {
+    const isActionable = ACTIONABLE_APPROVAL_STATUSES.has(approval.status);
+    return filter === "actionable" ? isActionable : !isActionable;
+  });
+}
+
+export function shouldShowInboxSection({
+  tab,
+  hasItems,
+  showOnRecent,
+  showOnUnread,
+  showOnAll,
+}: {
+  tab: InboxTab;
+  hasItems: boolean;
+  showOnRecent: boolean;
+  showOnUnread: boolean;
+  showOnAll: boolean;
+}): boolean {
+  if (!hasItems) return false;
+  if (tab === "recent") return showOnRecent;
+  if (tab === "unread") return showOnUnread;
+  return showOnAll;
 }
 
 export function computeInboxBadgeData({
