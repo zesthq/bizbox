@@ -329,6 +329,53 @@ describeEmbeddedPostgres("routine routes end-to-end", () => {
     expect(issue?.description).toBe("Review paperclip for high bugs");
   });
 
+  it("allows drafting a routine without defaults and running it with one-off overrides", async () => {
+    const { companyId, agentId, projectId, userId } = await seedFixture();
+    const app = await createApp({
+      type: "board",
+      userId,
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const createRes = await request(app)
+      .post(`/api/companies/${companyId}/routines`)
+      .send({
+        title: "Draft routine",
+        description: "No saved defaults",
+      });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.projectId).toBeNull();
+    expect(createRes.body.assigneeAgentId).toBeNull();
+    expect(createRes.body.status).toBe("paused");
+
+    const runRes = await request(app)
+      .post(`/api/routines/${createRes.body.id}/run`)
+      .send({
+        source: "manual",
+        projectId,
+        assigneeAgentId: agentId,
+      });
+
+    expect(runRes.status).toBe(202);
+    expect(runRes.body.status).toBe("issue_created");
+
+    const [issue] = await db
+      .select({
+        projectId: issues.projectId,
+        assigneeAgentId: issues.assigneeAgentId,
+      })
+      .from(issues)
+      .where(eq(issues.id, runRes.body.linkedIssueId));
+
+    expect(issue).toEqual({
+      projectId,
+      assigneeAgentId: agentId,
+    });
+  });
+
   it("persists execution workspace selections from manual routine runs", async () => {
     const { companyId, agentId, projectId, userId } = await seedFixture();
     const projectWorkspaceId = randomUUID();
