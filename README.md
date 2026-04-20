@@ -202,6 +202,76 @@ This starts the API server at `http://localhost:3100`. An embedded PostgreSQL da
 
 <br/>
 
+## Deploy To Fly
+
+This fork includes a Fly configuration for the `bizbox` app in [fly.toml](fly.toml). Fly needs Paperclip to run in authenticated mode because the server binds to `0.0.0.0`; `local_trusted` is only valid for loopback/local desktop use.
+
+First-time setup:
+
+```bash
+make bootstrap
+```
+
+That creates the Fly app, provisions Fly Postgres, creates the persistent `/paperclip` volume, and sets the required auth secret plus public URL. The Makefile passes Fly's non-interactive flags and skips resources that already exist, so it is safe to rerun after a partial setup. If `BETTER_AUTH_SECRET` is already present, bootstrap preserves it instead of rotating sessions.
+
+Defaults:
+
+| Make variable | Default |
+| --- | --- |
+| `APP` | `bizbox` |
+| `DB` | `bizbox-db` |
+| `ORG` | `citro-dev` |
+| `REGION` | `syd` |
+| `VOLUME` | `paperclip_data` |
+| `VOL_GB` | `10` |
+
+Override them inline when needed:
+
+```bash
+make bootstrap APP=my-paperclip ORG=my-fly-org
+```
+
+If you prefer to run the steps manually:
+
+```bash
+make fly-setup
+make fly-db
+make fly-volume
+make fly-secrets
+```
+
+Deploy:
+
+```bash
+make deploy
+```
+
+If deploy reports that the app was not found, the Fly app has not been created in the current Fly account/org yet. Run `make bootstrap` once first. If the `bizbox` app name is unavailable or you already created a different app, update `APP` in [Makefile](Makefile) and `app`/`PAPERCLIP_PUBLIC_URL` in [fly.toml](fly.toml), then run `make bootstrap`.
+
+Useful operational commands:
+
+```bash
+make status
+make logs
+make ssh
+make secrets
+```
+
+Required Fly runtime settings:
+
+| Variable | Purpose |
+| --- | --- |
+| `BETTER_AUTH_SECRET` | Required signing secret for authenticated mode. `make fly-secrets` generates this with `openssl rand -hex 32`. |
+| `PAPERCLIP_PUBLIC_URL` | Canonical public URL, for example `https://bizbox.fly.dev`. Used for auth callbacks, invite links, and hostname allowlisting. |
+| `PAPERCLIP_DEPLOYMENT_MODE` | Must be `authenticated` on Fly. |
+| `PAPERCLIP_DEPLOYMENT_EXPOSURE` | Keep `private` unless you are intentionally configuring a public authenticated deployment. |
+| `PAPERCLIP_HOME` | Persistent Paperclip data root. In Fly this is mounted at `/paperclip`. |
+| `PAPERCLIP_MIGRATION_AUTO_APPLY` | Applies pending migrations at startup. Set to `true` for this single-app Fly deployment. |
+
+If you change the Fly app name, update both `APP` in [Makefile](Makefile) and `app`/`PAPERCLIP_PUBLIC_URL` in [fly.toml](fly.toml), then rerun `make fly-secrets`.
+
+<br/>
+
 ## FAQ
 
 **What does a typical setup look like?**
@@ -311,7 +381,9 @@ MIT &copy; 2026 Paperclip
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/image?repos=paperclipai/paperclip&type=date&legend=top-left)](https://www.star-history.com/?repos=paperclipai%2Fpaperclip&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/image?repos=zesthq%2Fbizbox&type=date&legend=top-left)](https://www.star-history.com/?repos=zesthq%2Fbizbox&type=date&legend=top-left)
+
+
 
 <br/>
 
