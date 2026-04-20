@@ -246,7 +246,17 @@ Deploy:
 make deploy
 ```
 
+After the first successful deploy, open the first instance admin invite:
+
+```bash
+make admin-invite
+```
+
+This runs `pnpm paperclipai auth bootstrap-ceo` inside the Fly machine via `fly ssh console` and prints a one-time invite URL. Open that URL in your browser to claim the first admin account. You only need this while the instance says `Instance setup required`.
+
 If deploy reports that the app was not found, the Fly app has not been created in the current Fly account/org yet. Run `make bootstrap` once first. If the `bizbox` app name is unavailable or you already created a different app, update `APP` in [Makefile](Makefile) and `app`/`PAPERCLIP_PUBLIC_URL` in [fly.toml](fly.toml), then run `make bootstrap`.
+
+On first boot, Fly mounts the persistent `/paperclip` volume as root-owned storage. The Docker entrypoint fixes ownership before starting Paperclip as the unprivileged `node` user; if you see `EACCES` errors under `/paperclip`, rebuild and redeploy so the latest entrypoint is in the image.
 
 Useful operational commands:
 

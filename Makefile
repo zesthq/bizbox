@@ -5,7 +5,7 @@ REGION  ?= syd
 VOLUME  ?= paperclip_data
 VOL_GB  ?= 10
 
-.PHONY: fly-check-app fly-setup fly-db fly-volume fly-secrets deploy logs ssh status
+.PHONY: fly-check-app fly-setup fly-db fly-volume fly-secrets bootstrap deploy admin-invite logs ssh status secrets
 
 fly-check-app:
 	@if ! fly status --app $(APP) >/dev/null 2>&1; then \
@@ -58,6 +58,10 @@ bootstrap: fly-setup fly-db fly-volume fly-secrets
 ## Deploy
 deploy: fly-check-app
 	fly deploy --app $(APP)
+
+## Generate the first instance admin invite URL
+admin-invite: fly-check-app
+	fly ssh console --app $(APP) --command "sh -lc 'cd /app && pnpm paperclipai auth bootstrap-ceo'"
 
 ## Ops helpers
 logs:
