@@ -209,10 +209,12 @@ This fork includes a Fly configuration for the `bizbox` app in [fly.toml](fly.to
 First-time setup:
 
 ```bash
+cp .env.example .env
+# edit .env and set ORG=your-fly-org
 make bootstrap
 ```
 
-That creates the Fly app, provisions Fly Postgres, creates the persistent `/paperclip` volume, and sets the required auth secret plus public URL. The Makefile passes Fly's non-interactive flags and skips resources that already exist, so it is safe to rerun after a partial setup. If `BETTER_AUTH_SECRET` is already present, bootstrap preserves it instead of rotating sessions.
+That creates the Fly app, provisions Fly Postgres, creates the persistent `/paperclip` volume, and sets the required auth secret plus public URL. The Makefile now loads `.env`, requires `ORG` for Fly bootstrap steps, passes Fly's non-interactive flags, and skips resources that already exist, so it is safe to rerun after a partial setup. If `BETTER_AUTH_SECRET` is already present, bootstrap preserves it instead of rotating sessions.
 
 Defaults:
 
@@ -220,12 +222,12 @@ Defaults:
 | --- | --- |
 | `APP` | `bizbox` |
 | `DB` | `bizbox-db` |
-| `ORG` | `citro-dev` |
+| `ORG` | Required |
 | `REGION` | `syd` |
 | `VOLUME` | `paperclip_data` |
 | `VOL_GB` | `10` |
 
-Override them inline when needed:
+Set `ORG` in `.env` for the easiest setup flow, or override variables inline when needed:
 
 ```bash
 make bootstrap APP=my-paperclip ORG=my-fly-org

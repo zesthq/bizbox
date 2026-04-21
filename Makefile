@@ -1,11 +1,23 @@
+ifneq (,$(wildcard .env))
+include .env
+export
+endif
+
 APP     ?= bizbox
 DB      ?= bizbox-db
-ORG     ?= citro-dev
+ORG     ?=
 REGION  ?= syd
 VOLUME  ?= paperclip_data
 VOL_GB  ?= 10
 
-.PHONY: fly-check-app fly-setup fly-db fly-volume fly-secrets bootstrap deploy admin-invite logs ssh status secrets
+.PHONY: fly-check-app fly-check-org fly-setup fly-db fly-volume fly-secrets bootstrap deploy admin-invite logs ssh status secrets
+
+fly-check-org:
+	@if [ -z "$(strip $(ORG))" ]; then \
+		echo "ORG is required for Fly bootstrap."; \
+		echo "Set ORG in your environment or .env file, or run make with ORG=<your-fly-org>."; \
+		exit 1; \
+	fi
 
 fly-check-app:
 	@if ! fly status --app $(APP) >/dev/null 2>&1; then \
@@ -15,14 +27,14 @@ fly-check-app:
 	fi
 
 ## First-time setup (run once, in order)
-fly-setup:
+fly-setup: fly-check-org
 	@if fly status --app $(APP) >/dev/null 2>&1; then \
 		echo "Fly app '$(APP)' already exists; skipping app creation."; \
 	else \
 		fly apps create $(APP) --org $(ORG) --yes; \
 	fi
 
-fly-db:
+fly-db: fly-check-org
 	@if fly status --app $(DB) >/dev/null 2>&1; then \
 		echo "Fly Postgres app '$(DB)' already exists; skipping database creation."; \
 	else \
