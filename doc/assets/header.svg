@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1218" height="546" viewBox="0 0 1218 546">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f1117;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1d2e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e2e8f0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#c7d2fe;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1218" height="546" fill="url(#bg)" />
+
+  <!-- Subtle grid lines -->
+  <g opacity="0.05" stroke="#6366f1" stroke-width="1">
+    <line x1="0" y1="91" x2="1218" y2="91"/>
+    <line x1="0" y1="182" x2="1218" y2="182"/>
+    <line x1="0" y1="273" x2="1218" y2="273"/>
+    <line x1="0" y1="364" x2="1218" y2="364"/>
+    <line x1="0" y1="455" x2="1218" y2="455"/>
+    <line x1="203" y1="0" x2="203" y2="546"/>
+    <line x1="406" y1="0" x2="406" y2="546"/>
+    <line x1="609" y1="0" x2="609" y2="546"/>
+    <line x1="812" y1="0" x2="812" y2="546"/>
+    <line x1="1015" y1="0" x2="1015" y2="546"/>
+  </g>
+
+  <!-- Glowing orb top-left -->
+  <circle cx="180" cy="160" r="120" fill="#6366f1" opacity="0.08" filter="url(#glow)"/>
+  <!-- Glowing orb bottom-right -->
+  <circle cx="1050" cy="400" r="150" fill="#8b5cf6" opacity="0.07" filter="url(#glow)"/>
+
+  <!-- Top accent bar -->
+  <rect x="0" y="0" width="1218" height="3" fill="url(#accent)" />
+
+  <!-- Logo mark — stylised "B" box icon -->
+  <g transform="translate(424, 148)" filter="url(#softglow)">
+    <!-- Outer rounded square -->
+    <rect x="0" y="0" width="68" height="68" rx="14" fill="url(#accent)" opacity="0.9"/>
+    <!-- Inner letter B shape -->
+    <text x="34" y="50" font-family="'Helvetica Neue', Arial, sans-serif" font-size="44" font-weight="800"
+          fill="white" text-anchor="middle">B</text>
+  </g>
+
+  <!-- BIZBOX wordmark -->
+  <text x="609" y="224"
+        font-family="'Helvetica Neue', Arial, sans-serif"
+        font-size="84"
+        font-weight="800"
+        letter-spacing="6"
+        fill="url(#textGrad)"
+        text-anchor="middle"
+        filter="url(#softglow)">BIZBOX</text>
+
+  <!-- Accent underline -->
+  <rect x="459" y="238" width="300" height="3" rx="2" fill="url(#accent)" opacity="0.8"/>
+
+  <!-- Tagline -->
+  <text x="609" y="296"
+        font-family="'Helvetica Neue', Arial, sans-serif"
+        font-size="22"
+        font-weight="400"
+        letter-spacing="3"
+        fill="#94a3b8"
+        text-anchor="middle">RUNS YOUR BUSINESS</text>
+
+  <!-- Divider dots -->
+  <circle cx="527" cy="338" r="3" fill="#6366f1" opacity="0.6"/>
+  <circle cx="609" cy="338" r="3" fill="#8b5cf6" opacity="0.6"/>
+  <circle cx="691" cy="338" r="3" fill="#6366f1" opacity="0.6"/>
+
+  <!-- Feature pills -->
+  <g transform="translate(609, 390)" text-anchor="middle">
+    <!-- Pill 1 -->
+    <g transform="translate(-220, 0)">
+      <rect x="-66" y="-16" width="132" height="32" rx="16" fill="#1e2235" stroke="#6366f1" stroke-width="1" opacity="0.8"/>
+      <text font-family="'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#a5b4fc" letter-spacing="0.5">Enterprise-ready</text>
+    </g>
+    <!-- Pill 2 -->
+    <g transform="translate(0, 0)">
+      <rect x="-60" y="-16" width="120" height="32" rx="16" fill="#1e2235" stroke="#8b5cf6" stroke-width="1" opacity="0.8"/>
+      <text font-family="'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#c4b5fd" letter-spacing="0.5">Self-hosted</text>
+    </g>
+    <!-- Pill 3 -->
+    <g transform="translate(220, 0)">
+      <rect x="-72" y="-16" width="144" height="32" rx="16" fill="#1e2235" stroke="#6366f1" stroke-width="1" opacity="0.8"/>
+      <text font-family="'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#a5b4fc" letter-spacing="0.5">Open source</text>
+    </g>
+  </g>
+
+  <!-- Bottom accent bar -->
+  <rect x="0" y="543" width="1218" height="3" fill="url(#accent)" opacity="0.4"/>
+</svg>
