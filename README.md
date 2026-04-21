@@ -217,21 +217,11 @@ See [doc/DOCKER.md](doc/DOCKER.md) for production Docker deployments and [doc/DE
 
 ## FAQ
 
-**What does a typical setup look like?**
-Locally, a single Node.js process manages an embedded Postgres and local file storage. For production, point it at your own Postgres and deploy however you like. Configure projects, agents, and goals — the agents take care of the rest.
-
-For enterprise deployments, use Docker Compose with an external PostgreSQL instance. See [doc/DOCKER.md](doc/DOCKER.md) for full deployment options.
-
-**Can I run multiple companies?**
-Yes. A single deployment can run an unlimited number of companies with complete data isolation.
-
 **How is Bizbox different from agents like OpenClaw or Claude Code?**
 Bizbox _uses_ those agents. It orchestrates them into a company — with org charts, budgets, goals, governance, and accountability.
 
 **Why should I use Bizbox instead of just pointing my OpenClaw to Asana or Trello?**
 Agent orchestration has subtleties in how you coordinate who has work checked out, how to maintain sessions, monitoring costs, establishing governance - Bizbox does this for you.
-
-(Bring-your-own-ticket-system is on the Roadmap)
 
 **Do agents run continuously?**
 By default, agents run on scheduled heartbeats and event-based triggers (task assignment, @-mentions). You can also hook in continuous agents like OpenClaw. You bring your agent and Bizbox coordinates.
@@ -342,14 +332,12 @@ Bizbox is a fork of [paperclipai/paperclip](https://github.com/paperclipai/paper
 
 MIT &copy; 2026 Bizbox / Zest
 
-[![Star History Chart](https://api.star-history.com/image?repos=zesthq/bizbox&type=date&legend=top-left)](https://www.star-history.com/?repos=zesthq%2Fbizbox&type=date&legend=top-left)
-
 <br/>
 
 ---
 
 <p align="center">
-  <img src="doc/assets/footer.jpg" alt="" width="720" />
+  <img src="doc/assets/footer.png" alt="" width="720" />
 </p>
 
 <p align="center">
