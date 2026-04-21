@@ -72,6 +72,7 @@ Bugs, docs improvements, and small targeted improvements are still the easiest p
 - Keep PR title + description meaningful
 - One PR = one logical change (unless it's a small related group)
 - Run tests locally first
+- For the repo-native Codex contributor workflow, follow `doc/CODEX-WORKFLOW.md` in addition to `AGENTS.md`
 - Be kind in discussions 😄
 
 ## Writing a Good PR message

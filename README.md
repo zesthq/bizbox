@@ -250,6 +250,8 @@ pnpm dev:server       # Server only
 pnpm build            # Build all
 pnpm typecheck        # Type checking
 pnpm test             # Cheap default test run (Vitest only)
+pnpm verify:agent     # Standard Codex/agent hand-off check
+pnpm verify:full      # Full pre-handoff verification
 pnpm test:watch       # Vitest watch mode
 pnpm test:e2e         # Playwright browser suite
 pnpm db:generate      # Generate DB migration

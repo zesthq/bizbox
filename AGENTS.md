@@ -20,6 +20,8 @@ Before making changes, read in this order:
 `doc/SPEC.md` is long-horizon product context.
 `doc/SPEC-implementation.md` is the concrete V1 build contract.
 
+For the repo-native Codex contributor loop, see `doc/CODEX-WORKFLOW.md`.
+
 ## 3. Repo Map
 
 - `server/`: Express REST API and orchestration services
@@ -126,9 +128,7 @@ Run the browser suites only when your change touches them or when you are explic
 Run this full check before claiming done:
 
 ```sh
-pnpm -r typecheck
-pnpm test:run
-pnpm build
+pnpm verify:full
 ```
 
 If anything cannot be run, explicitly report what was not run and why.
