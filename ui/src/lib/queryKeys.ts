@@ -11,6 +11,8 @@ export const queryKeys = {
       ["company-skills", companyId, skillId, "update-status"] as const,
     file: (companyId: string, skillId: string, relativePath: string) =>
       ["company-skills", companyId, skillId, "file", relativePath] as const,
+    githubCredentials: (companyId: string, hostname?: string, owner?: string) =>
+      ["company-skills", companyId, "github-credentials", hostname ?? "__all__", owner ?? "__all__"] as const,
   },
   agents: {
     list: (companyId: string) => ["agents", companyId] as const,

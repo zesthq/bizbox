@@ -4,16 +4,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { companySkills } from "@paperclipai/db";
+import { companyGitHubCredentials, companySkills } from "@paperclipai/db";
 import { readPaperclipSkillSyncPreference } from "@paperclipai/adapter-utils/server-utils";
 import type { PaperclipSkillEntry } from "@paperclipai/adapter-utils/server-utils";
 import type {
+  CompanyGitHubCredentialAssociation,
   CompanySkill,
   CompanySkillCreateRequest,
   CompanySkillCompatibility,
   CompanySkillDetail,
   CompanySkillFileDetail,
   CompanySkillFileInventoryEntry,
+  CompanySkillImportRequest,
   CompanySkillImportResult,
   CompanySkillListItem,
   CompanySkillProjectScanConflict,
@@ -29,7 +31,7 @@ import type {
 import { normalizeAgentUrlKey } from "@paperclipai/shared";
 import { findActiveServerAdapter } from "../adapters/index.js";
 import { resolvePaperclipInstanceRoot } from "../home-paths.js";
-import { notFound, unprocessable } from "../errors.js";
+import { internalError, notFound, unprocessable } from "../errors.js";
 import { ghFetch, gitHubApiBase, resolveRawGitHubUrl } from "./github-fetch.js";
 import { agentService } from "./agents.js";
 import { projectService } from "./projects.js";
@@ -108,6 +110,8 @@ export type ImportPackageSkillResult = {
   reason: string | null;
 };
 
+type CompanyGitHubCredentialRow = typeof companyGitHubCredentials.$inferSelect;
+
 type ParsedSkillImportSource = {
   resolvedSource: string;
   requestedSkillSlug: string | null;
@@ -129,6 +133,21 @@ type SkillSourceMeta = {
   workspaceId?: string;
   workspaceName?: string;
   workspaceCwd?: string;
+  authScope?: string;
+};
+
+type ResolvedGitHubAuth = {
+  token: string | null;
+  secretId: string | null;
+};
+
+type GitHubAuthResolutionOptions = {
+  explicitSecretId?: string | null;
+  required?: boolean;
+};
+
+type ReadUrlSkillImportsOptions = {
+  githubAuth?: ResolvedGitHubAuth;
 };
 
 export type LocalSkillInventoryMode = "full" | "project_root";
@@ -234,6 +253,21 @@ function normalizeSkillKey(value: string | null | undefined) {
     .map((segment) => normalizeSkillSlug(segment))
     .filter((segment): segment is string => Boolean(segment));
   return segments.length > 0 ? segments.join("/") : null;
+}
+
+function normalizeGitHubHostname(value: string | null | undefined) {
+  const trimmed = asString(value);
+  return trimmed ? trimmed.toLowerCase() : null;
+}
+
+function normalizeGitHubOwner(value: string | null | undefined) {
+  const trimmed = asString(value);
+  return trimmed ? trimmed.toLowerCase() : null;
+}
+
+function skillRequiresSavedGitHubCredential(skill: Pick<CompanySkill, "metadata">) {
+  const metadata = getSkillMeta(skill);
+  return metadata.authScope === "owner";
 }
 
 export function normalizeGitHubSkillDirectory(
@@ -515,20 +549,20 @@ function parseFrontmatterMarkdown(raw: string): { frontmatter: Record<string, un
   };
 }
 
-async function fetchText(url: string) {
-  const response = await ghFetch(url);
+async function fetchText(url: string, auth?: ResolvedGitHubAuth) {
+  const response = await ghFetch(url, undefined, auth ? { token: auth.token } : undefined);
   if (!response.ok) {
     throw unprocessable(`Failed to fetch ${url}: ${response.status}`);
   }
   return response.text();
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
+async function fetchJson<T>(url: string, auth?: ResolvedGitHubAuth): Promise<T> {
   const response = await ghFetch(url, {
     headers: {
       accept: "application/vnd.github+json",
     },
-  });
+  }, auth ? { token: auth.token } : undefined);
   if (!response.ok) {
     throw unprocessable(`Failed to fetch ${url}: ${response.status}`);
   }
@@ -536,22 +570,43 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 
-async function resolveGitHubDefaultBranch(owner: string, repo: string, apiBase: string) {
+async function resolveGitHubDefaultBranch(owner: string, repo: string, apiBase: string, auth?: ResolvedGitHubAuth) {
   const response = await fetchJson<{ default_branch?: string }>(
     `${apiBase}/repos/${owner}/${repo}`,
+    auth,
   );
   return asString(response.default_branch) ?? "main";
 }
 
-async function resolveGitHubCommitSha(owner: string, repo: string, ref: string, apiBase: string) {
+async function resolveGitHubCommitSha(
+  owner: string,
+  repo: string,
+  ref: string,
+  apiBase: string,
+  auth?: ResolvedGitHubAuth,
+) {
   const response = await fetchJson<{ sha?: string }>(
     `${apiBase}/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`,
+    auth,
   );
   const sha = asString(response.sha);
   if (!sha) {
     throw unprocessable(`Failed to resolve GitHub ref ${ref}`);
   }
   return sha;
+}
+
+function looksLikeGitHubRepoImportUrl(rawUrl: string) {
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== "https:") return false;
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname.endsWith(".githubusercontent.com") || hostname === "gist.github.com") return false;
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    return segments.length >= 2 && !parsed.pathname.endsWith(".md");
+  } catch {
+    return false;
+  }
 }
 
 function parseGitHubSourceUrl(rawUrl: string) {
@@ -582,7 +637,10 @@ function parseGitHubSourceUrl(rawUrl: string) {
   return { hostname: url.hostname, owner, repo, ref, basePath, filePath, explicitRef };
 }
 
-async function resolveGitHubPinnedRef(parsed: ReturnType<typeof parseGitHubSourceUrl>) {
+async function resolveGitHubPinnedRef(
+  parsed: ReturnType<typeof parseGitHubSourceUrl>,
+  auth?: ResolvedGitHubAuth,
+) {
   const apiBase = gitHubApiBase(parsed.hostname);
   if (/^[0-9a-f]{40}$/i.test(parsed.ref.trim())) {
     return {
@@ -593,8 +651,8 @@ async function resolveGitHubPinnedRef(parsed: ReturnType<typeof parseGitHubSourc
 
   const trackingRef = parsed.explicitRef
     ? parsed.ref
-    : await resolveGitHubDefaultBranch(parsed.owner, parsed.repo, apiBase);
-  const pinnedRef = await resolveGitHubCommitSha(parsed.owner, parsed.repo, trackingRef, apiBase);
+    : await resolveGitHubDefaultBranch(parsed.owner, parsed.repo, apiBase, auth);
+  const pinnedRef = await resolveGitHubCommitSha(parsed.owner, parsed.repo, trackingRef, apiBase, auth);
   return { pinnedRef, trackingRef };
 }
 
@@ -1025,24 +1083,19 @@ async function readUrlSkillImports(
   companyId: string,
   sourceUrl: string,
   requestedSkillSlug: string | null = null,
+  options?: ReadUrlSkillImportsOptions,
 ): Promise<{ skills: ImportedSkill[]; warnings: string[] }> {
   const url = sourceUrl.trim();
   const warnings: string[] = [];
-  const looksLikeRepoUrl = (() => { try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:") return false;
-    const h = parsed.hostname.toLowerCase();
-    if (h.endsWith(".githubusercontent.com") || h === "gist.github.com") return false;
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    return segments.length >= 2 && !parsed.pathname.endsWith(".md");
-  } catch { return false; } })();
+  const looksLikeRepoUrl = looksLikeGitHubRepoImportUrl(url);
   if (looksLikeRepoUrl) {
     const parsed = parseGitHubSourceUrl(url);
     const apiBase = gitHubApiBase(parsed.hostname);
-    const { pinnedRef, trackingRef } = await resolveGitHubPinnedRef(parsed);
+    const { pinnedRef, trackingRef } = await resolveGitHubPinnedRef(parsed, options?.githubAuth);
     let ref = pinnedRef;
     const tree = await fetchJson<{ tree?: Array<{ path: string; type: string }> }>(
       `${apiBase}/repos/${parsed.owner}/${parsed.repo}/git/trees/${ref}?recursive=1`,
+      options?.githubAuth,
     ).catch(() => {
       throw unprocessable(`Failed to read GitHub tree for ${url}`);
     });
@@ -1069,7 +1122,10 @@ async function readUrlSkillImports(
     const skills: ImportedSkill[] = [];
     for (const relativeSkillPath of skillPaths) {
       const repoSkillPath = basePrefix ? `${basePrefix}${relativeSkillPath}` : relativeSkillPath;
-      const markdown = await fetchText(resolveRawGitHubUrl(parsed.hostname, parsed.owner, parsed.repo, ref, repoSkillPath));
+      const markdown = await fetchText(
+        resolveRawGitHubUrl(parsed.hostname, parsed.owner, parsed.repo, ref, repoSkillPath),
+        options?.githubAuth,
+      );
       const parsedMarkdown = parseFrontmatterMarkdown(markdown);
       const skillDir = path.posix.dirname(relativeSkillPath);
       const slug = deriveImportedSkillSlug(parsedMarkdown.frontmatter, path.posix.basename(skillDir));
@@ -1525,6 +1581,160 @@ export function companySkillService(db: Db) {
   const projects = projectService(db);
   const secretsSvc = secretService(db);
 
+  function toCompanyGitHubCredentialAssociation(
+    row: CompanyGitHubCredentialRow,
+  ): CompanyGitHubCredentialAssociation {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      hostname: row.hostname,
+      owner: row.owner,
+      secretId: row.secretId,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async function getGitHubCredentialAssociation(
+    companyId: string,
+    hostname: string,
+    owner: string,
+  ): Promise<CompanyGitHubCredentialAssociation | null> {
+    const normalizedHostname = normalizeGitHubHostname(hostname);
+    const normalizedOwner = normalizeGitHubOwner(owner);
+    if (!normalizedHostname || !normalizedOwner) return null;
+
+    const row = await db
+      .select()
+      .from(companyGitHubCredentials)
+      .where(
+        and(
+          eq(companyGitHubCredentials.companyId, companyId),
+          eq(companyGitHubCredentials.hostname, normalizedHostname),
+          eq(companyGitHubCredentials.owner, normalizedOwner),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+    return row ? toCompanyGitHubCredentialAssociation(row) : null;
+  }
+
+  async function listGitHubCredentialAssociations(
+    companyId: string,
+    filter?: { hostname?: string | null; owner?: string | null },
+  ): Promise<CompanyGitHubCredentialAssociation[]> {
+    const conditions = [eq(companyGitHubCredentials.companyId, companyId)];
+    const normalizedHostname = normalizeGitHubHostname(filter?.hostname);
+    const normalizedOwner = normalizeGitHubOwner(filter?.owner);
+    if (normalizedHostname) {
+      conditions.push(eq(companyGitHubCredentials.hostname, normalizedHostname));
+    }
+    if (normalizedOwner) {
+      conditions.push(eq(companyGitHubCredentials.owner, normalizedOwner));
+    }
+    const rows = await db
+      .select()
+      .from(companyGitHubCredentials)
+      .where(and(...conditions))
+      .orderBy(asc(companyGitHubCredentials.hostname), asc(companyGitHubCredentials.owner));
+    return rows.map(toCompanyGitHubCredentialAssociation);
+  }
+
+  async function upsertGitHubCredentialAssociation(
+    companyId: string,
+    input: { hostname: string; owner: string; secretId: string },
+  ): Promise<CompanyGitHubCredentialAssociation> {
+    const normalizedHostname = normalizeGitHubHostname(input.hostname);
+    const normalizedOwner = normalizeGitHubOwner(input.owner);
+    if (!normalizedHostname || !normalizedOwner) {
+      throw unprocessable("GitHub credential association requires hostname and owner.");
+    }
+
+    const secret = await secretsSvc.getById(input.secretId);
+    if (!secret || secret.companyId !== companyId) {
+      throw unprocessable("GitHub credential secret must belong to the same company.");
+    }
+
+    const now = new Date();
+    const existing = await getGitHubCredentialAssociation(companyId, normalizedHostname, normalizedOwner);
+    const row = existing
+      ? await db
+        .update(companyGitHubCredentials)
+        .set({
+          secretId: input.secretId,
+          updatedAt: now,
+        })
+        .where(eq(companyGitHubCredentials.id, existing.id))
+        .returning()
+        .then((rows) => rows[0] ?? null)
+      : await db
+        .insert(companyGitHubCredentials)
+        .values({
+          companyId,
+          hostname: normalizedHostname,
+          owner: normalizedOwner,
+          secretId: input.secretId,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+    if (!row) throw internalError("Failed to persist GitHub credential association.");
+    return toCompanyGitHubCredentialAssociation(row);
+  }
+
+  async function resolveGitHubAuth(
+    companyId: string,
+    hostname: string,
+    owner: string,
+    options?: GitHubAuthResolutionOptions,
+  ): Promise<ResolvedGitHubAuth> {
+    const normalizedHostname = normalizeGitHubHostname(hostname);
+    const normalizedOwner = normalizeGitHubOwner(owner);
+    if (!normalizedHostname || !normalizedOwner) {
+      throw unprocessable("GitHub source metadata is incomplete.");
+    }
+
+    const explicitSecretId = options?.explicitSecretId?.trim() || null;
+    if (explicitSecretId) {
+      const secret = await secretsSvc.getById(explicitSecretId);
+      if (!secret || secret.companyId !== companyId) {
+        throw unprocessable("GitHub credential secret must belong to the same company.");
+      }
+      return {
+        token: await secretsSvc.resolveSecretValue(companyId, explicitSecretId, "latest"),
+        secretId: explicitSecretId,
+      };
+    }
+
+    const association = await getGitHubCredentialAssociation(companyId, normalizedHostname, normalizedOwner);
+    if (!association) {
+      if (options?.required) {
+        throw unprocessable(`No GitHub credential saved for ${normalizedHostname}/${normalizedOwner}.`);
+      }
+      return { token: null, secretId: null };
+    }
+
+    return {
+      token: await secretsSvc.resolveSecretValue(companyId, association.secretId, "latest"),
+      secretId: association.secretId,
+    };
+  }
+
+  async function resolveSkillGitHubAuth(
+    companyId: string,
+    skill: Pick<CompanySkill, "metadata">,
+  ): Promise<ResolvedGitHubAuth> {
+    const metadata = getSkillMeta(skill);
+    const hostname = asString(metadata.hostname) || "github.com";
+    const owner = asString(metadata.owner);
+    if (!owner) {
+      throw unprocessable("Skill source metadata is incomplete.");
+    }
+    return resolveGitHubAuth(companyId, hostname, owner, {
+      required: skillRequiresSavedGitHubCredential(skill),
+    });
+  }
+
   async function ensureBundledSkills(companyId: string) {
     for (const skillsRoot of resolveBundledSkillsRoot()) {
       const stats = await fs.stat(skillsRoot).catch(() => null);
@@ -1744,15 +1954,29 @@ export function companySkillService(db: Db) {
 
     const hostname = asString(metadata.hostname) || "github.com";
     const apiBase = gitHubApiBase(hostname);
-    const latestRef = await resolveGitHubCommitSha(owner, repo, trackingRef, apiBase);
-    return {
-      supported: true,
-      reason: null,
-      trackingRef,
-      currentRef: skill.sourceRef ?? null,
-      latestRef,
-      hasUpdate: latestRef !== (skill.sourceRef ?? null),
-    };
+    try {
+      const githubAuth = await resolveGitHubAuth(companyId, hostname, owner, {
+        required: skillRequiresSavedGitHubCredential(skill),
+      });
+      const latestRef = await resolveGitHubCommitSha(owner, repo, trackingRef, apiBase, githubAuth);
+      return {
+        supported: true,
+        reason: null,
+        trackingRef,
+        currentRef: skill.sourceRef ?? null,
+        latestRef,
+        hasUpdate: latestRef !== (skill.sourceRef ?? null),
+      };
+    } catch (error) {
+      return {
+        supported: false,
+        reason: error instanceof Error ? error.message : "Failed to check for updates.",
+        trackingRef,
+        currentRef: skill.sourceRef ?? null,
+        latestRef: null,
+        hasUpdate: false,
+      };
+    }
   }
 
   async function readFile(companyId: string, skillId: string, relativePath: string): Promise<CompanySkillFileDetail | null> {
@@ -1789,7 +2013,8 @@ export function companySkillService(db: Db) {
         throw unprocessable("Skill source metadata is incomplete.");
       }
       const repoPath = normalizePortablePath(path.posix.join(repoSkillDir, normalizedPath));
-      content = await fetchText(resolveRawGitHubUrl(hostname, owner, repo, ref, repoPath));
+      const githubAuth = await resolveSkillGitHubAuth(companyId, skill);
+      content = await fetchText(resolveRawGitHubUrl(hostname, owner, repo, ref, repoPath), githubAuth);
     } else if (skill.sourceType === "url") {
       if (normalizedPath !== "SKILL.md") {
         throw notFound("This skill source only exposes SKILL.md");
@@ -1902,14 +2127,37 @@ export function companySkillService(db: Db) {
     if (!status?.supported) {
       throw unprocessable(status?.reason ?? "This skill does not support updates.");
     }
-    if (!skill.sourceLocator) {
+    const metadata = getSkillMeta(skill);
+    const owner = asString(metadata.owner);
+    const repo = asString(metadata.repo);
+    const hostname = asString(metadata.hostname) || "github.com";
+    const sourceUrl = skill.sourceType === "github"
+      ? skill.sourceLocator ?? (owner && repo ? `https://${hostname}/${owner}/${repo}` : null)
+      : skill.sourceType === "skills_sh"
+        ? (owner && repo ? `https://${hostname}/${owner}/${repo}` : null)
+        : skill.sourceLocator;
+    if (!sourceUrl) {
       throw unprocessable("Skill source locator is missing.");
     }
 
-    const result = await readUrlSkillImports(companyId, skill.sourceLocator, skill.slug);
+    const githubAuth =
+      skill.sourceType === "github" || skill.sourceType === "skills_sh"
+        ? await resolveSkillGitHubAuth(companyId, skill)
+        : undefined;
+
+    const result = await readUrlSkillImports(companyId, sourceUrl, skill.slug, {
+      githubAuth,
+    });
     const matching = result.skills.find((entry) => entry.key === skill.key) ?? result.skills[0] ?? null;
     if (!matching) {
       throw unprocessable(`Skill ${skill.key} could not be re-imported from its source.`);
+    }
+
+    if (skillRequiresSavedGitHubCredential(skill)) {
+      matching.metadata = {
+        ...(matching.metadata ?? {}),
+        authScope: "owner",
+      };
     }
 
     const imported = await upsertImportedSkills(companyId, [matching]);
@@ -2353,17 +2601,39 @@ export function companySkillService(db: Db) {
     return out;
   }
 
-  async function importFromSource(companyId: string, source: string): Promise<CompanySkillImportResult> {
+  async function importFromSource(
+    companyId: string,
+    input: string | CompanySkillImportRequest,
+  ): Promise<CompanySkillImportResult> {
     await ensureSkillInventoryCurrent(companyId);
-    const parsed = parseSkillImportSourceInput(source);
+    const request = typeof input === "string" ? { source: input } : input;
+    const parsed = parseSkillImportSourceInput(request.source);
     const local = !/^https?:\/\//i.test(parsed.resolvedSource);
+    const gitHubSource = !local && looksLikeGitHubRepoImportUrl(parsed.resolvedSource) && (() => {
+      try {
+        return parseGitHubSourceUrl(parsed.resolvedSource);
+      } catch {
+        return null;
+      }
+    })();
+    const explicitGitHubSecretId = request.githubAuth?.visibility === "private"
+      ? request.githubAuth.secretId ?? null
+      : null;
+    const githubAuth = gitHubSource
+      ? await resolveGitHubAuth(companyId, gitHubSource.hostname, gitHubSource.owner, {
+        explicitSecretId: explicitGitHubSecretId,
+        required: request.githubAuth?.visibility === "private",
+      })
+      : undefined;
     const { skills, warnings } = local
       ? {
         skills: (await readLocalSkillImports(companyId, parsed.resolvedSource))
           .filter((skill) => !parsed.requestedSkillSlug || skill.slug === parsed.requestedSkillSlug),
         warnings: parsed.warnings,
       }
-      : await readUrlSkillImports(companyId, parsed.resolvedSource, parsed.requestedSkillSlug)
+      : await readUrlSkillImports(companyId, parsed.resolvedSource, parsed.requestedSkillSlug, {
+        githubAuth,
+      })
         .then((result) => ({
           skills: result.skills,
           warnings: [...parsed.warnings, ...result.warnings],
@@ -2387,6 +2657,21 @@ export function companySkillService(db: Db) {
           (skill.metadata as Record<string, unknown>).sourceKind = "skills_sh";
         }
         skill.key = deriveCanonicalSkillKey(companyId, skill);
+      }
+    }
+    if (request.githubAuth?.visibility === "private" && gitHubSource) {
+      for (const skill of filteredSkills) {
+        skill.metadata = {
+          ...(skill.metadata ?? {}),
+          authScope: "owner",
+        };
+      }
+      if (githubAuth?.secretId) {
+        await upsertGitHubCredentialAssociation(companyId, {
+          hostname: gitHubSource.hostname,
+          owner: gitHubSource.owner,
+          secretId: githubAuth.secretId,
+        });
       }
     }
     const imported = await upsertImportedSkills(companyId, filteredSkills);
@@ -2443,6 +2728,9 @@ export function companySkillService(db: Db) {
     },
     detail,
     updateStatus,
+    listGitHubCredentialAssociations,
+    getGitHubCredentialAssociation,
+    upsertGitHubCredentialAssociation,
     readFile,
     updateFile,
     createLocalSkill,

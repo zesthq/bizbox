@@ -1,0 +1,112 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  didGitHubCredentialScopeChange,
+  importPrivateGitHubSkill,
+  parseGitHubSkillSource,
+  suggestedGitHubSecretName,
+} from "./CompanySkills";
+
+describe("parseGitHubSkillSource", () => {
+  it("parses repo urls with .git suffix", () => {
+    expect(parseGitHubSkillSource("https://github.com/zesthq/citro-box.git")).toEqual({
+      hostname: "github.com",
+      owner: "zesthq",
+      repo: "citro-box",
+    });
+  });
+
+  it("parses tree urls", () => {
+    expect(parseGitHubSkillSource("https://github.com/zesthq/citro-box/tree/main/skills/private-skill")).toEqual({
+      hostname: "github.com",
+      owner: "zesthq",
+      repo: "citro-box",
+    });
+  });
+
+  it("rejects non-githubusercontent markdown urls", () => {
+    expect(parseGitHubSkillSource("https://raw.githubusercontent.com/zesthq/citro-box/main/SKILL.md")).toBeNull();
+  });
+});
+
+describe("suggestedGitHubSecretName", () => {
+  it("builds a deterministic secret name", () => {
+    expect(suggestedGitHubSecretName({ hostname: "github.com", owner: "ZestHQ" })).toBe("github_com__zesthq_pat");
+  });
+});
+
+describe("didGitHubCredentialScopeChange", () => {
+  it("returns false when only repo changes", () => {
+    expect(didGitHubCredentialScopeChange(
+      { hostname: "github.com", owner: "zesthq", repo: "repo-a" },
+      { hostname: "github.com", owner: "zesthq", repo: "repo-b" },
+    )).toBe(false);
+  });
+
+  it("returns true when owner changes", () => {
+    expect(didGitHubCredentialScopeChange(
+      { hostname: "github.com", owner: "zesthq", repo: "repo-a" },
+      { hostname: "github.com", owner: "other-org", repo: "repo-a" },
+    )).toBe(true);
+  });
+});
+
+describe("importPrivateGitHubSkill", () => {
+  it("creates a secret, then imports with the resulting secret id", async () => {
+    const createSecret = vi.fn().mockResolvedValue({ id: "secret-1" });
+    const importFromSource = vi.fn().mockResolvedValue({ imported: [], warnings: [] });
+
+    await importPrivateGitHubSkill({
+      createSecret,
+      importFromSource,
+    }, {
+      companyId: "company-1",
+      parsedGitHubSource: { hostname: "github.com", owner: "zesthq", repo: "citro-box" },
+      payload: {
+        source: "https://github.com/zesthq/citro-box",
+        githubAuth: {
+          visibility: "private",
+        },
+      },
+      githubSecretMode: "new",
+      newGitHubToken: "ghp_test",
+    });
+
+    expect(createSecret).toHaveBeenCalledWith("company-1", {
+      name: "github_com__zesthq_pat",
+      value: "ghp_test",
+      description: "GitHub PAT for github.com/zesthq private skill imports",
+    });
+    expect(importFromSource).toHaveBeenCalledWith("company-1", {
+      source: "https://github.com/zesthq/citro-box",
+      githubAuth: {
+        visibility: "private",
+        secretId: "secret-1",
+      },
+    });
+    expect(createSecret.mock.invocationCallOrder[0]).toBeLessThan(importFromSource.mock.invocationCallOrder[0]);
+  });
+
+  it("stops after import failure without any follow-up credential association step", async () => {
+    const createSecret = vi.fn().mockResolvedValue({ id: "secret-1" });
+    const importFromSource = vi.fn().mockRejectedValue(new Error("import failed"));
+
+    await expect(importPrivateGitHubSkill({
+      createSecret,
+      importFromSource,
+    }, {
+      companyId: "company-1",
+      parsedGitHubSource: { hostname: "github.com", owner: "zesthq", repo: "citro-box" },
+      payload: {
+        source: "https://github.com/zesthq/citro-box",
+        githubAuth: {
+          visibility: "private",
+        },
+      },
+      githubSecretMode: "new",
+      newGitHubToken: "ghp_test",
+    })).rejects.toThrow("import failed");
+
+    expect(createSecret).toHaveBeenCalledTimes(1);
+    expect(importFromSource).toHaveBeenCalledTimes(1);
+  });
+});

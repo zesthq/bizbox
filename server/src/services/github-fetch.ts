@@ -5,6 +5,10 @@ function isGitHubDotCom(hostname: string) {
   return h === "github.com" || h === "www.github.com";
 }
 
+export type GitHubRequestAuth = {
+  token?: string | null;
+};
+
 export function gitHubApiBase(hostname: string) {
   return isGitHubDotCom(hostname) ? "https://api.github.com" : `https://${hostname}/api/v3`;
 }
@@ -16,9 +20,21 @@ export function resolveRawGitHubUrl(hostname: string, owner: string, repo: strin
     : `https://${hostname}/raw/${owner}/${repo}/${ref}/${p}`;
 }
 
-export async function ghFetch(url: string, init?: RequestInit): Promise<Response> {
+export function withGitHubAuthHeaders(
+  init: RequestInit | undefined,
+  auth?: GitHubRequestAuth,
+): RequestInit | undefined {
+  const token = auth?.token?.trim();
+  if (!token) return init;
+
+  const headers = new Headers(init?.headers ?? undefined);
+  headers.set("authorization", `Bearer ${token}`);
+  return { ...init, headers };
+}
+
+export async function ghFetch(url: string, init?: RequestInit, auth?: GitHubRequestAuth): Promise<Response> {
   try {
-    return await fetch(url, init);
+    return await fetch(url, withGitHubAuthHeaders(init, auth));
   } catch {
     throw unprocessable(`Could not connect to ${new URL(url).hostname} — ensure the URL points to a GitHub or GitHub Enterprise instance`);
   }

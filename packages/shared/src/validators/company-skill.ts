@@ -64,8 +64,37 @@ export const companySkillUpdateStatusSchema = z.object({
   hasUpdate: z.boolean(),
 });
 
+export const companySkillGitHubVisibilitySchema = z.enum(["public", "private"]);
+
+export const companySkillGitHubAuthSchema = z.discriminatedUnion("visibility", [
+  z.object({
+    visibility: z.literal("public"),
+  }).strict(),
+  z.object({
+    visibility: z.literal("private"),
+    secretId: z.string().uuid().nullable().optional(),
+  }).strict(),
+]);
+
 export const companySkillImportSchema = z.object({
   source: z.string().min(1),
+  githubAuth: companySkillGitHubAuthSchema.optional(),
+});
+
+export const companyGitHubCredentialAssociationSchema = z.object({
+  id: z.string().uuid(),
+  companyId: z.string().uuid(),
+  hostname: z.string().min(1),
+  owner: z.string().min(1),
+  secretId: z.string().uuid(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+
+export const upsertCompanyGitHubCredentialAssociationSchema = z.object({
+  hostname: z.string().min(1),
+  owner: z.string().min(1),
+  secretId: z.string().uuid(),
 });
 
 export const companySkillProjectScanRequestSchema = z.object({
@@ -130,6 +159,8 @@ export const companySkillFileUpdateSchema = z.object({
 });
 
 export type CompanySkillImport = z.infer<typeof companySkillImportSchema>;
+export type UpsertCompanyGitHubCredentialAssociation =
+  z.infer<typeof upsertCompanyGitHubCredentialAssociationSchema>;
 export type CompanySkillProjectScan = z.infer<typeof companySkillProjectScanRequestSchema>;
 export type CompanySkillCreate = z.infer<typeof companySkillCreateSchema>;
 export type CompanySkillFileUpdate = z.infer<typeof companySkillFileUpdateSchema>;
