@@ -38,7 +38,7 @@ fly-db: fly-check-org
 	@if fly status --app $(DB) >/dev/null 2>&1; then \
 		echo "Fly Postgres app '$(DB)' already exists; skipping database creation."; \
 	else \
-		fly postgres create --name $(DB) --org $(ORG) --region $(REGION) --initial-cluster-size 1 --vm-cpu-kind shared --vm-cpus 1 --vm-memory 256 --volume-size 1; \
+		fly postgres create --name $(DB) --org $(ORG) --region $(REGION) --initial-cluster-size 1 --vm-cpu-kind shared --vm-cpus 1 --vm-memory 1024 --volume-size 1; \
 	fi
 	@if fly secrets list --app $(APP) 2>/dev/null | grep -q '^DATABASE_URL'; then \
 		echo "DATABASE_URL is already set on '$(APP)'; skipping Postgres attach."; \
