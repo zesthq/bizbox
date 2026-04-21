@@ -12,7 +12,7 @@ primary_region = "syd"
   PAPERCLIP_HOME = "/paperclip"
   PAPERCLIP_DEPLOYMENT_MODE = "authenticated"
   PAPERCLIP_DEPLOYMENT_EXPOSURE = "private"
-  PAPERCLIP_PUBLIC_URL = "https://bizbox.fly.dev"
+  PAPERCLIP_PUBLIC_URL = "https://bizbox.fly.dev" # Update to match your actual Fly app name or custom domain.
   PAPERCLIP_MIGRATION_AUTO_APPLY = "true"
   OPENCODE_ALLOW_ALL_MODELS = "true"
 

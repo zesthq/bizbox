@@ -90,7 +90,7 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
   if (!secret) {
     throw new Error(
       "BETTER_AUTH_SECRET (or PAPERCLIP_AGENT_JWT_SECRET) must be set. " +
-      "For local development, set BETTER_AUTH_SECRET=paperclip-dev-secret in your .env file.",
+      "Generate one with `openssl rand -hex 32` and set it in your environment or .env file.",
     );
   }
   const effectiveTrustedOrigins = trustedOrigins ?? deriveAuthTrustedOrigins(config);
