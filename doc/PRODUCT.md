@@ -97,7 +97,7 @@ See [SPEC.md](./SPEC.md) for the full technical specification and [TASKS.md](./T
 
 ---
 
-Bizbox’s core identity is a **control plane for autonomous AI companies**, centered on **companies, org charts, goals, issues/comments, heartbeats, budgets, approvals, and board governance**. The public docs are also explicit about the current boundaries: **tasks/comments are the built-in communication model**, Bizbox is **not a chatbot**, and it is **not a code review tool**. The roadmap already points toward **easier onboarding, cloud agents, easier agent configuration, plugins, better docs, and ClipMart/ClipHub-style reusable companies/templates**.
+Bizbox’s core identity is a **control plane for autonomous AI companies**, centered on **companies, org charts, goals, issues/comments, heartbeats, budgets, approvals, and board governance**. The public docs are also explicit about the current boundaries: **tasks/comments are the built-in communication model**, Bizbox is **not a chatbot**, and it is **not a code review tool**. The roadmap now emphasizes a **thin core with rich plugin-driven edges**, plus stronger **artifacts/work products**, **memory/knowledge**, **cloud and sandboxed agents**, **enterprise identity and access controls**, and **production-ready deployment**.
 
 ## What Bizbox should do vs. not do
 

@@ -40,7 +40,7 @@ It looks like a task manager — but under the hood it has org charts, budgets, 
 
 <br/>
 
-> **COMING SOON: Bizmart** — Download and run entire companies with one click. Browse pre-built company templates — full org structures, agent configs, and skills — and import them into your Bizbox instance in seconds.
+> **On the roadmap:** next major areas include first-class artifacts and work products, stronger company memory/knowledge, cloud and sandboxed agents, enterprise auth, and production-ready Kubernetes deployment. See [ROADMAP.md](ROADMAP.md).
 
 <br/>
 
@@ -275,21 +275,12 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 - ✅ Better Budgeting
 - ✅ Agent Reviews and Approvals
 - ✅ Multiple Human Users
-- ✅ Immutable Audit Trails
-- ✅ Multi-company data isolation
-- ⚪ Enterprise SSO / SAML integration
-- ⚪ Role-based access control (RBAC) for board operators
-- ⚪ Cloud / Sandbox agents (e.g. Cursor / e2b agents)
 - ⚪ Artifacts & Work Products
 - ⚪ Memory / Knowledge
-- ⚪ Enforced Outcomes
-- ⚪ Deep Planning
-- ⚪ Work Queues
-- ⚪ Self-Organization
-- ⚪ Automatic Organizational Learning
-- ⚪ CEO Chat
+- ⚪ Cloud / Sandbox agents (e.g. Cursor / e2b agents)
+- ⚪ Enterprise SSO / SAML integration
+- ⚪ Role-based access control (RBAC) for board operators
 - ⚪ Kubernetes / Helm deployment
-- ⚪ Desktop App
 
 This is the short roadmap preview. See the full roadmap in [ROADMAP.md](ROADMAP.md).
 
