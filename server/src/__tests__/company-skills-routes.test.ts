@@ -325,12 +325,12 @@ describe("company skill mutation permissions", () => {
       runId: "run-1",
     }))
       .post("/api/companies/company-1/skills/import")
-      .send({ source: "https://github.com/vercel-labs/agent-browser" });
+      .send({ source: "https://example.com/skills/agent-browser.md" });
 
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith(
       "company-1",
-      { source: "https://github.com/vercel-labs/agent-browser" },
+      { source: "https://example.com/skills/agent-browser.md" },
     );
   });
 
@@ -358,6 +358,52 @@ describe("company skill mutation permissions", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(403);
     expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("blocks agent callers from importing github repo sources even when githubAuth is omitted", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://github.com/acme/private-repo",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("allows agent callers to import non-repo https urls that only look path-shaped", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://example.com/a/b/c",
+      });
+
+    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
+    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
+      source: "https://example.com/a/b/c",
+    });
   });
 
   it("blocks agent callers from importing with an explicit github secret id even when visibility is public", async () => {

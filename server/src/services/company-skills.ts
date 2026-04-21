@@ -33,6 +33,7 @@ import { findActiveServerAdapter } from "../adapters/index.js";
 import { resolvePaperclipInstanceRoot } from "../home-paths.js";
 import { internalError, notFound, unprocessable } from "../errors.js";
 import { ghFetch, gitHubApiBase, resolveRawGitHubUrl } from "./github-fetch.js";
+import { looksLikeGitHubRepoImportUrl } from "./company-skills-github-source.js";
 import { agentService } from "./agents.js";
 import { projectService } from "./projects.js";
 import { secretService } from "./secrets.js";
@@ -594,19 +595,6 @@ async function resolveGitHubCommitSha(
     throw unprocessable(`Failed to resolve GitHub ref ${ref}`);
   }
   return sha;
-}
-
-function looksLikeGitHubRepoImportUrl(rawUrl: string) {
-  try {
-    const parsed = new URL(rawUrl.trim());
-    if (parsed.protocol !== "https:") return false;
-    const hostname = parsed.hostname.toLowerCase();
-    if (hostname.endsWith(".githubusercontent.com") || hostname === "gist.github.com") return false;
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    return segments.length >= 2 && !parsed.pathname.endsWith(".md");
-  } catch {
-    return false;
-  }
 }
 
 function parseGitHubSourceUrl(rawUrl: string) {

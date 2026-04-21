@@ -261,10 +261,15 @@ export function parseGitHubSkillSource(source: string): ParsedGitHubSkillSource 
     if (hostname.endsWith(".githubusercontent.com") || hostname === "gist.github.com") return null;
     const parts = url.pathname.split("/").filter(Boolean);
     if (parts.length < 2) return null;
+    if (parts.length > 2 && parts[2] !== "tree") return null;
+    const owner = parts[0]!;
+    const repo = parts[1]!.replace(/\.git$/i, "");
+    if (!owner || !repo) return null;
+    if (/\.md$/i.test(repo)) return null;
     return {
       hostname,
-      owner: parts[0]!,
-      repo: parts[1]!.replace(/\.git$/i, ""),
+      owner,
+      repo,
     };
   } catch {
     return null;
@@ -312,9 +317,16 @@ export async function importPrivateGitHubSkill(
   let secretId = options.payload.githubAuth.secretId ?? null;
 
   if (!secretId && options.githubSecretMode === "new") {
+    const trimmedGitHubToken = options.newGitHubToken.trim();
+    if (trimmedGitHubToken.length === 0) {
+      throw new Error(
+        `Enter a GitHub personal access token to create a credential for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner}.`,
+      );
+    }
+
     const created = await dependencies.createSecret(options.companyId, {
       name: suggestedGitHubSecretName(options.parsedGitHubSource),
-      value: options.newGitHubToken,
+      value: trimmedGitHubToken,
       description: `GitHub PAT for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner} private skill imports`,
     });
     secretId = created.id;
@@ -1087,7 +1099,7 @@ export function CompanySkills() {
         queryClient.invalidateQueries({
           queryKey: queryKeys.companySkills.githubCredentials(
             selectedCompanyId!,
-            parsedGitHubSource?.hostname,
+            parsedGitHubSource?.hostname.toLowerCase(),
             parsedGitHubSource?.owner.toLowerCase(),
           ),
         }),

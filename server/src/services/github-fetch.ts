@@ -36,6 +36,12 @@ export async function ghFetch(url: string, init?: RequestInit, auth?: GitHubRequ
   try {
     return await fetch(url, withGitHubAuthHeaders(init, auth));
   } catch {
-    throw unprocessable(`Could not connect to ${new URL(url).hostname} — ensure the URL points to a GitHub or GitHub Enterprise instance`);
+    let target = url;
+    try {
+      target = new URL(url).hostname;
+    } catch {
+      // Keep the original URL string when parsing fails so we do not mask the fetch error.
+    }
+    throw unprocessable(`Could not connect to ${target} — ensure the URL points to a GitHub or GitHub Enterprise instance`);
   }
 }

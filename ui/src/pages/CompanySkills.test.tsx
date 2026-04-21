@@ -26,6 +26,14 @@ describe("parseGitHubSkillSource", () => {
   it("rejects non-githubusercontent markdown urls", () => {
     expect(parseGitHubSkillSource("https://raw.githubusercontent.com/zesthq/citro-box/main/SKILL.md")).toBeNull();
   });
+
+  it("rejects plain markdown urls on non-github hosts", () => {
+    expect(parseGitHubSkillSource("https://docs.example.com/skills/private-skill.md")).toBeNull();
+  });
+
+  it("rejects non-tree subpaths", () => {
+    expect(parseGitHubSkillSource("https://example.com/a/b/c")).toBeNull();
+  });
 });
 
 describe("suggestedGitHubSecretName", () => {
@@ -84,6 +92,30 @@ describe("importPrivateGitHubSkill", () => {
       },
     });
     expect(createSecret.mock.invocationCallOrder[0]).toBeLessThan(importFromSource.mock.invocationCallOrder[0]);
+  });
+
+  it("rejects blank new GitHub tokens before creating a secret", async () => {
+    const createSecret = vi.fn();
+    const importFromSource = vi.fn();
+
+    await expect(importPrivateGitHubSkill({
+      createSecret,
+      importFromSource,
+    }, {
+      companyId: "company-1",
+      parsedGitHubSource: { hostname: "github.com", owner: "zesthq", repo: "citro-box" },
+      payload: {
+        source: "https://github.com/zesthq/citro-box",
+        githubAuth: {
+          visibility: "private",
+        },
+      },
+      githubSecretMode: "new",
+      newGitHubToken: "   ",
+    })).rejects.toThrow("Enter a GitHub personal access token to create a credential for github.com/zesthq.");
+
+    expect(createSecret).not.toHaveBeenCalled();
+    expect(importFromSource).not.toHaveBeenCalled();
   });
 
   it("stops after import failure without any follow-up credential association step", async () => {

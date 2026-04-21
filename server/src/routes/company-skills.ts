@@ -11,6 +11,7 @@ import { trackSkillImported } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
 import { accessService, agentService, companySkillService, logActivity } from "../services/index.js";
 import { forbidden } from "../errors.js";
+import { looksLikeGitHubRepoImportUrl } from "../services/company-skills-github-source.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { getTelemetryClient } from "../telemetry.js";
 
@@ -24,15 +25,20 @@ type SkillTelemetryInput = {
 
 function importPayloadNeedsBoardAuth(payload: unknown) {
   if (!payload || typeof payload !== "object") return false;
-  const githubAuth = (payload as {
+  const request = payload as {
+    source?: unknown;
     githubAuth?: {
       visibility?: unknown;
       secretId?: unknown;
     };
-  }).githubAuth;
-  if (!githubAuth || typeof githubAuth !== "object") return false;
-  return githubAuth.visibility === "private"
-    || (typeof githubAuth.secretId === "string" && githubAuth.secretId.trim().length > 0);
+  };
+  const githubAuth = request.githubAuth;
+  const source = typeof request.source === "string" ? request.source : null;
+  return (githubAuth && typeof githubAuth === "object" && (
+    githubAuth.visibility === "private"
+    || (typeof githubAuth.secretId === "string" && githubAuth.secretId.trim().length > 0)
+  ))
+    || (source ? looksLikeGitHubRepoImportUrl(source) : false);
 }
 
 export function companySkillRoutes(db: Db) {
