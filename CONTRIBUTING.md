@@ -19,7 +19,7 @@ These almost always get merged quickly when they're clean.
 
 ### Path 2: Bigger or Impactful Changes
 
-- **First** talk about it in Discord → #dev channel  
+- **First** open an issue or discussion on [GitHub](https://github.com/zesthq/bizbox/issues)  
   → Describe what you're trying to solve  
   → Share rough ideas / approach
 - Once there's rough agreement, build it
@@ -53,14 +53,14 @@ We use [Greptile](https://greptile.com) for automated code review. Your PR must 
 
 ## Feature Contributions
 
-We actively manage the core Paperclip feature roadmap.
+We actively manage the core Bizbox feature roadmap.
 
 Uncoordinated feature PRs against the core product may be closed, even when the implementation is thoughtful and high quality. That is about roadmap ownership, product coherence, and long-term maintenance commitment, not a judgment about the effort.
 
 If you want to contribute a feature:
 
 - Check [ROADMAP.md](ROADMAP.md) first
-- Start the discussion in Discord -> `#dev` before writing code
+- Open an issue or discussion on [GitHub](https://github.com/zesthq/bizbox/issues) before writing code
 - If the idea fits as an extension, prefer building it with the [plugin system](doc/plugins/PLUGIN_SPEC.md)
 - If you want to show a possible direction, reference implementations are welcome as feedback, but they generally will not be merged directly into core
 
@@ -80,16 +80,16 @@ Your PR description must follow the [PR template](.github/PULL_REQUEST_TEMPLATE.
 
 ### Thinking Path Example 1:
 
-> - Paperclip orchestrates ai-agents for zero-human companies
+> - Bizbox orchestrates ai-agents for zero-human companies
 > - There are many types of adapters for each LLM model provider
 > - But LLM's have a context limit and not all agents can automatically compact their context
 > - So we need to have an adapter-specific configuration for which adapters can and cannot automatically compact their context
-> - This pull request adds per-adapter configuration of compaction, either auto or paperclip managed
-> - That way we can get optimal performance from any adapter/provider in Paperclip
+> - This pull request adds per-adapter configuration of compaction, either auto or bizbox managed
+> - That way we can get optimal performance from any adapter/provider in Bizbox
 
 ### Thinking Path Example 2:
 
-> - Paperclip orchestrates ai-agents for zero-human companies
+> - Bizbox orchestrates ai-agents for zero-human companies
 > - But humans want to watch the agents and oversee their work
 > - Human users also operate in teams and so they need their own logins, profiles, views etc.
 > - So we have a multi-user system for humans
@@ -104,6 +104,6 @@ This should include details about what you did, why you did it, why it matters &
 
 Please include screenshots if possible if you have a visible change. (use something like the [agent-browser skill](https://github.com/vercel-labs/agent-browser/blob/main/skills/agent-browser/SKILL.md) or similar to take screenshots). Ideally, you include before and after screenshots.
 
-Questions? Just ask in #dev — we're happy to help.
+Questions? Open an issue on [GitHub](https://github.com/zesthq/bizbox/issues) — we're happy to help.
 
 Happy hacking!
