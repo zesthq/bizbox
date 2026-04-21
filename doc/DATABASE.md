@@ -1,6 +1,6 @@
 # Database
 
-Paperclip uses PostgreSQL via [Drizzle ORM](https://orm.drizzle.team/). There are three ways to run the database, from simplest to most production-ready.
+Bizbox uses PostgreSQL via [Drizzle ORM](https://orm.drizzle.team/). There are three ways to run the database, from simplest to most production-ready.
 
 ## 1. Embedded PostgreSQL — zero config
 
@@ -25,7 +25,7 @@ If you need to apply pending migrations manually, run:
 pnpm db:migrate
 ```
 
-When `DATABASE_URL` is unset, this command targets the current embedded PostgreSQL instance for your active Paperclip config/instance.
+When `DATABASE_URL` is unset, this command targets the current embedded PostgreSQL instance for your active Bizbox config/instance.
 
 This mode is ideal for local development and one-command installs.
 
@@ -95,7 +95,7 @@ DATABASE_URL=postgres://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.
 ```
 
 For hosted deployments that use a pooled runtime URL, set
-`DATABASE_MIGRATION_URL` to the direct connection URL. Paperclip uses it for
+`DATABASE_MIGRATION_URL` to the direct connection URL. Bizbox uses it for
 startup schema checks/migrations and plugin namespace migrations, while the app
 continues to use `DATABASE_URL` for runtime queries:
 
@@ -143,7 +143,7 @@ Your Drizzle schema (`packages/db/src/schema/`) stays the same regardless of mod
 
 ## Secret storage
 
-Paperclip stores secret metadata and versions in:
+Bizbox stores secret metadata and versions in:
 
 - `company_secrets`
 - `company_secret_versions`
