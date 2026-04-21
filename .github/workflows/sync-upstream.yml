@@ -2,8 +2,8 @@ name: Sync Upstream
 
 on:
   schedule:
-    # Run daily at 03:00 UTC
-    - cron: '0 3 * * *'
+    # Run weekdays at 00:00 UTC
+    - cron: '0 0 * * 1-5'
   workflow_dispatch:
 
 jobs:
