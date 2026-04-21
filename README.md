@@ -219,6 +219,8 @@ See [doc/DOCKER.md](doc/DOCKER.md) for production Docker deployments and [doc/DE
 
 This fork includes a Fly configuration for the `bizbox` app in [fly.toml](fly.toml). Fly needs Paperclip to run in authenticated mode because the server binds to `0.0.0.0`; `local_trusted` is only valid for loopback/local desktop use.
 
+If you want a private Fly deployment with no public HTTP service and plan to reach it via `fly proxy`, use [fly.private.toml](fly.private.toml) instead. It keeps the same app/runtime settings but omits `[http_service]`.
+
 First-time setup:
 
 ```bash
@@ -259,6 +261,8 @@ Deploy:
 
 ```bash
 make deploy
+# or deploy the private variant:
+fly deploy --app bizbox --config fly.private.toml
 ```
 
 After the first successful deploy, open the first instance admin invite:
