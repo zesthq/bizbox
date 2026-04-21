@@ -1,18 +1,15 @@
 <p align="center">
-  <img src="doc/assets/header.png" alt="Paperclip — runs your business" width="720" />
+  <img src="doc/assets/header.png" alt="Bizbox — enterprise AI agent orchestration" width="720" />
 </p>
 
 <p align="center">
   <a href="#quickstart"><strong>Quickstart</strong></a> &middot;
-  <a href="https://paperclip.ing/docs"><strong>Docs</strong></a> &middot;
-  <a href="https://github.com/paperclipai/paperclip"><strong>GitHub</strong></a> &middot;
-  <a href="https://discord.gg/m4HZY7xNG3"><strong>Discord</strong></a>
+  <a href="https://github.com/zesthq/bizbox"><strong>GitHub</strong></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/paperclipai/paperclip/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
-  <a href="https://github.com/paperclipai/paperclip/stargazers"><img src="https://img.shields.io/github/stars/paperclipai/paperclip?style=flat" alt="Stars" /></a>
-  <a href="https://discord.gg/m4HZY7xNG3"><img src="https://img.shields.io/discord/000000000?label=discord" alt="Discord" /></a>
+  <a href="https://github.com/zesthq/bizbox/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
+  <a href="https://github.com/zesthq/bizbox/stargazers"><img src="https://img.shields.io/github/stars/zesthq/bizbox?style=flat" alt="Stars" /></a>
 </p>
 
 <br/>
@@ -23,15 +20,15 @@
 
 <br/>
 
-## What is Paperclip?
+## What is Bizbox?
 
-# Open-source orchestration for zero-human companies
+# Enterprise-grade orchestration for AI-powered organizations
 
-**If OpenClaw is an _employee_, Paperclip is the _company_**
+**If OpenClaw is an _employee_, Bizbox is the _company_**
 
-Paperclip is a Node.js server and React UI that orchestrates a team of AI agents to run a business. Bring your own agents, assign goals, and track your agents' work and costs from one dashboard.
+Bizbox is an open-source, self-hosted Node.js server and React UI that orchestrates a team of AI agents to run a business — built with enterprise teams in mind. Bring your own agents, assign goals, and track your agents' work and costs from one secure, auditable dashboard.
 
-It looks like a task manager — but under the hood it has org charts, budgets, governance, goal alignment, and agent coordination.
+It looks like a task manager — but under the hood it has org charts, budgets, governance, goal alignment, agent coordination, and the audit trails enterprises need.
 
 **Manage business goals, not pull requests.**
 
@@ -43,7 +40,7 @@ It looks like a task manager — but under the hood it has org charts, budgets, 
 
 <br/>
 
-> **COMING SOON: Clipmart** — Download and run entire companies with one click. Browse pre-built company templates — full org structures, agent configs, and skills — and import them into your Paperclip instance in seconds.
+> **COMING SOON: Bizmart** — Download and run entire companies with one click. Browse pre-built company templates — full org structures, agent configs, and skills — and import them into your Bizbox instance in seconds.
 
 <br/>
 
@@ -66,15 +63,17 @@ It looks like a task manager — but under the hood it has org charts, budgets, 
 
 <br/>
 
-## Paperclip is right for you if
+## Bizbox is right for you if
 
-- ✅ You want to build **autonomous AI companies**
+- ✅ You want to run **autonomous AI companies** in an **enterprise environment**
+- ✅ You need **audit trails, governance, and cost controls** that meet organizational standards
 - ✅ You **coordinate many different agents** (OpenClaw, Codex, Claude, Cursor) toward a common goal
 - ✅ You have **20 simultaneous Claude Code terminals** open and lose track of what everyone is doing
 - ✅ You want agents running **autonomously 24/7**, but still want to audit work and chime in when needed
 - ✅ You want to **monitor costs** and enforce budgets
 - ✅ You want a process for managing agents that **feels like using a task manager**
 - ✅ You want to manage your autonomous businesses **from your phone**
+- ✅ You need **complete data isolation** between teams or business units
 
 <br/>
 
@@ -123,75 +122,77 @@ Hierarchies, roles, reporting lines. Your agents have a boss, a title, and a job
 Monitor and manage your autonomous businesses from anywhere.
 </td>
 </tr>
+<tr>
+<td align="center">
+<h3>🔒 Enterprise Security</h3>
+Self-hosted with no third-party data exposure. Full control over your infrastructure and data.
+</td>
+<td align="center">
+<h3>📋 Immutable Audit Trails</h3>
+Every agent action and board decision is logged. Meet compliance and oversight requirements.
+</td>
+<td align="center">
+<h3>🏗️ On-Premise Deployment</h3>
+Deploy on your own infrastructure — bare metal, VM, Docker, or Kubernetes. No vendor lock-in.
+</td>
+</tr>
 </table>
 
 <br/>
 
-## Problems Paperclip solves
+## Problems Bizbox solves
 
-| Without Paperclip                                                                                                                     | With Paperclip                                                                                                                         |
+| Without Bizbox                                                                                                                     | With Bizbox                                                                                                                         |
 | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | ❌ You have 20 Claude Code tabs open and can't track which one does what. On reboot you lose everything.                              | ✅ Tasks are ticket-based, conversations are threaded, sessions persist across reboots.                                                |
 | ❌ You manually gather context from several places to remind your bot what you're actually doing.                                     | ✅ Context flows from the task up through the project and company goals — your agent always knows what to do and why.                  |
-| ❌ Folders of agent configs are disorganized and you're re-inventing task management, communication, and coordination between agents. | ✅ Paperclip gives you org charts, ticketing, delegation, and governance out of the box — so you run a company, not a pile of scripts. |
+| ❌ Folders of agent configs are disorganized and you're re-inventing task management, communication, and coordination between agents. | ✅ Bizbox gives you org charts, ticketing, delegation, and governance out of the box — so you run a company, not a pile of scripts. |
 | ❌ Runaway loops waste hundreds of dollars of tokens and max your quota before you even know what happened.                           | ✅ Cost tracking surfaces token budgets and throttles agents when they're out. Management prioritizes with budgets.                    |
 | ❌ You have recurring jobs (customer support, social, reports) and have to remember to manually kick them off.                        | ✅ Heartbeats handle regular work on a schedule. Management supervises.                                                                |
-| ❌ You have an idea, you have to find your repo, fire up Claude Code, keep a tab open, and babysit it.                                | ✅ Add a task in Paperclip. Your coding agent works on it until it's done. Management reviews their work.                              |
+| ❌ You have an idea, you have to find your repo, fire up Claude Code, keep a tab open, and babysit it.                                | ✅ Add a task in Bizbox. Your coding agent works on it until it's done. Management reviews their work.                              |
+| ❌ No audit trail when something goes wrong. No way to prove who authorized what.                                                     | ✅ Every action is logged in an immutable activity audit trail. Every agent action and board decision is traceable.                   |
+| ❌ Sensitive company data leaves your infrastructure when using cloud-hosted AI orchestration tools.                                  | ✅ Fully self-hosted. Your data stays on your infrastructure. No external orchestration service has access.                           |
 
 <br/>
 
-## Why Paperclip is special
+## Why Bizbox is special
 
-Paperclip handles the hard orchestration details correctly.
+Bizbox handles the hard orchestration details correctly — and adds the enterprise-grade properties teams need.
 
 |                                   |                                                                                                               |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **Atomic execution.**             | Task checkout and budget enforcement are atomic, so no double-work and no runaway spend.                      |
 | **Persistent agent state.**       | Agents resume the same task context across heartbeats instead of restarting from scratch.                     |
-| **Runtime skill injection.**      | Agents can learn Paperclip workflows and project context at runtime, without retraining.                      |
+| **Runtime skill injection.**      | Agents can learn Bizbox workflows and project context at runtime, without retraining.                      |
 | **Governance with rollback.**     | Approval gates are enforced, config changes are revisioned, and bad changes can be rolled back safely.        |
 | **Goal-aware execution.**         | Tasks carry full goal ancestry so agents consistently see the "why," not just a title.                        |
 | **Portable company templates.**   | Export/import orgs, agents, and skills with secret scrubbing and collision handling.                          |
 | **True multi-company isolation.** | Every entity is company-scoped, so one deployment can run many companies with separate data and audit trails. |
+| **Immutable audit trail.**        | Every agent action and board decision is durably logged — enabling compliance, forensics, and oversight.      |
+| **Self-hosted and air-gappable.** | Run on your own infrastructure with no external dependencies. Data never leaves your environment.             |
 
 <br/>
 
-## What Paperclip is not
+## What Bizbox is not
 
 |                              |                                                                                                                      |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | **Not a chatbot.**           | Agents have jobs, not chat windows.                                                                                  |
 | **Not an agent framework.**  | We don't tell you how to build agents. We tell you how to run a company made of them.                                |
-| **Not a workflow builder.**  | No drag-and-drop pipelines. Paperclip models companies — with org charts, goals, budgets, and governance.            |
-| **Not a prompt manager.**    | Agents bring their own prompts, models, and runtimes. Paperclip manages the organization they work in.               |
-| **Not a single-agent tool.** | This is for teams. If you have one agent, you probably don't need Paperclip. If you have twenty — you definitely do. |
-| **Not a code review tool.**  | Paperclip orchestrates work, not pull requests. Bring your own review process.                                       |
+| **Not a workflow builder.**  | No drag-and-drop pipelines. Bizbox models companies — with org charts, goals, budgets, and governance.            |
+| **Not a prompt manager.**    | Agents bring their own prompts, models, and runtimes. Bizbox manages the organization they work in.               |
+| **Not a single-agent tool.** | This is for teams. If you have one agent, you probably don't need Bizbox. If you have twenty — you definitely do. |
+| **Not a code review tool.**  | Bizbox orchestrates work, not pull requests. Bring your own review process.                                       |
 
 <br/>
 
 ## Quickstart
 
-Open source. Self-hosted. No Paperclip account required.
+Open source. Self-hosted. No Bizbox account required.
 
 ```bash
-npx paperclipai onboard --yes
-```
-
-That quickstart path now defaults to trusted local loopback mode for the fastest first run. To start in authenticated/private mode instead, choose a bind preset explicitly:
-
-```bash
-npx paperclipai onboard --yes --bind lan
-# or:
-npx paperclipai onboard --yes --bind tailnet
-```
-
-If you already have Paperclip configured, rerunning `onboard` keeps the existing config in place. Use `paperclipai configure` to edit settings.
-
-Or manually:
-
-```bash
-git clone https://github.com/paperclipai/paperclip.git
-cd paperclip
+git clone https://github.com/zesthq/bizbox.git
+cd bizbox
 pnpm install
 pnpm dev
 ```
@@ -199,6 +200,18 @@ pnpm dev
 This starts the API server at `http://localhost:3100`. An embedded PostgreSQL database is created automatically — no setup required.
 
 > **Requirements:** Node.js 20+, pnpm 9.15+
+
+### Authenticated / Enterprise Mode
+
+For multi-user or network-accessible deployments:
+
+```bash
+pnpm dev --bind lan
+# or for Tailscale:
+pnpm dev --bind tailnet
+```
+
+See [doc/DOCKER.md](doc/DOCKER.md) for production Docker deployments and [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 
 <br/>
 
@@ -289,21 +302,24 @@ If you change the Fly app name, update both `APP` in [Makefile](Makefile) and `a
 **What does a typical setup look like?**
 Locally, a single Node.js process manages an embedded Postgres and local file storage. For production, point it at your own Postgres and deploy however you like. Configure projects, agents, and goals — the agents take care of the rest.
 
-If you're a solo-entreprenuer you can use Tailscale to access Paperclip on the go. Then later you can deploy to e.g. Vercel when you need it.
+For enterprise deployments, use Docker Compose with an external PostgreSQL instance. See [doc/DOCKER.md](doc/DOCKER.md) for full deployment options.
 
 **Can I run multiple companies?**
 Yes. A single deployment can run an unlimited number of companies with complete data isolation.
 
-**How is Paperclip different from agents like OpenClaw or Claude Code?**
-Paperclip _uses_ those agents. It orchestrates them into a company — with org charts, budgets, goals, governance, and accountability.
+**How is Bizbox different from agents like OpenClaw or Claude Code?**
+Bizbox _uses_ those agents. It orchestrates them into a company — with org charts, budgets, goals, governance, and accountability.
 
-**Why should I use Paperclip instead of just pointing my OpenClaw to Asana or Trello?**
-Agent orchestration has subtleties in how you coordinate who has work checked out, how to maintain sessions, monitoring costs, establishing governance - Paperclip does this for you.
+**Why should I use Bizbox instead of just pointing my OpenClaw to Asana or Trello?**
+Agent orchestration has subtleties in how you coordinate who has work checked out, how to maintain sessions, monitoring costs, establishing governance - Bizbox does this for you.
 
 (Bring-your-own-ticket-system is on the Roadmap)
 
 **Do agents run continuously?**
-By default, agents run on scheduled heartbeats and event-based triggers (task assignment, @-mentions). You can also hook in continuous agents like OpenClaw. You bring your agent and Paperclip coordinates.
+By default, agents run on scheduled heartbeats and event-based triggers (task assignment, @-mentions). You can also hook in continuous agents like OpenClaw. You bring your agent and Bizbox coordinates.
+
+**Is Bizbox suitable for enterprise use?**
+Yes. Bizbox is a fork of [paperclipai/paperclip](https://github.com/paperclipai/paperclip) with an emphasis on enterprise usability: self-hosted deployment, complete data isolation, immutable audit trails, multi-user governance, cost controls, and on-premise compatibility. The architecture keeps your data on your own infrastructure with no external orchestration service required.
 
 <br/>
 
@@ -339,17 +355,20 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 - ✅ Better Budgeting
 - ✅ Agent Reviews and Approvals
 - ✅ Multiple Human Users
+- ✅ Immutable Audit Trails
+- ✅ Multi-company data isolation
+- ⚪ Enterprise SSO / SAML integration
+- ⚪ Role-based access control (RBAC) for board operators
 - ⚪ Cloud / Sandbox agents (e.g. Cursor / e2b agents)
 - ⚪ Artifacts & Work Products
 - ⚪ Memory / Knowledge
 - ⚪ Enforced Outcomes
-- ⚪ MAXIMIZER MODE
 - ⚪ Deep Planning
 - ⚪ Work Queues
 - ⚪ Self-Organization
 - ⚪ Automatic Organizational Learning
 - ⚪ CEO Chat
-- ⚪ Cloud deployments
+- ⚪ Kubernetes / Helm deployment
 - ⚪ Desktop App
 
 This is the short roadmap preview. See the full roadmap in [ROADMAP.md](ROADMAP.md).
@@ -358,11 +377,11 @@ This is the short roadmap preview. See the full roadmap in [ROADMAP.md](ROADMAP.
 
 ## Community & Plugins
 
-Find Plugins and more at [awesome-paperclip](https://github.com/gsxdsm/awesome-paperclip)
+Find plugins and extensions on [GitHub](https://github.com/zesthq/bizbox).
 
 ## Telemetry
 
-Paperclip collects anonymous usage telemetry to help us understand how the product is used and improve it. No personal information, issue content, prompts, file paths, or secrets are ever collected. Private repository references are hashed with a per-install salt before being sent.
+Bizbox collects anonymous usage telemetry to help improve the product. No personal information, issue content, prompts, file paths, or secrets are ever collected. Private repository references are hashed with a per-install salt before being sent.
 
 Telemetry is **enabled by default** and can be disabled with any of the following:
 
@@ -371,7 +390,7 @@ Telemetry is **enabled by default** and can be disabled with any of the followin
 | Environment variable | `PAPERCLIP_TELEMETRY_DISABLED=1`                        |
 | Standard convention  | `DO_NOT_TRACK=1`                                        |
 | CI environments      | Automatically disabled when `CI=true`                   |
-| Config file          | Set `telemetry.enabled: false` in your Paperclip config |
+| Config file          | Set `telemetry.enabled: false` in your Bizbox config |
 
 ## Contributing
 
@@ -379,23 +398,40 @@ We welcome contributions. See the [contributing guide](CONTRIBUTING.md) for deta
 
 <br/>
 
+## Enterprise
+
+Bizbox is designed for enterprise deployments:
+
+- **Self-hosted** — deploy on your own infrastructure, no vendor lock-in
+- **Docker-ready** — production Docker Compose with PostgreSQL, health checks, and volume persistence
+- **On-premise compatible** — no required external network dependencies
+- **Audit trails** — every agent action and board decision is logged
+- **Data isolation** — complete company-level data separation in a single deployment
+- **Cost controls** — hard budget limits prevent runaway agent spend
+- **Governance** — approval gates for agent hires, strategy, and board overrides
+
+See [doc/DOCKER.md](doc/DOCKER.md) for enterprise deployment guides.
+
+<br/>
+
 ## Community
 
-- [Discord](https://discord.gg/m4HZY7xNG3) — Join the community
-- [GitHub Issues](https://github.com/paperclipai/paperclip/issues) — bugs and feature requests
-- [GitHub Discussions](https://github.com/paperclipai/paperclip/discussions) — ideas and RFC
+- [GitHub Issues](https://github.com/zesthq/bizbox/issues) — bugs and feature requests
+- [GitHub Discussions](https://github.com/zesthq/bizbox/discussions) — ideas and RFC
+
+<br/>
+
+## About
+
+Bizbox is a fork of [paperclipai/paperclip](https://github.com/paperclipai/paperclip), rebranded and extended for enterprise use by [Zest](https://github.com/zesthq).
 
 <br/>
 
 ## License
 
-MIT &copy; 2026 Paperclip
+MIT &copy; 2026 Bizbox / Zest
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/image?repos=zesthq%2Fbizbox&type=date&legend=top-left)](https://www.star-history.com/?repos=zesthq%2Fbizbox&type=date&legend=top-left)
-
-
+[![Star History Chart](https://api.star-history.com/image?repos=zesthq/bizbox&type=date&legend=top-left)](https://www.star-history.com/?repos=zesthq%2Fbizbox&type=date&legend=top-left)
 
 <br/>
 
@@ -406,5 +442,5 @@ MIT &copy; 2026 Paperclip
 </p>
 
 <p align="center">
-  <sub>Open source under MIT. Built for people who want to run companies, not babysit agents.</sub>
+  <sub>Open source under MIT. Built for enterprises that want to run companies, not babysit agents.</sub>
 </p>

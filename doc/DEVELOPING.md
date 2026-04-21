@@ -1,6 +1,6 @@
 # Developing
 
-This project can run fully in local dev without setting up PostgreSQL manually.
+Bizbox is a fork of [paperclipai/paperclip](https://github.com/paperclipai/paperclip) with enterprise-focused enhancements. This project can run fully in local dev without setting up PostgreSQL manually.
 
 ## Deployment Modes
 
@@ -41,7 +41,7 @@ This starts:
 
 `pnpm dev:once` auto-applies pending local migrations by default before starting the dev server.
 
-`pnpm dev` and `pnpm dev:once` are now idempotent for the current repo and instance: if the matching Paperclip dev runner is already alive, Paperclip reports the existing process instead of starting a duplicate.
+`pnpm dev` and `pnpm dev:once` are now idempotent for the current repo and instance: if the matching Bizbox dev runner is already alive, Bizbox reports the existing process instead of starting a duplicate.
 
 ## Storybook
 
@@ -129,7 +129,7 @@ pnpm paperclipai run
 
 ## Docker Quickstart (No local Node install)
 
-Build and run Paperclip in Docker:
+Build and run Bizbox in Docker:
 
 ```sh
 docker build -t paperclip-local .
@@ -182,13 +182,13 @@ pnpm paperclipai configure --section storage
 
 ## Default Agent Workspaces
 
-When a local agent run has no resolved project/session workspace, Paperclip falls back to an agent home workspace under the instance root:
+When a local agent run has no resolved project/session workspace, Bizbox falls back to an agent home workspace under the instance root:
 
 - `~/.paperclip/instances/default/workspaces/<agent-id>`
 
 This path honors `PAPERCLIP_HOME` and `PAPERCLIP_INSTANCE_ID` in non-default setups.
 
-For `codex_local`, Paperclip also manages a per-company Codex home under the instance root and seeds it from the shared Codex login/config home (`$CODEX_HOME` or `~/.codex`):
+For `codex_local`, Bizbox also manages a per-company Codex home under the instance root and seeds it from the shared Codex login/config home (`$CODEX_HOME` or `~/.codex`):
 
 - `~/.paperclip/instances/default/companies/<company-id>/codex-home`
 
@@ -196,9 +196,9 @@ If the `codex` CLI is not installed or not on `PATH`, `codex_local` agent runs f
 
 ## Worktree-local Instances
 
-When developing from multiple git worktrees, do not point two Paperclip servers at the same embedded PostgreSQL data directory.
+When developing from multiple git worktrees, do not point two Bizbox servers at the same embedded PostgreSQL data directory.
 
-Instead, create a repo-local Paperclip config plus an isolated instance for the worktree:
+Instead, create a repo-local Bizbox config plus an isolated instance for the worktree:
 
 ```sh
 paperclipai worktree init
@@ -212,7 +212,7 @@ This command:
 - creates an isolated instance under `~/.paperclip-worktrees/instances/<worktree-id>/`
 - when run inside a linked git worktree, mirrors the effective git hooks into that worktree's private git dir
 - picks a free app port and embedded PostgreSQL port
-- by default seeds the isolated DB in `minimal` mode from the current effective Paperclip instance/config (repo-local worktree config when present, otherwise the default instance) via a logical SQL snapshot
+- by default seeds the isolated DB in `minimal` mode from the current effective Bizbox instance/config (repo-local worktree config when present, otherwise the default instance) via a logical SQL snapshot
 
 Seed modes:
 
@@ -220,7 +220,7 @@ Seed modes:
 - `full` makes a full logical clone of the source instance
 - `--no-seed` creates an empty isolated instance
 
-Seeded worktree instances quarantine copied live execution by default for both `minimal` and `full` seeds. During restore, Paperclip disables copied agent timer heartbeats, resets copied `running` agents to `idle`, blocks and unassigns copied agent-owned `in_progress` issues, and unassigns copied agent-owned `todo`/`in_review` issues. This keeps a freshly booted worktree from starting agents for work already owned by the source instance. Pass `--preserve-live-work` only when you intentionally want the isolated worktree to resume copied assignments.
+Seeded worktree instances quarantine copied live execution by default for both `minimal` and `full` seeds. During restore, Bizbox disables copied agent timer heartbeats, resets copied `running` agents to `idle`, blocks and unassigns copied agent-owned `in_progress` issues, and unassigns copied agent-owned `todo`/`in_review` issues. This keeps a freshly booted worktree from starting agents for work already owned by the source instance. Pass `--preserve-live-work` only when you intentionally want the isolated worktree to resume copied assignments.
 
 After `worktree init`, both the server and the CLI auto-load the repo-local `.paperclip/.env` when run inside that worktree, so normal commands like `pnpm dev`, `paperclipai doctor`, and `paperclipai db:backup` stay scoped to the worktree instance.
 
@@ -312,9 +312,9 @@ cd /path/to/paperclip
 pnpm paperclipai worktree repair --branch PAP-1132-assistant-ui-pap-1131-make-issues-comments-be-like-a-chat
 ```
 
-For an already-created worktree where you want to keep the existing repo-local config/env and only overwrite the isolated database, use `worktree reseed` instead. Stop the target worktree's Paperclip server first so the command can replace the DB safely.
+For an already-created worktree where you want to keep the existing repo-local config/env and only overwrite the isolated database, use `worktree reseed` instead. Stop the target worktree's Bizbox server first so the command can replace the DB safely.
 
-**`pnpm paperclipai worktree reseed [options]`** — Re-seed an existing worktree-local instance from another Paperclip instance or worktree while preserving the target worktree's current config, ports, and instance identity.
+**`pnpm paperclipai worktree reseed [options]`** — Re-seed an existing worktree-local instance from another Bizbox instance or worktree while preserving the target worktree's current config, ports, and instance identity.
 
 | Option | Description |
 |---|---|
@@ -345,7 +345,7 @@ pnpm paperclipai worktree reseed \
   --seed-mode full
 ```
 
-**`pnpm paperclipai worktree:make <name> [options]`** — Create `~/NAME` as a git worktree, then initialize an isolated Paperclip instance inside it. This combines `git worktree add` with `worktree init` in a single step.
+**`pnpm paperclipai worktree:make <name> [options]`** — Create `~/NAME` as a git worktree, then initialize an isolated Bizbox instance inside it. This combines `git worktree add` with `worktree init` in a single step.
 
 | Option | Description |
 |---|---|
@@ -369,7 +369,7 @@ pnpm paperclipai worktree:make my-feature --start-point origin/main
 pnpm paperclipai worktree:make experiment --no-seed
 ```
 
-**`pnpm paperclipai worktree env [options]`** — Print shell exports for the current worktree-local Paperclip instance.
+**`pnpm paperclipai worktree env [options]`** — Print shell exports for the current worktree-local Bizbox instance.
 
 | Option | Description |
 |---|---|
@@ -384,7 +384,7 @@ pnpm paperclipai worktree env --json
 eval "$(pnpm paperclipai worktree env)"
 ```
 
-For project execution worktrees, Paperclip can also run a project-defined provision command after it creates or reuses an isolated git worktree. Configure this on the project's execution workspace policy (`workspaceStrategy.provisionCommand`). The command runs inside the derived worktree and receives `PAPERCLIP_WORKSPACE_*`, `PAPERCLIP_PROJECT_ID`, `PAPERCLIP_AGENT_ID`, and `PAPERCLIP_ISSUE_*` environment variables so each repo can bootstrap itself however it wants.
+For project execution worktrees, Bizbox can also run a project-defined provision command after it creates or reuses an isolated git worktree. Configure this on the project's execution workspace policy (`workspaceStrategy.provisionCommand`). The command runs inside the derived worktree and receives `PAPERCLIP_WORKSPACE_*`, `PAPERCLIP_PROJECT_ID`, `PAPERCLIP_AGENT_ID`, and `PAPERCLIP_ISSUE_*` environment variables so each repo can bootstrap itself however it wants.
 
 ## Quick Health Checks
 
@@ -415,7 +415,7 @@ If you set `DATABASE_URL`, the server will use that instead of embedded PostgreS
 
 ## Automatic DB Backups
 
-Paperclip can run automatic DB backups on a timer. Defaults:
+Bizbox can run automatic DB backups on a timer. Defaults:
 
 - enabled
 - every 60 minutes
@@ -487,7 +487,7 @@ Default behavior:
 
 ## CLI Client Operations
 
-Paperclip CLI now includes client-side control-plane commands in addition to setup commands.
+Bizbox CLI now includes client-side control-plane commands in addition to setup commands.
 
 Quick examples:
 
@@ -520,7 +520,7 @@ Agent-oriented invite onboarding now exposes machine-readable API docs:
 - `GET /api/invites/:token/onboarding` returns onboarding manifest details (registration endpoint, claim endpoint template, skill install hints).
 - `GET /api/invites/:token/onboarding.txt` returns a plain-text onboarding doc intended for both human operators and agents (llm.txt-style handoff), including optional inviter message and suggested network host candidates.
 - `GET /api/skills/index` lists available skill documents.
-- `GET /api/skills/paperclip` returns the Paperclip heartbeat skill markdown.
+- `GET /api/skills/paperclip` returns the Bizbox heartbeat skill markdown.
 
 ## OpenClaw Join Smoke Test
 
@@ -573,6 +573,6 @@ State behavior for this smoke script:
 
 Networking behavior for this smoke script:
 
-- auto-detects and prints a Paperclip host URL reachable from inside OpenClaw Docker
+- auto-detects and prints a Bizbox host URL reachable from inside OpenClaw Docker
 - default container-side host alias is `host.docker.internal` (override with `PAPERCLIP_HOST_FROM_CONTAINER` / `PAPERCLIP_HOST_PORT`)
-- if Paperclip rejects container hostnames in authenticated/private mode, allow `host.docker.internal` via `pnpm paperclipai allowed-hostname host.docker.internal` and restart Paperclip
+- if Bizbox rejects container hostnames in authenticated/private mode, allow `host.docker.internal` via `pnpm paperclipai allowed-hostname host.docker.internal` and restart Bizbox
