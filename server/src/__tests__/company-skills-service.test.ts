@@ -361,6 +361,64 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     await expect(svc.installUpdate(companyId, skillId)).rejects.toThrow("Could not connect to api.github.com");
   });
 
+  it("rejects stored github source urls with disallowed hostnames before refresh fetches", async () => {
+    const companyId = randomUUID();
+    const skillId = randomUUID();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === "https://api.github.com/repos/acme/private-skills/commits/main") {
+        return new Response(JSON.stringify({ sha: "new-sha" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    await db.insert(companySkills).values({
+      id: skillId,
+      companyId,
+      key: "acme/private-skills/skill-one",
+      slug: "skill-one",
+      name: "Skill One",
+      description: null,
+      markdown: "# Old Skill One\n",
+      sourceType: "github",
+      sourceLocator: "https://gist.github.com/acme/private-skills",
+      sourceRef: "old-sha",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [{ path: "SKILL.md", kind: "skill" }],
+      metadata: {
+        sourceKind: "github",
+        hostname: "github.com",
+        owner: "acme",
+        repo: "private-skills",
+        trackingRef: "main",
+        ref: "old-sha",
+        repoSkillDir: "skill-one",
+      },
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(svc.installUpdate(companyId, skillId)).rejects.toThrow(
+      "Stored GitHub source URL is invalid: https://gist.github.com/acme/private-skills. Invalid or disallowed GitHub hostname",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.github.com/repos/acme/private-skills/commits/main");
+    expect(
+      new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? undefined).get("accept"),
+    ).toBe("application/vnd.github+json");
+  });
+
   it("imports plain markdown https skill urls without github auth", async () => {
     const companyId = randomUUID();
     const sourceUrl = "https://docs.example.com/skills/private-skill.md";

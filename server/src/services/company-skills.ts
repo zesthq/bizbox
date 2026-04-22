@@ -639,6 +639,10 @@ function parseGitHubSourceUrl(rawUrl: string): ParsedGitHubSkillImportSource {
   if (url.protocol !== "https:") {
     throw unprocessable("GitHub source URL must use HTTPS");
   }
+  const hostname = normalizeGitHubCredentialAssociationHostname(url.hostname);
+  if (!hostname) {
+    throw unprocessable("Invalid or disallowed GitHub hostname");
+  }
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.length < 2) {
     throw unprocessable("Invalid GitHub URL");
@@ -659,7 +663,7 @@ function parseGitHubSourceUrl(rawUrl: string): ParsedGitHubSkillImportSource {
     basePath = filePath ? path.posix.dirname(filePath) : "";
     explicitRef = true;
   }
-  return { hostname: url.hostname, owner, repo, ref, basePath, filePath, explicitRef };
+  return { hostname, owner, repo, ref, basePath, filePath, explicitRef };
 }
 
 async function probeGitHubRepoImportSource(
