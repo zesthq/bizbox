@@ -1787,23 +1787,9 @@ export function companySkillService(db: Db) {
     companyId: string,
     skill: Pick<CompanySkill, "metadata">,
     loader: (githubAuth: ResolvedGitHubAuth) => Promise<T>,
-  ): Promise<{ result: T; usedSavedCredential: boolean }> {
-    if (skillRequiresSavedGitHubCredential(skill)) {
-      try {
-        return {
-          result: await loader({ token: null, secretId: null }),
-          usedSavedCredential: false,
-        };
-      } catch {
-        // Fall through to the saved credential path when the repo is still private.
-      }
-    }
-
+  ): Promise<T> {
     const githubAuth = await resolveSkillGitHubAuth(companyId, skill);
-    return {
-      result: await loader(githubAuth),
-      usedSavedCredential: Boolean(githubAuth.secretId),
-    };
+    return loader(githubAuth);
   }
 
   async function ensureBundledSkills(companyId: string) {
@@ -2026,7 +2012,7 @@ export function companySkillService(db: Db) {
     const hostname = asString(metadata.hostname) || "github.com";
     const apiBase = gitHubApiBase(hostname);
     try {
-      const { result: latestRef } = await resolveGitHubSkillRefresh(
+      const latestRef = await resolveGitHubSkillRefresh(
         companyId,
         skill,
         (githubAuth) => resolveGitHubCommitSha(owner, repo, trackingRef, apiBase, githubAuth),
@@ -2212,7 +2198,7 @@ export function companySkillService(db: Db) {
       throw unprocessable("Skill source locator is missing.");
     }
 
-    const { result } = await resolveGitHubSkillRefresh(
+    const result = await resolveGitHubSkillRefresh(
       companyId,
       skill,
       (githubAuth) => readUrlSkillImports(companyId, sourceUrl, skill.slug, { githubAuth }),

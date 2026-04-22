@@ -238,7 +238,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const headers = new Headers(init?.headers ?? undefined);
-      expect(headers.get("authorization")).toBeNull();
+      expect(headers.get("authorization")).toBe("Bearer ghp_saved-token");
 
       if (url === "https://api.github.com/repos/acme/public-skills") {
         return new Response(JSON.stringify({ default_branch: "main" }), {
@@ -285,6 +285,80 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     expect(updated?.metadata).toMatchObject({
       authScope: "owner",
     });
+    expect(fetchMock.mock.calls).not.toHaveLength(0);
+    for (const [, init] of fetchMock.mock.calls) {
+      const headers = new Headers((init as RequestInit | undefined)?.headers ?? undefined);
+      expect(headers.get("authorization")).toBe("Bearer ghp_saved-token");
+    }
+  });
+
+  it("surfaces owner-auth refresh fetch failures without falling back to missing credentials", async () => {
+    const companyId = randomUUID();
+    const skillId = randomUUID();
+    const secrets = secretService(db);
+
+    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const secret = await secrets.create(companyId, {
+      name: "github-acme-token",
+      provider: "local_encrypted",
+      value: "ghp_saved-token",
+    });
+
+    await db.insert(companyGitHubCredentials).values({
+      companyId,
+      hostname: "github.com",
+      owner: "acme",
+      secretId: secret.id,
+    });
+
+    await db.insert(companySkills).values({
+      id: skillId,
+      companyId,
+      key: "acme/private-skills/skill-one",
+      slug: "skill-one",
+      name: "Skill One",
+      description: null,
+      markdown: "# Old Skill One\n",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skills",
+      sourceRef: "old-sha",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [{ path: "SKILL.md", kind: "skill" }],
+      metadata: {
+        sourceKind: "github",
+        hostname: "github.com",
+        owner: "acme",
+        repo: "private-skills",
+        trackingRef: "main",
+        ref: "old-sha",
+        authScope: "owner",
+      },
+    });
+
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers ?? undefined);
+      expect(headers.get("authorization")).toBe("Bearer ghp_saved-token");
+      throw new Error("network timeout");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await svc.updateStatus(companyId, skillId);
+
+    expect(status.supported).toBe(false);
+    expect(status.latestRef).toBeNull();
+    expect(status.hasUpdate).toBe(false);
+    expect(status.reason).toContain("Could not connect to api.github.com");
+    expect(status.reason).not.toContain("No GitHub credential saved");
+    await expect(svc.installUpdate(companyId, skillId)).rejects.toThrow("Could not connect to api.github.com");
   });
 
   it("imports plain markdown https skill urls without github auth", async () => {
