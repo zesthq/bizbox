@@ -2212,7 +2212,7 @@ export function companySkillService(db: Db) {
       throw unprocessable("Skill source locator is missing.");
     }
 
-    const { result, usedSavedCredential } = await resolveGitHubSkillRefresh(
+    const { result } = await resolveGitHubSkillRefresh(
       companyId,
       skill,
       (githubAuth) => readUrlSkillImports(companyId, sourceUrl, skill.slug, { githubAuth }),
@@ -2222,7 +2222,7 @@ export function companySkillService(db: Db) {
       throw unprocessable(`Skill ${skill.key} could not be re-imported from its source.`);
     }
 
-    if (skillRequiresSavedGitHubCredential(skill) && usedSavedCredential) {
+    if (skillRequiresSavedGitHubCredential(skill)) {
       matching.metadata = {
         ...(matching.metadata ?? {}),
         authScope: "owner",

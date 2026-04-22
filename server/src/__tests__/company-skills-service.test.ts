@@ -182,7 +182,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     );
   });
 
-  it("clears owner auth on update when the repo is now publicly accessible", async () => {
+  it("preserves owner auth on update when the repo is now publicly accessible", async () => {
     const companyId = randomUUID();
     const skillId = randomUUID();
     const commitSha = "fedcba9876543210fedcba9876543210fedcba98";
@@ -282,7 +282,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
       name: "Public Skill",
       sourceRef: commitSha,
     });
-    expect(updated?.metadata).not.toMatchObject({
+    expect(updated?.metadata).toMatchObject({
       authScope: "owner",
     });
   });
