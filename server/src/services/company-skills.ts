@@ -2628,7 +2628,11 @@ export function companySkillService(db: Db) {
   ): Promise<CompanySkill[]> {
     const out: CompanySkill[] = [];
     for (const skill of imported) {
-      const existing = await getByKey(companyId, skill.key);
+      const existing = await dbOrTx
+        .select()
+        .from(companySkills)
+        .where(and(eq(companySkills.companyId, companyId), eq(companySkills.key, skill.key)))
+        .then((rows) => rows[0] ? toCompanySkill(rows[0]) : null);
       const existingMeta = existing ? getSkillMeta(existing) : {};
       const incomingMeta = skill.metadata && isPlainRecord(skill.metadata) ? skill.metadata : {};
       const incomingOwner = asString(incomingMeta.owner);
