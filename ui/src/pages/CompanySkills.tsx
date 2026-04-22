@@ -323,6 +323,7 @@ export function didGitHubCredentialScopeChange(
 type PrivateGitHubImportDependencies = {
   createSecret: typeof secretsApi.create;
   importFromSource: typeof companySkillsApi.importFromSource;
+  onSecretCreated?: (secretId: string) => void | Promise<void>;
 };
 
 type PrivateGitHubImportOptions = {
@@ -358,6 +359,7 @@ export async function importPrivateGitHubSkill(
       description: `GitHub PAT for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner} private skill imports`,
     });
     secretId = created.id;
+    await dependencies.onSecretCreated?.(secretId);
   }
 
   if (!secretId) {
@@ -1106,6 +1108,11 @@ export function CompanySkills() {
       return importPrivateGitHubSkill({
         createSecret: secretsApi.create,
         importFromSource: companySkillsApi.importFromSource,
+        onSecretCreated: async (secretId) => {
+          setSelectedGitHubSecretId(secretId);
+          setGitHubSecretMode("existing");
+          await queryClient.invalidateQueries({ queryKey: queryKeys.secrets.list(selectedCompanyId!) });
+        },
       }, {
         companyId: selectedCompanyId!,
         parsedGitHubSource,

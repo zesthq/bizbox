@@ -12,6 +12,7 @@ import { validate } from "../middleware/validate.js";
 import { accessService, agentService, companySkillService, logActivity } from "../services/index.js";
 import { forbidden } from "../errors.js";
 import { looksLikeGitHubRepoImportUrl } from "../services/company-skills-github-source.js";
+import { parseSkillImportSourceInput } from "../services/company-skills.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { getTelemetryClient } from "../telemetry.js";
 
@@ -34,11 +35,19 @@ function importPayloadNeedsBoardAuth(payload: unknown) {
   };
   const githubAuth = request.githubAuth;
   const source = typeof request.source === "string" ? request.source : null;
+  let normalizedSource = source;
+  if (source) {
+    try {
+      normalizedSource = parseSkillImportSourceInput(source).resolvedSource;
+    } catch {
+      normalizedSource = source;
+    }
+  }
   return (githubAuth && typeof githubAuth === "object" && (
     githubAuth.visibility === "private"
     || (typeof githubAuth.secretId === "string" && githubAuth.secretId.trim().length > 0)
   ))
-    || (source ? looksLikeGitHubRepoImportUrl(source) : false);
+    || (normalizedSource ? looksLikeGitHubRepoImportUrl(normalizedSource) : false);
 }
 
 export function companySkillRoutes(db: Db) {

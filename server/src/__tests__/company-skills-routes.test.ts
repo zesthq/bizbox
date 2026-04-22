@@ -412,6 +412,72 @@ describe("company skill mutation permissions", () => {
     expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
   });
 
+  it("blocks agent callers from importing owner/repo shorthand sources", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "acme/private-repo",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("blocks agent callers from importing owner/repo/skill shorthand sources", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "acme/private-repo/private-skill",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("blocks agent callers from importing skills.sh shorthand urls", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://skills.sh/acme/private-repo/private-skill",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
   it("allows agent callers to import non-repo https urls that only look path-shaped", async () => {
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",

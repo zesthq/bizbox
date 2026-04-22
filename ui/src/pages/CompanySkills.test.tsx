@@ -105,10 +105,12 @@ describe("importPrivateGitHubSkill", () => {
   it("creates a secret, then imports with the resulting secret id", async () => {
     const createSecret = vi.fn().mockResolvedValue({ id: "secret-1" });
     const importFromSource = vi.fn().mockResolvedValue({ imported: [], warnings: [] });
+    const onSecretCreated = vi.fn();
 
     await importPrivateGitHubSkill({
       createSecret,
       importFromSource,
+      onSecretCreated,
     }, {
       companyId: "company-1",
       parsedGitHubSource: { hostname: "github.com", owner: "zesthq", repo: "citro-box" },
@@ -134,6 +136,8 @@ describe("importPrivateGitHubSkill", () => {
         secretId: "secret-1",
       },
     });
+    expect(onSecretCreated).toHaveBeenCalledWith("secret-1");
+    expect(onSecretCreated.mock.invocationCallOrder[0]).toBeLessThan(importFromSource.mock.invocationCallOrder[0]);
     expect(createSecret.mock.invocationCallOrder[0]).toBeLessThan(importFromSource.mock.invocationCallOrder[0]);
   });
 
@@ -164,10 +168,12 @@ describe("importPrivateGitHubSkill", () => {
   it("stops after import failure without any follow-up credential association step", async () => {
     const createSecret = vi.fn().mockResolvedValue({ id: "secret-1" });
     const importFromSource = vi.fn().mockRejectedValue(new Error("import failed"));
+    const onSecretCreated = vi.fn();
 
     await expect(importPrivateGitHubSkill({
       createSecret,
       importFromSource,
+      onSecretCreated,
     }, {
       companyId: "company-1",
       parsedGitHubSource: { hostname: "github.com", owner: "zesthq", repo: "citro-box" },
@@ -183,5 +189,7 @@ describe("importPrivateGitHubSkill", () => {
 
     expect(createSecret).toHaveBeenCalledTimes(1);
     expect(importFromSource).toHaveBeenCalledTimes(1);
+    expect(onSecretCreated).toHaveBeenCalledWith("secret-1");
+    expect(onSecretCreated.mock.invocationCallOrder[0]).toBeLessThan(importFromSource.mock.invocationCallOrder[0]);
   });
 });
