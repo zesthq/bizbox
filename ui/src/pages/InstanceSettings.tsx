@@ -352,7 +352,7 @@ export function InstanceSettings() {
               <div className="text-sm">
                 Currently tracking <strong>{emergencyStatusQuery.data?.totalActive ?? 0}</strong> active run(s).
               </div>
-              <Dialog>
+              <Dialog onOpenChange={(open) => { if (!open) stopAllRunsMutation.reset(); }}>
                 <DialogTrigger asChild>
                   <Button variant="outline" className="w-full text-destructive border-destructive/20 hover:bg-destructive/10">
                     Cancel All Runs
@@ -369,13 +369,15 @@ export function InstanceSettings() {
                     <DialogClose asChild>
                       <Button variant="outline">Cancel</Button>
                     </DialogClose>
-                    <Button 
-                      variant="destructive" 
-                      onClick={() => stopAllRunsMutation.mutate()}
-                      disabled={stopAllRunsMutation.isPending}
-                    >
-                      {stopAllRunsMutation.isPending ? "Cancelling..." : "Yes, Cancel All Runs"}
-                    </Button>
+                    <DialogClose asChild>
+                      <Button 
+                        variant="destructive" 
+                        onClick={() => stopAllRunsMutation.mutate()}
+                        disabled={stopAllRunsMutation.isPending}
+                      >
+                        {stopAllRunsMutation.isPending ? "Cancelling..." : "Yes, Cancel All Runs"}
+                      </Button>
+                    </DialogClose>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
