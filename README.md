@@ -215,6 +215,95 @@ See [doc/DOCKER.md](doc/DOCKER.md) for production Docker deployments and [doc/DE
 
 <br/>
 
+## Deploy To Fly
+
+This fork includes a Fly configuration for the `bizbox` app in [fly.toml](fly.toml). Fly needs Paperclip to run in authenticated mode because the server binds to `0.0.0.0`; `local_trusted` is only valid for loopback/local desktop use.
+
+If you want a private Fly deployment with no public HTTP service and plan to reach it via `fly proxy`, use [fly.private.toml](fly.private.toml) instead. It keeps the same app/runtime settings but omits `[http_service]`.
+
+First-time setup:
+
+```bash
+cp .env.example .env
+# edit .env and set ORG=your-fly-org
+make bootstrap
+```
+
+That creates the Fly app, provisions Fly Postgres, creates the persistent `/paperclip` volume, and sets the required auth secret plus public URL. The Makefile now loads `.env`, requires `ORG` for Fly bootstrap steps, passes Fly's non-interactive flags, and skips resources that already exist, so it is safe to rerun after a partial setup. If `BETTER_AUTH_SECRET` is already present, bootstrap preserves it instead of rotating sessions.
+
+Defaults:
+
+| Make variable | Default |
+| --- | --- |
+| `APP` | `bizbox` |
+| `DB` | `bizbox-db` |
+| `ORG` | Required |
+| `REGION` | `syd` |
+| `DB_VOL_GB` | `10` |
+| `VOLUME` | `paperclip_data` |
+| `VOL_GB` | `10` |
+
+Set `ORG` in `.env` for the easiest setup flow, or override variables inline when needed:
+
+```bash
+make bootstrap APP=my-paperclip ORG=my-fly-org
+```
+
+If you prefer to run the steps manually:
+
+```bash
+make fly-setup
+make fly-db
+make fly-volume
+make fly-secrets
+```
+
+Deploy:
+
+```bash
+make deploy
+# or deploy the private variant:
+fly deploy --app bizbox --config fly.private.toml
+```
+
+After the first successful deploy, open the first instance admin invite:
+
+```bash
+make admin-invite
+```
+
+This runs `pnpm paperclipai auth bootstrap-ceo` inside the Fly machine via `fly ssh console` and prints a one-time invite URL. Open that URL in your browser to claim the first admin account. You only need this while the instance says `Instance setup required`.
+
+If deploy reports that the app was not found, the Fly app has not been created in the current Fly account/org yet. Run `make bootstrap` once first. If the `bizbox` app name is unavailable or you already created a different app, update `APP` in [Makefile](Makefile) and `app`/`PAPERCLIP_PUBLIC_URL` in [fly.toml](fly.toml), then run `make bootstrap`.
+
+The checked-in Fly configs use `https://bizbox.fly.dev` as an example `PAPERCLIP_PUBLIC_URL`. Change that value in [fly.toml](fly.toml) or [fly.private.toml](fly.private.toml) if your real Fly hostname or custom domain differs.
+
+On first boot, Fly mounts the persistent `/paperclip` volume as root-owned storage. The Docker entrypoint fixes ownership before starting Paperclip as the unprivileged `node` user; if you see `EACCES` errors under `/paperclip`, rebuild and redeploy so the latest entrypoint is in the image.
+
+Useful operational commands:
+
+```bash
+make status
+make logs
+make ssh
+make secrets
+```
+
+Required Fly runtime settings:
+
+| Variable | Purpose |
+| --- | --- |
+| `BETTER_AUTH_SECRET` | Required signing secret for authenticated mode. `make fly-secrets` generates this with `openssl rand -hex 32`. |
+| `PAPERCLIP_PUBLIC_URL` | Canonical public URL, for example `https://bizbox.fly.dev`. Used for auth callbacks, invite links, and hostname allowlisting. |
+| `PAPERCLIP_DEPLOYMENT_MODE` | Must be `authenticated` on Fly. |
+| `PAPERCLIP_DEPLOYMENT_EXPOSURE` | Keep `private` unless you are intentionally configuring a public authenticated deployment. |
+| `PAPERCLIP_HOME` | Persistent Paperclip data root. In Fly this is mounted at `/paperclip`. |
+| `PAPERCLIP_MIGRATION_AUTO_APPLY` | Applies pending migrations at startup. Set to `true` for this single-app Fly deployment. |
+
+If you change the Fly app name, update both `APP` in [Makefile](Makefile) and `app`/`PAPERCLIP_PUBLIC_URL` in [fly.toml](fly.toml), then rerun `make fly-secrets`.
+
+<br/>
+
 ## FAQ
 
 **How is Bizbox different from agents like OpenClaw or Claude Code?**

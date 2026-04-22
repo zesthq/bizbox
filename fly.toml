@@ -1,0 +1,34 @@
+app = "bizbox"
+primary_region = "syd"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3100"
+  HOST = "0.0.0.0"
+  NODE_ENV = "production"
+  SERVE_UI = "true"
+  PAPERCLIP_HOME = "/paperclip"
+  PAPERCLIP_DEPLOYMENT_MODE = "authenticated"
+  PAPERCLIP_DEPLOYMENT_EXPOSURE = "private"
+  PAPERCLIP_PUBLIC_URL = "https://bizbox.fly.dev" # Update to match your actual Fly app name or custom domain.
+  PAPERCLIP_MIGRATION_AUTO_APPLY = "true"
+  OPENCODE_ALLOW_ALL_MODELS = "true"
+
+[http_service]
+  internal_port = 3100
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 2
+
+[[mounts]]
+  source = "paperclip_data"
+  destination = "/paperclip"
+  initial_size = "10gb"
