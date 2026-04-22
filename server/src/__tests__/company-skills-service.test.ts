@@ -1185,51 +1185,54 @@ describeEmbeddedPostgres("companySkillService.list", () => {
       throw new Error(`Unexpected fetch ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
+    try {
+      // Step 1: Initial import
+      const importResult1 = await svc.importFromSource(companyId, { source });
+      expect(importResult1.imported).toHaveLength(1);
+      const skill1 = importResult1.imported[0]!;
+      expect(skill1.key).toBe("testorg/testrepo/test-skill");
+      expect(skill1.slug).toBe("test-skill");
+      expect(skill1.name).toBe("Test Skill");
+      expect(skill1.sourceRef).toBe(initialSha);
+      expect(skill1.markdown).toContain("Test Skill Initial");
 
-    // Step 1: Initial import
-    const importResult1 = await svc.importFromSource(companyId, { source });
-    expect(importResult1.imported).toHaveLength(1);
-    const skill1 = importResult1.imported[0]!;
-    expect(skill1.key).toBe("testorg/testrepo/test-skill");
-    expect(skill1.slug).toBe("test-skill");
-    expect(skill1.name).toBe("Test Skill");
-    expect(skill1.sourceRef).toBe(initialSha);
-    expect(skill1.markdown).toContain("Test Skill Initial");
+      // Step 2: Re-import same source (simulating update)
+      const importResult2 = await svc.importFromSource(companyId, { source });
+      expect(importResult2.imported).toHaveLength(1);
+      const skill2 = importResult2.imported[0]!;
 
-    // Step 2: Re-import same source (simulating update)
-    const importResult2 = await svc.importFromSource(companyId, { source });
-    expect(importResult2.imported).toHaveLength(1);
-    const skill2 = importResult2.imported[0]!;
-    
-    // Should update existing skill, not create new one
-    expect(skill2.id).toBe(skill1.id);
-    expect(skill2.key).toBe("testorg/testrepo/test-skill");
-    expect(skill2.sourceRef).toBe(updatedSha);
-    expect(skill2.markdown).toContain("Test Skill Updated");
+      // Should update existing skill, not create new one
+      expect(skill2.id).toBe(skill1.id);
+      expect(skill2.key).toBe("testorg/testrepo/test-skill");
+      expect(skill2.sourceRef).toBe(updatedSha);
+      expect(skill2.markdown).toContain("Test Skill Updated");
 
-    // Step 3: Delete skill
-    const deleted = await svc.deleteSkill(companyId, skill1.id);
-    expect(deleted).toBeTruthy();
-    expect(deleted!.id).toBe(skill1.id);
+      // Step 3: Delete skill
+      const deleted = await svc.deleteSkill(companyId, skill1.id);
+      expect(deleted).toBeTruthy();
+      expect(deleted!.id).toBe(skill1.id);
 
-    // Step 4: Re-import after deletion (this should NOT throw duplicate key error)
-    const importResult3 = await svc.importFromSource(companyId, { source });
-    expect(importResult3.imported).toHaveLength(1);
-    const skill3 = importResult3.imported[0]!;
-    
-    // Should create new skill (different ID from original)
-    expect(skill3.id).not.toBe(skill1.id);
-    expect(skill3.key).toBe("testorg/testrepo/test-skill");
-    expect(skill3.slug).toBe("test-skill");
-    expect(skill3.sourceRef).toBe(updatedSha);
+      // Step 4: Re-import after deletion (this should NOT throw duplicate key error)
+      const importResult3 = await svc.importFromSource(companyId, { source });
+      expect(importResult3.imported).toHaveLength(1);
+      const skill3 = importResult3.imported[0]!;
 
-    // Verify no duplicate key constraint violation occurred
-    const allSkills = await db
-      .select()
-      .from(companySkills)
-      .where(eq(companySkills.companyId, companyId));
-    const testSkills = allSkills.filter((s) => s.key === "testorg/testrepo/test-skill");
-    expect(testSkills).toHaveLength(1);
-    expect(testSkills[0]!.id).toBe(skill3.id);
+      // Should create new skill (different ID from original)
+      expect(skill3.id).not.toBe(skill1.id);
+      expect(skill3.key).toBe("testorg/testrepo/test-skill");
+      expect(skill3.slug).toBe("test-skill");
+      expect(skill3.sourceRef).toBe(updatedSha);
+
+      // Verify no duplicate key constraint violation occurred
+      const allSkills = await db
+        .select()
+        .from(companySkills)
+        .where(eq(companySkills.companyId, companyId));
+      const testSkills = allSkills.filter((s) => s.key === "testorg/testrepo/test-skill");
+      expect(testSkills).toHaveLength(1);
+      expect(testSkills[0]!.id).toBe(skill3.id);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
