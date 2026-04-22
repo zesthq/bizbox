@@ -55,7 +55,26 @@ jobs:
         if: steps.check.outputs.needed == 'true'
         run: |
           git merge upstream/master --no-edit --allow-unrelated-histories \
-            -m "chore: sync upstream paperclipai/paperclip $(date +%Y-%m-%d)"
+            -m "chore: sync upstream paperclipai/paperclip $(date +%Y-%m-%d)" || true
+
+          # Resolve conflicts in doc/ and docs/ by keeping our version
+          CONFLICTED=$(git diff --name-only --diff-filter=U)
+          DOC_CONFLICTS=$(echo "$CONFLICTED" | grep -E '^docs?/' || true)
+          OTHER_CONFLICTS=$(echo "$CONFLICTED" | grep -vE '^docs?/' | grep -v '^$' || true)
+
+          if [ -n "$OTHER_CONFLICTS" ]; then
+            echo "Unresolvable conflicts outside doc/ and docs/:"
+            echo "$OTHER_CONFLICTS"
+            exit 1
+          fi
+
+          if [ -n "$DOC_CONFLICTS" ]; then
+            echo "Resolving doc/docs conflicts by keeping our version:"
+            echo "$DOC_CONFLICTS"
+            echo "$DOC_CONFLICTS" | xargs git checkout HEAD --
+            git add $DOC_CONFLICTS
+            git commit --no-edit -m "chore: sync upstream paperclipai/paperclip $(date +%Y-%m-%d)"
+          fi
 
       - name: Exclude upstream doc/ changes
         if: steps.check.outputs.needed == 'true'
@@ -63,9 +82,11 @@ jobs:
           # Restore the fork's doc/ so upstream doc changes are never included
           git checkout origin/${{ github.event.repository.default_branch }} -- doc/
           git add doc/
+          git checkout origin/${{ github.event.repository.default_branch }} -- docs/
+          git add docs/
           # Only create a fixup commit when doc/ actually differed from upstream
           git diff --staged --quiet || \
-            git commit -m "chore: restore doc/ from fork (exclude upstream doc changes)"
+            git commit -m "chore: restore doc/ and docs/ from fork (exclude upstream doc changes)"
 
       - name: Push sync branch
         if: steps.check.outputs.needed == 'true'
