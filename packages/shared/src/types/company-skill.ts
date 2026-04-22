@@ -81,13 +81,41 @@ export interface CompanySkillUpdateStatus {
   hasUpdate: boolean;
 }
 
+export type CompanySkillGitHubVisibility = "public" | "private";
+
+export type CompanySkillGitHubAuth =
+  | {
+    visibility: "public";
+  }
+  | {
+    visibility: "private";
+    secretId?: string | null;
+  };
+
 export interface CompanySkillImportRequest {
   source: string;
+  githubAuth?: CompanySkillGitHubAuth;
 }
 
 export interface CompanySkillImportResult {
   imported: CompanySkill[];
   warnings: string[];
+}
+
+export interface CompanyGitHubCredentialAssociation {
+  id: string;
+  companyId: string;
+  hostname: string;
+  owner: string;
+  secretId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface UpsertCompanyGitHubCredentialAssociationRequest {
+  hostname: string;
+  owner: string;
+  secretId: string;
 }
 
 export interface CompanySkillProjectScanRequest {

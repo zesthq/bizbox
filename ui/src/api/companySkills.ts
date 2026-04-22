@@ -1,13 +1,16 @@
 import type {
+  CompanyGitHubCredentialAssociation,
   CompanySkill,
   CompanySkillCreateRequest,
   CompanySkillDetail,
   CompanySkillFileDetail,
+  CompanySkillImportRequest,
   CompanySkillImportResult,
   CompanySkillListItem,
   CompanySkillProjectScanRequest,
   CompanySkillProjectScanResult,
   CompanySkillUpdateStatus,
+  UpsertCompanyGitHubCredentialAssociationRequest,
 } from "@paperclipai/shared";
 import { api } from "./client";
 
@@ -36,10 +39,24 @@ export const companySkillsApi = {
       `/companies/${encodeURIComponent(companyId)}/skills`,
       payload,
     ),
-  importFromSource: (companyId: string, source: string) =>
+  importFromSource: (companyId: string, payload: CompanySkillImportRequest) =>
     api.post<CompanySkillImportResult>(
       `/companies/${encodeURIComponent(companyId)}/skills/import`,
-      { source },
+      payload,
+    ),
+  githubCredentials: (companyId: string, filter?: { hostname?: string; owner?: string }) => {
+    const params = new URLSearchParams();
+    if (filter?.hostname) params.set("hostname", filter.hostname);
+    if (filter?.owner) params.set("owner", filter.owner);
+    const suffix = params.toString();
+    return api.get<CompanyGitHubCredentialAssociation[]>(
+      `/companies/${encodeURIComponent(companyId)}/skills/github-credentials${suffix ? `?${suffix}` : ""}`,
+    );
+  },
+  upsertGitHubCredential: (companyId: string, payload: UpsertCompanyGitHubCredentialAssociationRequest) =>
+    api.put<CompanyGitHubCredentialAssociation>(
+      `/companies/${encodeURIComponent(companyId)}/skills/github-credentials`,
+      payload,
     ),
   scanProjects: (companyId: string, payload: CompanySkillProjectScanRequest = {}) =>
     api.post<CompanySkillProjectScanResult>(

@@ -12,7 +12,13 @@ const mockAccessService = vi.hoisted(() => ({
 }));
 
 const mockCompanySkillService = vi.hoisted(() => ({
+  detail: vi.fn(),
   importFromSource: vi.fn(),
+  installUpdate: vi.fn(),
+  listGitHubCredentialAssociations: vi.fn(),
+  readFile: vi.fn(),
+  updateStatus: vi.fn(),
+  upsertGitHubCredentialAssociation: vi.fn(),
   deleteSkill: vi.fn(),
 }));
 
@@ -64,6 +70,58 @@ describe("company skill mutation permissions", () => {
       imported: [],
       warnings: [],
     });
+    mockCompanySkillService.detail.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "company/company-1/test-skill",
+      slug: "test-skill",
+      name: "Test Skill",
+      description: null,
+      markdown: "# Test Skill",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/test-skill",
+      sourceRef: "sha-1",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: {},
+      sourceBadge: "github",
+      editable: false,
+      editableReason: null,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockCompanySkillService.installUpdate.mockResolvedValue({
+      id: "skill-1",
+      slug: "test-skill",
+      sourceRef: "sha-2",
+    });
+    mockCompanySkillService.updateStatus.mockResolvedValue({
+      updateAvailable: true,
+      latestRef: "sha-2",
+      currentRef: "sha-1",
+    });
+    mockCompanySkillService.listGitHubCredentialAssociations.mockResolvedValue([]);
+    mockCompanySkillService.readFile.mockResolvedValue({
+      skillId: "skill-1",
+      path: "SKILL.md",
+      kind: "skill",
+      content: "# Test Skill",
+      language: "markdown",
+      markdown: true,
+      editable: false,
+    });
+    mockCompanySkillService.upsertGitHubCredentialAssociation.mockResolvedValue({
+      id: "assoc-1",
+      companyId: "company-1",
+      hostname: "github.com",
+      owner: "vercel-labs",
+      secretId: "11111111-1111-4111-8111-111111111111",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
     mockCompanySkillService.deleteSkill.mockResolvedValue({
       id: "skill-1",
       slug: "find-skills",
@@ -88,7 +146,7 @@ describe("company skill mutation permissions", () => {
     expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
     expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith(
       "company-1",
-      "https://github.com/vercel-labs/agent-browser",
+      { source: "https://github.com/vercel-labs/agent-browser" },
     );
   });
 
@@ -226,6 +284,59 @@ describe("company skill mutation permissions", () => {
     });
   });
 
+  it("does not expose a skill reference for private github.com imports with saved auth scope", async () => {
+    mockCompanySkillService.importFromSource.mockResolvedValue({
+      imported: [
+        {
+          id: "skill-1",
+          companyId: "company-1",
+          key: "acme/private-skill/private-skill",
+          slug: "private-skill",
+          name: "Private Skill",
+          description: null,
+          markdown: "# Private Skill",
+          sourceType: "github",
+          sourceLocator: "https://github.com/acme/private-skill",
+          sourceRef: null,
+          trustLevel: "markdown_only",
+          compatibility: "compatible",
+          fileInventory: [],
+          metadata: {
+            hostname: "github.com",
+            owner: "acme",
+            repo: "private-skill",
+            authScope: "owner",
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+      warnings: [],
+    });
+
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://github.com/acme/private-skill",
+        githubAuth: {
+          visibility: "private",
+          secretId: "11111111-1111-4111-8111-111111111111",
+        },
+      });
+
+    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
+    expect(mockTrackSkillImported).toHaveBeenCalledWith(expect.anything(), {
+      sourceType: "github",
+      skillRef: null,
+    });
+  });
+
   it("blocks same-company agents without management permission from mutating company skills", async () => {
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",
@@ -260,12 +371,247 @@ describe("company skill mutation permissions", () => {
       runId: "run-1",
     }))
       .post("/api/companies/company-1/skills/import")
-      .send({ source: "https://github.com/vercel-labs/agent-browser" });
+      .send({ source: "https://example.com/skills/agent-browser.md" });
 
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith(
       "company-1",
-      "https://github.com/vercel-labs/agent-browser",
+      { source: "https://example.com/skills/agent-browser.md" },
+    );
+  });
+
+  it("blocks agent callers from importing private github skills with saved credentials", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://github.com/acme/private-skill",
+        githubAuth: {
+          visibility: "private",
+          secretId: "11111111-1111-4111-8111-111111111111",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("blocks agent callers from importing github repo sources when githubAuth is omitted", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://github.com/acme/private-repo",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("blocks agent callers from importing owner/repo shorthand sources", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "acme/private-repo",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("blocks agent callers from importing owner/repo/skill shorthand sources", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "acme/private-repo/private-skill",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("blocks agent callers from importing skills.sh shorthand urls", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://skills.sh/acme/private-repo/private-skill",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("allows agent callers to import non-repo https urls that only look path-shaped", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://example.com/a/b/c",
+      });
+
+    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
+    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
+      source: "https://example.com/a/b/c",
+    });
+  });
+
+  it("allows agent callers to import two-segment non-github https urls", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://example.com/a/b",
+      });
+
+    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
+    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
+      source: "https://example.com/a/b",
+    });
+  });
+
+  it("blocks agent callers from importing with an explicit github secret id even when visibility is public", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://github.com/acme/private-skill",
+        githubAuth: {
+          visibility: "public",
+          secretId: "11111111-1111-4111-8111-111111111111",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("rejects public github auth payloads that still include a secret id", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://github.com/acme/private-skill",
+        githubAuth: {
+          visibility: "public",
+          secretId: "11111111-1111-4111-8111-111111111111",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
+  });
+
+  it("allows board users to upsert a company GitHub credential association", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .put("/api/companies/company-1/skills/github-credentials")
+      .send({
+        hostname: "github.com",
+        owner: "vercel-labs",
+        secretId: "11111111-1111-4111-8111-111111111111",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.upsertGitHubCredentialAssociation).toHaveBeenCalledWith(
+      "company-1",
+      {
+        hostname: "github.com",
+        owner: "vercel-labs",
+        secretId: "11111111-1111-4111-8111-111111111111",
+      },
     );
   });
 
@@ -292,5 +638,207 @@ describe("company skill mutation permissions", () => {
     });
     expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
     expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
+  it("blocks agents from installing updates for private github skills that require saved owner auth", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+    mockCompanySkillService.detail.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "acme/private-skill/private-skill",
+      slug: "private-skill",
+      name: "Private Skill",
+      description: null,
+      markdown: "# Private Skill",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skill",
+      sourceRef: "sha-1",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: { authScope: "owner" },
+      sourceBadge: "github",
+      editable: false,
+      editableReason: null,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/skill-1/install-update");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.installUpdate).not.toHaveBeenCalled();
+  });
+
+  it("still allows agents to install updates for skills that do not require owner github auth", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/skill-1/install-update");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.installUpdate).toHaveBeenCalledWith("company-1", "skill-1");
+  });
+
+  it("blocks agents from checking update status for private github skills that require saved owner auth", async () => {
+    mockCompanySkillService.detail.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "acme/private-skill/private-skill",
+      slug: "private-skill",
+      name: "Private Skill",
+      description: null,
+      markdown: "# Private Skill",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skill",
+      sourceRef: "sha-1",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: { authScope: "owner" },
+      sourceBadge: "github",
+      editable: false,
+      editableReason: null,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .get("/api/companies/company-1/skills/skill-1/update-status");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("still allows agents to check update status for skills that do not require owner github auth", async () => {
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .get("/api/companies/company-1/skills/skill-1/update-status");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.updateStatus).toHaveBeenCalledWith("company-1", "skill-1");
+  });
+
+  it("blocks agents from reading files for private github skills that require saved owner auth", async () => {
+    mockCompanySkillService.detail.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "acme/private-skill/private-skill",
+      slug: "private-skill",
+      name: "Private Skill",
+      description: null,
+      markdown: "# Private Skill",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skill",
+      sourceRef: "sha-1",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: { authScope: "owner" },
+      sourceBadge: "github",
+      editable: false,
+      editableReason: null,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .get("/api/companies/company-1/skills/skill-1/files")
+      .query({ path: "SKILL.md" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.readFile).not.toHaveBeenCalled();
+  });
+
+  it("still allows board users to read files for private github skills that require saved owner auth", async () => {
+    mockCompanySkillService.detail.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "acme/private-skill/private-skill",
+      slug: "private-skill",
+      name: "Private Skill",
+      description: null,
+      markdown: "# Private Skill",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skill",
+      sourceRef: "sha-1",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: { authScope: "owner" },
+      sourceBadge: "github",
+      editable: false,
+      editableReason: null,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .get("/api/companies/company-1/skills/skill-1/files")
+      .query({ path: "SKILL.md" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.readFile).toHaveBeenCalledWith("company-1", "skill-1", "SKILL.md");
+  });
+
+  it("still allows agents to read files for skills that do not require owner github auth", async () => {
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .get("/api/companies/company-1/skills/skill-1/files")
+      .query({ path: "SKILL.md" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.readFile).toHaveBeenCalledWith("company-1", "skill-1", "SKILL.md");
   });
 });

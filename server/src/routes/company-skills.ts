@@ -5,12 +5,15 @@ import {
   companySkillFileUpdateSchema,
   companySkillImportSchema,
   companySkillProjectScanRequestSchema,
+  upsertCompanyGitHubCredentialAssociationSchema,
 } from "@paperclipai/shared";
 import { trackSkillImported } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
 import { accessService, agentService, companySkillService, logActivity } from "../services/index.js";
+import { parseSkillImportSourceInput } from "../services/company-skills.js";
+import { looksLikeGitHubRepoImportUrl } from "../services/company-skills-github-source.js";
 import { forbidden } from "../errors.js";
-import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { getTelemetryClient } from "../telemetry.js";
 
 type SkillTelemetryInput = {
@@ -20,6 +23,35 @@ type SkillTelemetryInput = {
   sourceLocator: string | null;
   metadata: Record<string, unknown> | null;
 };
+
+function importPayloadNeedsBoardAuth(payload: unknown) {
+  if (!payload || typeof payload !== "object") return false;
+  const request = payload as {
+    source?: unknown;
+    githubAuth?: {
+      visibility?: unknown;
+      secretId?: unknown;
+    };
+  };
+  const githubAuth = request.githubAuth;
+  if (githubAuth && typeof githubAuth === "object" && (
+    githubAuth.visibility === "private"
+    || (typeof githubAuth.secretId === "string" && githubAuth.secretId.trim().length > 0)
+  )) {
+    return true;
+  }
+
+  if (typeof request.source !== "string") {
+    return false;
+  }
+
+  try {
+    const parsed = parseSkillImportSourceInput(request.source);
+    return looksLikeGitHubRepoImportUrl(parsed.resolvedSource);
+  } catch {
+    return false;
+  }
+}
 
 export function companySkillRoutes(db: Db) {
   const router = Router();
@@ -38,7 +70,16 @@ export function companySkillRoutes(db: Db) {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  function skillNeedsBoardAuthForInstallUpdate(skill: {
+    metadata?: Record<string, unknown> | null;
+  }) {
+    return asString(skill.metadata?.authScope) === "owner";
+  }
+
   function deriveTrackedSkillRef(skill: SkillTelemetryInput): string | null {
+    if (asString(skill.metadata?.authScope)) {
+      return null;
+    }
     if (skill.sourceType === "skills_sh") {
       return skill.key;
     }
@@ -88,6 +129,42 @@ export function companySkillRoutes(db: Db) {
     res.json(result);
   });
 
+  router.get("/companies/:companyId/skills/github-credentials", async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const hostname = typeof req.query.hostname === "string" ? req.query.hostname : null;
+    const owner = typeof req.query.owner === "string" ? req.query.owner : null;
+    const result = await svc.listGitHubCredentialAssociations(companyId, { hostname, owner });
+    res.json(result);
+  });
+
+  router.put(
+    "/companies/:companyId/skills/github-credentials",
+    validate(upsertCompanyGitHubCredentialAssociationSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+      const result = await svc.upsertGitHubCredentialAssociation(companyId, req.body);
+
+      await logActivity(db, {
+        companyId,
+        actorType: "user",
+        actorId: req.actor.userId ?? "board",
+        action: "company.github_credential_upserted",
+        entityType: "company",
+        entityId: companyId,
+        details: {
+          hostname: result.hostname,
+          owner: result.owner,
+        },
+      });
+
+      res.json(result);
+    },
+  );
+
   router.get("/companies/:companyId/skills/:skillId", async (req, res) => {
     const companyId = req.params.companyId as string;
     const skillId = req.params.skillId as string;
@@ -104,6 +181,14 @@ export function companySkillRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     const skillId = req.params.skillId as string;
     assertCompanyAccess(req, companyId);
+    const skill = await svc.detail(companyId, skillId);
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found" });
+      return;
+    }
+    if (skillNeedsBoardAuthForInstallUpdate(skill)) {
+      assertBoard(req);
+    }
     const result = await svc.updateStatus(companyId, skillId);
     if (!result) {
       res.status(404).json({ error: "Skill not found" });
@@ -117,6 +202,14 @@ export function companySkillRoutes(db: Db) {
     const skillId = req.params.skillId as string;
     const relativePath = String(req.query.path ?? "SKILL.md");
     assertCompanyAccess(req, companyId);
+    const skill = await svc.detail(companyId, skillId);
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found" });
+      return;
+    }
+    if (skillNeedsBoardAuthForInstallUpdate(skill)) {
+      assertBoard(req);
+    }
     const result = await svc.readFile(companyId, skillId, relativePath);
     if (!result) {
       res.status(404).json({ error: "Skill not found" });
@@ -189,12 +282,17 @@ export function companySkillRoutes(db: Db) {
 
   router.post(
     "/companies/:companyId/skills/import",
+    (req, _res, next) => {
+      if (importPayloadNeedsBoardAuth(req.body)) {
+        assertBoard(req);
+      }
+      next();
+    },
     validate(companySkillImportSchema),
     async (req, res) => {
       const companyId = req.params.companyId as string;
       await assertCanMutateCompanySkills(req, companyId);
-      const source = String(req.body.source ?? "");
-      const result = await svc.importFromSource(companyId, source);
+      const result = await svc.importFromSource(companyId, req.body);
 
       const actor = getActorInfo(req);
       await logActivity(db, {
@@ -207,7 +305,7 @@ export function companySkillRoutes(db: Db) {
         entityType: "company",
         entityId: companyId,
         details: {
-          source,
+          source: String(req.body.source ?? ""),
           importedCount: result.imported.length,
           importedSlugs: result.imported.map((skill) => skill.slug),
           warningCount: result.warnings.length,
@@ -293,6 +391,14 @@ export function companySkillRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     const skillId = req.params.skillId as string;
     await assertCanMutateCompanySkills(req, companyId);
+    const skill = await svc.detail(companyId, skillId);
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found" });
+      return;
+    }
+    if (skillNeedsBoardAuthForInstallUpdate(skill)) {
+      assertBoard(req);
+    }
     const result = await svc.installUpdate(companyId, skillId);
     if (!result) {
       res.status(404).json({ error: "Skill not found" });

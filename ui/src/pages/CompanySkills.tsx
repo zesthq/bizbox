@@ -1,17 +1,21 @@
-import { useEffect, useMemo, useState, type SVGProps } from "react";
+import { useEffect, useMemo, useRef, useState, type SVGProps } from "react";
 import { Link, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  CompanyGitHubCredentialAssociation,
+  CompanySecret,
   CompanySkillCreateRequest,
   CompanySkillDetail,
   CompanySkillFileDetail,
   CompanySkillFileInventoryEntry,
+  CompanySkillImportRequest,
   CompanySkillListItem,
   CompanySkillProjectScanResult,
   CompanySkillSourceBadge,
   CompanySkillUpdateStatus,
 } from "@paperclipai/shared";
 import { companySkillsApi } from "../api/companySkills";
+import { secretsApi } from "../api/secrets";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
@@ -239,6 +243,186 @@ function parentDirectoryPaths(filePath: string) {
     parents.push(segments.slice(0, index + 1).join("/"));
   }
   return parents;
+}
+
+export type ParsedGitHubSkillSource = {
+  hostname: string;
+  owner: string;
+  repo: string;
+};
+
+function isIpHostname(hostname: string) {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) || hostname.includes(":");
+}
+
+function isLikelyGitHubEnterpriseHostname(hostname: string) {
+  const [firstLabel = ""] = hostname.split(".");
+  return hostname.includes(".")
+    ? firstLabel === "git" || firstLabel === "ghe" || firstLabel === "github"
+    : true;
+}
+
+export function parseGitHubSkillSource(source: string): ParsedGitHubSkillSource | null {
+  const trimmed = source.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:") return null;
+    const hostname = url.hostname.toLowerCase();
+    if (
+      !hostname
+      || isIpHostname(hostname)
+      || hostname === "localhost"
+      || hostname.endsWith(".localhost")
+      || hostname.endsWith(".githubusercontent.com")
+      || hostname === "gist.github.com"
+    ) {
+      return null;
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+    if (parts.length > 2 && parts[2] !== "tree" && parts[2] !== "blob") return null;
+    const owner = parts[0]!;
+    const rawRepoSegment = parts[1]!;
+    const repo = rawRepoSegment.replace(/\.git$/i, "");
+    if (!owner || !repo) return null;
+    if (/\.md$/i.test(repo)) return null;
+    const isGitHubDotCom = hostname === "github.com" || hostname === "www.github.com";
+    const hasExplicitGitHubRepoMarker = /\.git$/i.test(rawRepoSegment)
+      || parts[2] === "tree"
+      || parts[2] === "blob";
+    if (!isGitHubDotCom && !hasExplicitGitHubRepoMarker && !isLikelyGitHubEnterpriseHostname(hostname)) {
+      return null;
+    }
+    return {
+      hostname,
+      owner,
+      repo,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function suggestedGitHubSecretName(input: { hostname: string; owner: string }) {
+  return `${input.hostname.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase()}__${input.owner
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase()}_pat`;
+}
+
+export function didGitHubCredentialScopeChange(
+  previous: ParsedGitHubSkillSource | null,
+  next: ParsedGitHubSkillSource | null,
+) {
+  if (!previous || !next) return previous !== next;
+  return previous.hostname.toLowerCase() !== next.hostname.toLowerCase()
+    || previous.owner.toLowerCase() !== next.owner.toLowerCase();
+}
+
+export function buildGitHubUpdateBlockedMessage(reason: string) {
+  return reason.startsWith("No GitHub credential saved")
+    ? `${reason} Re-import this skill from the source field with a private GitHub credential to restore update access.`
+    : reason;
+}
+
+export function isLikelyGitHubSecret(secret: Pick<CompanySecret, "name" | "description">) {
+  return /(github|personal access token|\bpat\b)/i.test(`${secret.name} ${secret.description ?? ""}`);
+}
+
+export function filterLikelyGitHubSecrets(
+  secrets: CompanySecret[],
+  preferredSecretId?: string | null,
+) {
+  const filtered = secrets.filter(isLikelyGitHubSecret);
+  if (!preferredSecretId) return filtered;
+  const preferred = secrets.find((secret) => secret.id === preferredSecretId);
+  if (!preferred || filtered.some((secret) => secret.id === preferred.id)) return filtered;
+  return [...filtered, preferred];
+}
+
+export function formatGitHubSecretOptionLabel(secret: Pick<CompanySecret, "name" | "description">) {
+  const description = secret.description?.trim();
+  return description ? `${secret.name} - ${description}` : secret.name;
+}
+
+type PrivateGitHubImportDependencies = {
+  createSecret: typeof secretsApi.create;
+  removeSecret: typeof secretsApi.remove;
+  rotateSecret: typeof secretsApi.rotate;
+  importFromSource: typeof companySkillsApi.importFromSource;
+  onSecretCreated?: (secretId: string) => void | Promise<void>;
+};
+
+type PrivateGitHubImportOptions = {
+  companyId: string;
+  parsedGitHubSource: ParsedGitHubSkillSource;
+  payload: CompanySkillImportRequest & {
+    githubAuth: {
+      visibility: "private";
+      secretId?: string | null;
+    };
+  };
+  githubSecretMode: "existing" | "new";
+  newGitHubToken: string;
+  existingSecretIdForNewToken?: string | null;
+};
+
+export async function importPrivateGitHubSkill(
+  dependencies: PrivateGitHubImportDependencies,
+  options: PrivateGitHubImportOptions,
+) {
+  let secretId = options.payload.githubAuth.secretId ?? null;
+  let createdSecretId: string | null = null;
+
+  if (!secretId && options.githubSecretMode === "new") {
+    const trimmedGitHubToken = options.newGitHubToken.trim();
+    if (trimmedGitHubToken.length === 0) {
+      throw new Error(
+        `Enter a GitHub personal access token to create a credential for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner}.`,
+      );
+    }
+
+    if (options.existingSecretIdForNewToken) {
+      await dependencies.rotateSecret(options.existingSecretIdForNewToken, {
+        value: trimmedGitHubToken,
+      });
+      secretId = options.existingSecretIdForNewToken;
+    } else {
+      const created = await dependencies.createSecret(options.companyId, {
+        name: suggestedGitHubSecretName(options.parsedGitHubSource),
+        value: trimmedGitHubToken,
+        description: `GitHub PAT for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner} private skill imports`,
+      });
+      secretId = created.id;
+      createdSecretId = created.id;
+    }
+  }
+
+  if (!secretId) {
+    throw new Error(
+      `Select or create a GitHub credential for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner}.`,
+    );
+  }
+
+  try {
+    const result = await dependencies.importFromSource(options.companyId, {
+      ...options.payload,
+      githubAuth: {
+        visibility: "private",
+        secretId,
+      },
+    });
+    if (options.githubSecretMode === "new") {
+      await dependencies.onSecretCreated?.(secretId);
+    }
+    return result;
+  } catch (error) {
+    if (createdSecretId) {
+      await dependencies.removeSecret(createdSecretId).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 function NewSkillForm({
@@ -644,7 +828,9 @@ function SkillPane({
                   <span className="text-xs text-muted-foreground">Up to date</span>
                 )}
                 {!updateStatus?.supported && updateStatus?.reason && (
-                  <span className="text-xs text-muted-foreground">{updateStatus.reason}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {buildGitHubUpdateBlockedMessage(updateStatus.reason)}
+                  </span>
                 )}
               </div>
             )}
@@ -762,6 +948,10 @@ export function CompanySkills() {
   const { pushToast } = useToastActions();
   const [skillFilter, setSkillFilter] = useState("");
   const [source, setSource] = useState("");
+  const [githubVisibility, setGitHubVisibility] = useState<"public" | "private">("public");
+  const [githubSecretMode, setGitHubSecretMode] = useState<"existing" | "new">("existing");
+  const [selectedGitHubSecretId, setSelectedGitHubSecretId] = useState("");
+  const [newGitHubToken, setNewGitHubToken] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [emptySourceHelpOpen, setEmptySourceHelpOpen] = useState(false);
   const [expandedSkillId, setExpandedSkillId] = useState<string | null>(null);
@@ -775,9 +965,11 @@ export function CompanySkills() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTargetSkillId, setDeleteTargetSkillId] = useState<string | null>(null);
   const [deleteTargetDetail, setDeleteTargetDetail] = useState<CompanySkillDetail | null>(null);
+  const previousParsedGitHubSourceRef = useRef<ParsedGitHubSkillSource | null>(null);
   const parsedRoute = useMemo(() => parseSkillRoute(routePath), [routePath]);
   const routeSkillId = parsedRoute.skillId;
   const selectedPath = parsedRoute.filePath;
+  const parsedGitHubSource = useMemo(() => parseGitHubSkillSource(source), [source]);
 
   useEffect(() => {
     setBreadcrumbs([
@@ -825,6 +1017,44 @@ export function CompanySkills() {
     staleTime: 60_000,
   });
 
+  const secretsQuery = useQuery({
+    queryKey: queryKeys.secrets.list(selectedCompanyId ?? ""),
+    queryFn: () => secretsApi.list(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId && parsedGitHubSource && githubVisibility === "private"),
+  });
+
+  const githubCredentialsQuery = useQuery({
+    queryKey: queryKeys.companySkills.githubCredentials(
+      selectedCompanyId ?? "",
+      parsedGitHubSource?.hostname.toLowerCase(),
+      parsedGitHubSource?.owner.toLowerCase(),
+    ),
+    queryFn: () => companySkillsApi.githubCredentials(selectedCompanyId!, {
+      hostname: parsedGitHubSource!.hostname,
+      owner: parsedGitHubSource!.owner,
+    }),
+    enabled: Boolean(selectedCompanyId && parsedGitHubSource && githubVisibility === "private"),
+  });
+
+  const matchingGitHubCredential = useMemo<CompanyGitHubCredentialAssociation | null>(() => {
+    if (!parsedGitHubSource) return null;
+    return githubCredentialsQuery.data?.find((entry) =>
+      entry.hostname.toLowerCase() === parsedGitHubSource.hostname.toLowerCase()
+      && entry.owner.toLowerCase() === parsedGitHubSource.owner.toLowerCase(),
+    ) ?? null;
+  }, [githubCredentialsQuery.data, parsedGitHubSource]);
+
+  const availableSecrets = useMemo<CompanySecret[]>(
+    () => filterLikelyGitHubSecrets(secretsQuery.data ?? [], matchingGitHubCredential?.secretId),
+    [matchingGitHubCredential?.secretId, secretsQuery.data],
+  );
+  const suggestedGitHubSecretId = useMemo(() => {
+    if (!parsedGitHubSource) return null;
+    const suggestedName = suggestedGitHubSecretName(parsedGitHubSource);
+    return (secretsQuery.data ?? []).find((secret) => secret.name === suggestedName)?.id ?? null;
+  }, [parsedGitHubSource, secretsQuery.data]);
+  const existingSecretIdForNewToken = matchingGitHubCredential?.secretId ?? suggestedGitHubSecretId ?? null;
+
   useEffect(() => {
     setExpandedSkillId(selectedSkillId);
   }, [selectedSkillId]);
@@ -857,6 +1087,45 @@ export function CompanySkills() {
   }, [detailQuery.data]);
 
   useEffect(() => {
+    const previousParsedGitHubSource = previousParsedGitHubSourceRef.current;
+    if (!parsedGitHubSource) {
+      setGitHubVisibility("public");
+      setGitHubSecretMode("existing");
+      setSelectedGitHubSecretId("");
+      setNewGitHubToken("");
+      previousParsedGitHubSourceRef.current = null;
+      return;
+    }
+    setNewGitHubToken("");
+    if (didGitHubCredentialScopeChange(previousParsedGitHubSource, parsedGitHubSource)) {
+      setGitHubVisibility("public");
+      setGitHubSecretMode("existing");
+      setSelectedGitHubSecretId("");
+    }
+    previousParsedGitHubSourceRef.current = parsedGitHubSource;
+  }, [parsedGitHubSource]);
+
+  useEffect(() => {
+    if (githubVisibility !== "private") {
+      setGitHubSecretMode("existing");
+      setSelectedGitHubSecretId("");
+      setNewGitHubToken("");
+      return;
+    }
+
+    if (matchingGitHubCredential?.secretId) {
+      setGitHubSecretMode("existing");
+      setSelectedGitHubSecretId((current) => current || matchingGitHubCredential.secretId);
+    }
+  }, [githubVisibility, matchingGitHubCredential]);
+
+  useEffect(() => {
+    if (githubVisibility === "private" && githubSecretMode === "existing" && matchingGitHubCredential?.secretId) {
+      setSelectedGitHubSecretId((current) => current || matchingGitHubCredential.secretId);
+    }
+  }, [githubSecretMode, githubVisibility, matchingGitHubCredential]);
+
+  useEffect(() => {
     if (fileQuery.data) {
       setDisplayedFile(fileQuery.data);
       setDraft(fileQuery.data.markdown ? splitFrontmatter(fileQuery.data.content).body : fileQuery.data.content);
@@ -887,9 +1156,47 @@ export function CompanySkills() {
   }
 
   const importSkill = useMutation({
-    mutationFn: (importSource: string) => companySkillsApi.importFromSource(selectedCompanyId!, importSource),
+    mutationFn: async (payload: CompanySkillImportRequest) => {
+      if (!parsedGitHubSource || payload.githubAuth?.visibility !== "private") {
+        return companySkillsApi.importFromSource(selectedCompanyId!, payload);
+      }
+      return importPrivateGitHubSkill({
+        createSecret: secretsApi.create,
+        removeSecret: secretsApi.remove,
+        rotateSecret: secretsApi.rotate,
+        importFromSource: companySkillsApi.importFromSource,
+        onSecretCreated: async (secretId) => {
+          setSelectedGitHubSecretId(secretId);
+          setGitHubSecretMode("existing");
+          await queryClient.invalidateQueries({ queryKey: queryKeys.secrets.list(selectedCompanyId!) });
+        },
+      }, {
+        companyId: selectedCompanyId!,
+        parsedGitHubSource,
+        payload: {
+          ...payload,
+          githubAuth: {
+            visibility: "private",
+            secretId: payload.githubAuth.secretId ?? null,
+          },
+        },
+        githubSecretMode,
+        newGitHubToken,
+        existingSecretIdForNewToken,
+      });
+    },
     onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(selectedCompanyId!) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(selectedCompanyId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.secrets.list(selectedCompanyId!) }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.companySkills.githubCredentials(
+            selectedCompanyId!,
+            parsedGitHubSource?.hostname.toLowerCase(),
+            parsedGitHubSource?.owner.toLowerCase(),
+          ),
+        }),
+      ]);
       if (result.imported[0]) navigate(skillRoute(result.imported[0].id));
       pushToast({
         tone: "success",
@@ -900,8 +1207,13 @@ export function CompanySkills() {
         pushToast({ tone: "warn", title: "Import warnings", body: result.warnings[0] });
       }
       setSource("");
+      setGitHubVisibility("public");
+      setGitHubSecretMode("existing");
+      setSelectedGitHubSecretId("");
+      setNewGitHubToken("");
     },
     onError: (error) => {
+      setNewGitHubToken("");
       pushToast({
         tone: "error",
         title: "Skill import failed",
@@ -1073,7 +1385,37 @@ export function CompanySkills() {
       setEmptySourceHelpOpen(true);
       return;
     }
-    importSkill.mutate(trimmedSource);
+
+    if (parsedGitHubSource && githubVisibility === "private") {
+      if (githubSecretMode === "existing" && !selectedGitHubSecretId) {
+        pushToast({
+          tone: "error",
+          title: "GitHub credential required",
+          body: `Select a saved credential for ${parsedGitHubSource.hostname}/${parsedGitHubSource.owner}, or create a new token.`,
+        });
+        return;
+      }
+      if (githubSecretMode === "new" && newGitHubToken.trim().length === 0) {
+        pushToast({
+          tone: "error",
+          title: "GitHub token required",
+          body: `Paste a GitHub token for ${parsedGitHubSource.hostname}/${parsedGitHubSource.owner}.`,
+        });
+        return;
+      }
+    }
+
+    importSkill.mutate({
+      source: trimmedSource,
+      ...(parsedGitHubSource ? {
+        githubAuth: {
+          visibility: githubVisibility,
+          ...(githubVisibility === "private" && githubSecretMode === "existing"
+            ? { secretId: selectedGitHubSecretId || null }
+            : {}),
+        },
+      } : {}),
+    });
   }
 
   return (
@@ -1220,6 +1562,88 @@ export function CompanySkills() {
                 {importSkill.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Add"}
               </Button>
             </div>
+            {parsedGitHubSource && (
+              <div className="mt-3 space-y-3 rounded-md border border-border px-3 py-3 text-sm">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Github className="h-4 w-4" />
+                  <span className="truncate">
+                    {parsedGitHubSource.hostname}/{parsedGitHubSource.owner}/{parsedGitHubSource.repo}
+                  </span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-center">
+                  <label className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Visibility</label>
+                  <select
+                    value={githubVisibility}
+                    onChange={(event) => setGitHubVisibility(event.target.value === "private" ? "private" : "public")}
+                    className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+                  >
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                  </select>
+                </div>
+                {githubVisibility === "private" && (
+                  <div className="space-y-3">
+                    {matchingGitHubCredential && (
+                      <div className="rounded-md border border-border bg-accent/20 px-3 py-2 text-xs text-muted-foreground">
+                        Using saved credential for {matchingGitHubCredential.hostname}/{matchingGitHubCredential.owner}.
+                      </div>
+                    )}
+                    <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-center">
+                      <label className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Credential</label>
+                      <select
+                        value={githubSecretMode}
+                        onChange={(event) => setGitHubSecretMode(event.target.value === "new" ? "new" : "existing")}
+                        className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+                      >
+                        <option value="existing">Use saved secret</option>
+                        <option value="new">Create new token</option>
+                      </select>
+                    </div>
+                    {githubSecretMode === "existing" ? (
+                      <>
+                        <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-center">
+                          <label className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Secret</label>
+                          <select
+                            value={selectedGitHubSecretId}
+                            onChange={(event) => setSelectedGitHubSecretId(event.target.value)}
+                            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+                          >
+                            <option value="">
+                              {availableSecrets.length > 0 ? "Select GitHub company secret..." : "No likely GitHub secrets found"}
+                            </option>
+                            {availableSecrets.map((secret) => (
+                              <option key={secret.id} value={secret.id}>
+                                {formatGitHubSecretOptionLabel(secret)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {availableSecrets.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Use a secret named like <code>*github*</code> or <code>*_pat</code>, or create a new token below.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-start">
+                        <label className="pt-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">Token</label>
+                        <div className="space-y-2">
+                          <Input
+                            type="password"
+                            value={newGitHubToken}
+                            onChange={(event) => setNewGitHubToken(event.target.value)}
+                            placeholder="Paste GitHub personal access token"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Stored as company secret <code>{suggestedGitHubSecretName(parsedGitHubSource)}</code>.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {scanStatusMessage && (
               <p className="mt-3 text-xs text-muted-foreground">
                 {scanStatusMessage}
