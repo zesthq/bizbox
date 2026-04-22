@@ -349,6 +349,7 @@ export function formatGitHubSecretOptionLabel(secret: Pick<CompanySecret, "name"
 type PrivateGitHubImportDependencies = {
   createSecret: typeof secretsApi.create;
   removeSecret: typeof secretsApi.remove;
+  rotateSecret: typeof secretsApi.rotate;
   importFromSource: typeof companySkillsApi.importFromSource;
   onSecretCreated?: (secretId: string) => void | Promise<void>;
 };
@@ -364,6 +365,7 @@ type PrivateGitHubImportOptions = {
   };
   githubSecretMode: "existing" | "new";
   newGitHubToken: string;
+  existingSecretIdForNewToken?: string | null;
 };
 
 export async function importPrivateGitHubSkill(
@@ -381,13 +383,20 @@ export async function importPrivateGitHubSkill(
       );
     }
 
-    const created = await dependencies.createSecret(options.companyId, {
-      name: suggestedGitHubSecretName(options.parsedGitHubSource),
-      value: trimmedGitHubToken,
-      description: `GitHub PAT for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner} private skill imports`,
-    });
-    secretId = created.id;
-    createdSecretId = created.id;
+    if (options.existingSecretIdForNewToken) {
+      await dependencies.rotateSecret(options.existingSecretIdForNewToken, {
+        value: trimmedGitHubToken,
+      });
+      secretId = options.existingSecretIdForNewToken;
+    } else {
+      const created = await dependencies.createSecret(options.companyId, {
+        name: suggestedGitHubSecretName(options.parsedGitHubSource),
+        value: trimmedGitHubToken,
+        description: `GitHub PAT for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner} private skill imports`,
+      });
+      secretId = created.id;
+      createdSecretId = created.id;
+    }
   }
 
   if (!secretId) {
@@ -404,8 +413,8 @@ export async function importPrivateGitHubSkill(
         secretId,
       },
     });
-    if (createdSecretId) {
-      await dependencies.onSecretCreated?.(createdSecretId);
+    if (options.githubSecretMode === "new") {
+      await dependencies.onSecretCreated?.(secretId);
     }
     return result;
   } catch (error) {
@@ -1039,6 +1048,12 @@ export function CompanySkills() {
     () => filterLikelyGitHubSecrets(secretsQuery.data ?? [], matchingGitHubCredential?.secretId),
     [matchingGitHubCredential?.secretId, secretsQuery.data],
   );
+  const suggestedGitHubSecretId = useMemo(() => {
+    if (!parsedGitHubSource) return null;
+    const suggestedName = suggestedGitHubSecretName(parsedGitHubSource);
+    return (secretsQuery.data ?? []).find((secret) => secret.name === suggestedName)?.id ?? null;
+  }, [parsedGitHubSource, secretsQuery.data]);
+  const existingSecretIdForNewToken = matchingGitHubCredential?.secretId ?? suggestedGitHubSecretId ?? null;
 
   useEffect(() => {
     setExpandedSkillId(selectedSkillId);
@@ -1148,6 +1163,7 @@ export function CompanySkills() {
       return importPrivateGitHubSkill({
         createSecret: secretsApi.create,
         removeSecret: secretsApi.remove,
+        rotateSecret: secretsApi.rotate,
         importFromSource: companySkillsApi.importFromSource,
         onSecretCreated: async (secretId) => {
           setSelectedGitHubSecretId(secretId);
@@ -1166,6 +1182,7 @@ export function CompanySkills() {
         },
         githubSecretMode,
         newGitHubToken,
+        existingSecretIdForNewToken,
       });
     },
     onSuccess: async (result) => {

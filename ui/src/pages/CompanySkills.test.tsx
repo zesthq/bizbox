@@ -183,12 +183,14 @@ describe("importPrivateGitHubSkill", () => {
   it("creates a secret, then imports with the resulting secret id", async () => {
     const createSecret = vi.fn().mockResolvedValue({ id: "secret-1" });
     const removeSecret = vi.fn();
+    const rotateSecret = vi.fn();
     const importFromSource = vi.fn().mockResolvedValue({ imported: [], warnings: [] });
     const onSecretCreated = vi.fn();
 
     await importPrivateGitHubSkill({
       createSecret,
       removeSecret,
+      rotateSecret,
       importFromSource,
       onSecretCreated,
     }, {
@@ -220,16 +222,61 @@ describe("importPrivateGitHubSkill", () => {
     expect(createSecret.mock.invocationCallOrder[0]).toBeLessThan(importFromSource.mock.invocationCallOrder[0]);
     expect(importFromSource.mock.invocationCallOrder[0]).toBeLessThan(onSecretCreated.mock.invocationCallOrder[0]);
     expect(removeSecret).not.toHaveBeenCalled();
+    expect(rotateSecret).not.toHaveBeenCalled();
+  });
+
+  it("rotates an existing matching secret when entering a replacement token", async () => {
+    const createSecret = vi.fn();
+    const removeSecret = vi.fn();
+    const rotateSecret = vi.fn().mockResolvedValue({ id: "secret-1" });
+    const importFromSource = vi.fn().mockResolvedValue({ imported: [], warnings: [] });
+    const onSecretCreated = vi.fn();
+
+    await importPrivateGitHubSkill({
+      createSecret,
+      removeSecret,
+      rotateSecret,
+      importFromSource,
+      onSecretCreated,
+    }, {
+      companyId: "company-1",
+      parsedGitHubSource: { hostname: "github.com", owner: "zesthq", repo: "citro-box" },
+      payload: {
+        source: "https://github.com/zesthq/citro-box",
+        githubAuth: {
+          visibility: "private",
+        },
+      },
+      githubSecretMode: "new",
+      newGitHubToken: "ghp_test",
+      existingSecretIdForNewToken: "secret-1",
+    });
+
+    expect(createSecret).not.toHaveBeenCalled();
+    expect(rotateSecret).toHaveBeenCalledWith("secret-1", {
+      value: "ghp_test",
+    });
+    expect(importFromSource).toHaveBeenCalledWith("company-1", {
+      source: "https://github.com/zesthq/citro-box",
+      githubAuth: {
+        visibility: "private",
+        secretId: "secret-1",
+      },
+    });
+    expect(onSecretCreated).toHaveBeenCalledWith("secret-1");
+    expect(removeSecret).not.toHaveBeenCalled();
   });
 
   it("rejects blank new GitHub tokens before creating a secret", async () => {
     const createSecret = vi.fn();
     const removeSecret = vi.fn();
+    const rotateSecret = vi.fn();
     const importFromSource = vi.fn();
 
     await expect(importPrivateGitHubSkill({
       createSecret,
       removeSecret,
+      rotateSecret,
       importFromSource,
     }, {
       companyId: "company-1",
@@ -246,18 +293,21 @@ describe("importPrivateGitHubSkill", () => {
 
     expect(createSecret).not.toHaveBeenCalled();
     expect(removeSecret).not.toHaveBeenCalled();
+    expect(rotateSecret).not.toHaveBeenCalled();
     expect(importFromSource).not.toHaveBeenCalled();
   });
 
   it("removes a newly created secret if the import fails", async () => {
     const createSecret = vi.fn().mockResolvedValue({ id: "secret-1" });
     const removeSecret = vi.fn().mockResolvedValue({ ok: true });
+    const rotateSecret = vi.fn();
     const importFromSource = vi.fn().mockRejectedValue(new Error("import failed"));
     const onSecretCreated = vi.fn();
 
     await expect(importPrivateGitHubSkill({
       createSecret,
       removeSecret,
+      rotateSecret,
       importFromSource,
       onSecretCreated,
     }, {
@@ -276,17 +326,20 @@ describe("importPrivateGitHubSkill", () => {
     expect(createSecret).toHaveBeenCalledTimes(1);
     expect(importFromSource).toHaveBeenCalledTimes(1);
     expect(removeSecret).toHaveBeenCalledWith("secret-1");
+    expect(rotateSecret).not.toHaveBeenCalled();
     expect(onSecretCreated).not.toHaveBeenCalled();
   });
 
   it("keeps the original import error when cleanup fails", async () => {
     const createSecret = vi.fn().mockResolvedValue({ id: "secret-1" });
     const removeSecret = vi.fn().mockRejectedValue(new Error("cleanup failed"));
+    const rotateSecret = vi.fn();
     const importFromSource = vi.fn().mockRejectedValue(new Error("import failed"));
 
     await expect(importPrivateGitHubSkill({
       createSecret,
       removeSecret,
+      rotateSecret,
       importFromSource,
     }, {
       companyId: "company-1",
@@ -302,5 +355,6 @@ describe("importPrivateGitHubSkill", () => {
     })).rejects.toThrow("import failed");
 
     expect(removeSecret).toHaveBeenCalledWith("secret-1");
+    expect(rotateSecret).not.toHaveBeenCalled();
   });
 });

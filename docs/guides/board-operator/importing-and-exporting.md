@@ -211,3 +211,5 @@ Standalone company skill imports follow a stricter governance rule than full com
 - Agents with company-skill mutation permission may still create local skills and may import non-GitHub sources that do not resolve through saved GitHub credentials.
 
 This is a deliberate security boundary: agents must not auto-import company skills from GitHub or transparently use board-saved GitHub credentials by omitting `githubAuth`.
+
+For private GitHub skill imports, credentials are intentionally reused at the `hostname + owner` scope. When a board operator pastes a replacement PAT for the same GitHub owner, Paperclip rotates/reuses the existing saved company secret instead of creating another duplicate secret with the same generated name.
