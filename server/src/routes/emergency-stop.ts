@@ -109,6 +109,12 @@ export function emergencyStopRoutes(db: Db) {
    */
   router.post("/instance/emergency-stop/server", async (req, res) => {
     assertInstanceAdmin(req);
+    
+    if (req.body?.confirm !== "SHUTDOWN") {
+      res.status(400).json({ error: "Explicit 'SHUTDOWN' confirmation required." });
+      return;
+    }
+
     const actor = getActorInfo(req);
     const heartbeat = heartbeatService(db);
 

@@ -153,7 +153,7 @@ export function InstanceSettings() {
 
   const [confirmShutdownText, setConfirmShutdownText] = useState("");
   const shutdownServerMutation = useMutation({
-    mutationFn: () => emergencyStopApi.shutdownServer(),
+    mutationFn: (confirm: string) => emergencyStopApi.shutdownServer(confirm),
     onSuccess: (data) => {
       setActionError(null);
       pushToast({ title: "Shutdown initiated", body: `${data.message} The UI will now lose connection.`, tone: "info" });
@@ -430,7 +430,7 @@ export function InstanceSettings() {
                     <Button 
                       variant="destructive"
                       disabled={confirmShutdownText !== "SHUTDOWN" || shutdownServerMutation.isPending}
-                      onClick={() => shutdownServerMutation.mutate()}
+                      onClick={() => shutdownServerMutation.mutate(confirmShutdownText)}
                     >
                       {shutdownServerMutation.isPending ? "Shutting down..." : "Terminate Server"}
                     </Button>

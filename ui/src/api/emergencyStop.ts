@@ -23,6 +23,6 @@ export const emergencyStopApi = {
   stopAllRuns: () =>
     api.post<EmergencyStopResult>("/instance/emergency-stop/runs", {}),
 
-  shutdownServer: () =>
-    api.post<EmergencyStopResult>("/instance/emergency-stop/server", {}),
+  shutdownServer: (confirm: string) =>
+    api.post<EmergencyStopResult>("/instance/emergency-stop/server", { confirm }),
 };
