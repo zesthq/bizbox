@@ -974,6 +974,41 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     });
   });
 
+  it("uses transaction-scoped secret reads when upserting github credential associations", async () => {
+    const companyId = randomUUID();
+    const secretId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    await db.transaction(async (tx) => {
+      await tx.insert(companySecrets).values({
+        id: secretId,
+        companyId,
+        name: "tx-secret",
+        provider: "local_encrypted",
+        latestVersion: 1,
+      });
+
+      const association = await svc.upsertGitHubCredentialAssociation(companyId, {
+        hostname: "github.com",
+        owner: "acme",
+        secretId,
+      }, tx);
+
+      expect(association).toMatchObject({
+        companyId,
+        hostname: "github.com",
+        owner: "acme",
+        secretId,
+      });
+    });
+  });
+
   it("redacts private github raw URLs from readFile fetch failures", async () => {
     const companyId = randomUUID();
     const skillId = randomUUID();

@@ -1709,8 +1709,9 @@ export function companySkillService(db: Db) {
     dbOrTx: Db | Parameters<Parameters<Db["transaction"]>[0]>[0] = db,
   ): Promise<CompanyGitHubCredentialAssociation> {
     const preparedInput = prepareGitHubCredentialAssociationInput(input);
+    const txSecretsSvc = secretService(dbOrTx as Db);
 
-    const secret = await secretsSvc.getById(preparedInput.secretId);
+    const secret = await txSecretsSvc.getById(preparedInput.secretId);
     if (!secret || secret.companyId !== companyId) {
       throw unprocessable("GitHub credential secret must belong to the same company.");
     }
