@@ -39,6 +39,8 @@ export function emergencyStopRoutes(db: Db) {
       res.json({
         status: "ok",
         cancelledCount: 0,
+        totalAttempted: 0,
+        errors: undefined,
         message: "No active runs to cancel.",
       });
       return;
