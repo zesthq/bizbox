@@ -1708,29 +1708,26 @@ export function companySkillService(db: Db) {
     }
 
     const now = new Date();
-    const existing = await getGitHubCredentialAssociation(companyId, preparedInput.hostname, preparedInput.owner);
-    const row = existing
-      ? await dbOrTx
-        .update(companyGitHubCredentials)
-        .set({
-          secretId: preparedInput.secretId,
-          updatedAt: now,
-        })
-        .where(eq(companyGitHubCredentials.id, existing.id))
-        .returning()
-        .then((rows) => rows[0] ?? null)
-      : await dbOrTx
-        .insert(companyGitHubCredentials)
-        .values({
-          companyId,
-          hostname: preparedInput.hostname,
-          owner: preparedInput.owner,
-          secretId: preparedInput.secretId,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .then((rows) => rows[0] ?? null);
+    const row = await dbOrTx
+      .insert(companyGitHubCredentials)
+      .values({
+        companyId,
+        hostname: preparedInput.hostname,
+        owner: preparedInput.owner,
+        secretId: preparedInput.secretId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          companyGitHubCredentials.companyId,
+          companyGitHubCredentials.hostname,
+          companyGitHubCredentials.owner,
+        ],
+        set: { secretId: preparedInput.secretId, updatedAt: now },
+      })
+      .returning()
+      .then((rows) => rows[0] ?? null);
     if (!row) throw internalError("Failed to persist GitHub credential association.");
     return toCompanyGitHubCredentialAssociation(row);
   }
