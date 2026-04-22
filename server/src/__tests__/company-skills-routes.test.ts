@@ -406,7 +406,7 @@ describe("company skill mutation permissions", () => {
     expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
   });
 
-  it("allows agent callers to import github repo sources when githubAuth is omitted", async () => {
+  it("blocks agent callers from importing github repo sources when githubAuth is omitted", async () => {
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",
       companyId: "company-1",
@@ -424,13 +424,11 @@ describe("company skill mutation permissions", () => {
         source: "https://github.com/acme/private-repo",
       });
 
-    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
-    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
-      source: "https://github.com/acme/private-repo",
-    });
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
   });
 
-  it("allows agent callers to import owner/repo shorthand sources", async () => {
+  it("blocks agent callers from importing owner/repo shorthand sources", async () => {
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",
       companyId: "company-1",
@@ -448,13 +446,11 @@ describe("company skill mutation permissions", () => {
         source: "acme/private-repo",
       });
 
-    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
-    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
-      source: "acme/private-repo",
-    });
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
   });
 
-  it("allows agent callers to import owner/repo/skill shorthand sources", async () => {
+  it("blocks agent callers from importing owner/repo/skill shorthand sources", async () => {
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",
       companyId: "company-1",
@@ -472,13 +468,11 @@ describe("company skill mutation permissions", () => {
         source: "acme/private-repo/private-skill",
       });
 
-    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
-    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
-      source: "acme/private-repo/private-skill",
-    });
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
   });
 
-  it("allows agent callers to import skills.sh shorthand urls", async () => {
+  it("blocks agent callers from importing skills.sh shorthand urls", async () => {
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",
       companyId: "company-1",
@@ -496,10 +490,8 @@ describe("company skill mutation permissions", () => {
         source: "https://skills.sh/acme/private-repo/private-skill",
       });
 
-    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
-    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
-      source: "https://skills.sh/acme/private-repo/private-skill",
-    });
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.importFromSource).not.toHaveBeenCalled();
   });
 
   it("allows agent callers to import non-repo https urls that only look path-shaped", async () => {

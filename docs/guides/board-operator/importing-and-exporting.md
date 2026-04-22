@@ -201,3 +201,13 @@ Paperclip supports several GitHub URL formats:
 - Shorthand with path: `org/repo/path/to/company`
 
 Use `--ref` to pin to a specific branch, tag, or commit hash when importing from GitHub.
+
+## Company Skill Library Imports
+
+Standalone company skill imports follow a stricter governance rule than full company package imports.
+
+- GitHub-backed skill imports are **board-only**.
+- This includes full GitHub URLs, repo shorthand like `org/repo`, repo-and-skill shorthand like `org/repo/skill`, and `skills.sh` URLs or commands that resolve to GitHub repositories.
+- Agents with company-skill mutation permission may still create local skills and may import non-GitHub sources that do not resolve through saved GitHub credentials.
+
+This is a deliberate security boundary: agents must not auto-import company skills from GitHub or transparently use board-saved GitHub credentials by omitting `githubAuth`.

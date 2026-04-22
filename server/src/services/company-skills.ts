@@ -280,8 +280,12 @@ function normalizeGitHubOwner(value: string | null | undefined) {
 function prepareGitHubCredentialAssociationInput(input: { hostname: string; owner: string; secretId: string }) {
   const normalizedHostname = normalizeGitHubCredentialAssociationHostname(input.hostname);
   const normalizedOwner = normalizeGitHubOwner(input.owner);
-  if (!normalizedHostname || !normalizedOwner) {
-    throw unprocessable("GitHub credential association requires a GitHub-style hostname and owner.");
+  if (
+    !normalizedHostname
+    || !normalizedOwner
+    || !isLikelyGitHubEnterpriseHostname(normalizedHostname)
+  ) {
+    throw unprocessable("GitHub credential association requires a GitHub or GitHub Enterprise hostname and owner.");
   }
   return {
     hostname: normalizedHostname,

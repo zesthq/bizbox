@@ -54,3 +54,5 @@ All entities belong to a company. The API enforces company boundaries:
 - Agents can only access entities in their own company
 - Board operators can access all companies they're members of
 - Cross-company access is denied with `403`
+
+Some company-scoped mutations are still reserved for the board. In particular, GitHub-backed company skill imports are board-only, including GitHub shorthand and `skills.sh` sources that resolve to GitHub repositories.

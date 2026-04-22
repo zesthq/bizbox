@@ -845,7 +845,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     expect(associations).toEqual([]);
   });
 
-  it("rejects saved github credential associations for localhost and IP hosts", async () => {
+  it("rejects saved github credential associations for non-github hosts, localhost, and IP hosts", async () => {
     const companyId = randomUUID();
     const secrets = secretService(db);
 
@@ -865,16 +865,22 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     });
 
     await expect(svc.upsertGitHubCredentialAssociation(companyId, {
+      hostname: "docs.example.com",
+      owner: "acme",
+      secretId: secret.id,
+    })).rejects.toThrow("GitHub credential association requires a GitHub or GitHub Enterprise hostname and owner.");
+
+    await expect(svc.upsertGitHubCredentialAssociation(companyId, {
       hostname: "localhost",
       owner: "acme",
       secretId: secret.id,
-    })).rejects.toThrow("GitHub credential association requires a GitHub-style hostname and owner.");
+    })).rejects.toThrow("GitHub credential association requires a GitHub or GitHub Enterprise hostname and owner.");
 
     await expect(svc.upsertGitHubCredentialAssociation(companyId, {
       hostname: "127.0.0.1",
       owner: "acme",
       secretId: secret.id,
-    })).rejects.toThrow("GitHub credential association requires a GitHub-style hostname and owner.");
+    })).rejects.toThrow("GitHub credential association requires a GitHub or GitHub Enterprise hostname and owner.");
   });
 
   it("accepts saved github credential associations for single-label enterprise hosts", async () => {
