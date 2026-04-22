@@ -98,6 +98,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          gh repo set-default origin
+
           UPSTREAM_SHA=$(git rev-parse upstream/master | cut -c1-7)
           PR_TITLE="chore: sync upstream $(date +%Y-%m-%d) (${UPSTREAM_SHA})"
           PR_BODY="Automated upstream sync from [paperclipai/paperclip](https://github.com/paperclipai/paperclip).\n\n**Changes from upstream master are included, except for anything under \`doc/\`.**\n\nReview and merge if the changes look good."
