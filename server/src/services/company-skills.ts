@@ -2203,9 +2203,16 @@ export function companySkillService(db: Db) {
     }
 
     // Derive gitHubSource from stored metadata to bypass ambiguous URL re-parsing
-    const gitHubSource = skill.sourceType === "github" && sourceUrl
-      ? parseGitHubSourceUrl(sourceUrl)
-      : null;
+    let gitHubSource: ParsedGitHubSkillImportSource | null = null;
+    if (skill.sourceType === "github" && sourceUrl) {
+      try {
+        gitHubSource = parseGitHubSourceUrl(sourceUrl);
+      } catch (error) {
+        throw unprocessable(
+          `Stored GitHub source URL is invalid: ${sourceUrl}. ${error instanceof Error ? error.message : ""}`.trim()
+        );
+      }
+    }
 
     const result = await resolveGitHubSkillRefresh(
       companyId,
