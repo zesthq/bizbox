@@ -163,12 +163,14 @@ export function InstanceSettings() {
     },
   });
 
+  const [isStopRunsOpen, setIsStopRunsOpen] = useState(false);
   const stopAllRunsMutation = useMutation({
     mutationFn: () => emergencyStopApi.stopAllRuns(),
     onSuccess: (data) => {
       setActionError(null);
       pushToast({ title: "Success", body: data.message, tone: "success" });
       queryClient.invalidateQueries({ queryKey: ["instance", "emergency-stop", "status"] });
+      setIsStopRunsOpen(false);
     },
     onError: (error) => {
       setActionError(error instanceof Error ? error.message : "Failed to stop runs.");
@@ -352,7 +354,10 @@ export function InstanceSettings() {
               <div className="text-sm">
                 Currently tracking <strong>{emergencyStatusQuery.data?.totalActive ?? 0}</strong> active run(s).
               </div>
-              <Dialog onOpenChange={(open) => { if (!open) stopAllRunsMutation.reset(); }}>
+              <Dialog open={isStopRunsOpen} onOpenChange={(open) => {
+                setIsStopRunsOpen(open);
+                if (!open) stopAllRunsMutation.reset();
+              }}>
                 <DialogTrigger asChild>
                   <Button variant="outline" className="w-full text-destructive border-destructive/20 hover:bg-destructive/10">
                     Cancel All Runs
@@ -369,15 +374,13 @@ export function InstanceSettings() {
                     <DialogClose asChild>
                       <Button variant="outline">Cancel</Button>
                     </DialogClose>
-                    <DialogClose asChild>
-                      <Button 
-                        variant="destructive" 
-                        onClick={() => stopAllRunsMutation.mutate()}
-                        disabled={stopAllRunsMutation.isPending}
-                      >
-                        {stopAllRunsMutation.isPending ? "Cancelling..." : "Yes, Cancel All Runs"}
-                      </Button>
-                    </DialogClose>
+                    <Button 
+                      variant="destructive" 
+                      onClick={() => stopAllRunsMutation.mutate()}
+                      disabled={stopAllRunsMutation.isPending}
+                    >
+                      {stopAllRunsMutation.isPending ? "Cancelling..." : "Yes, Cancel All Runs"}
+                    </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
