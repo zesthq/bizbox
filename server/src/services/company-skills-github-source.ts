@@ -11,6 +11,9 @@ export type GitHubRepoImportUrlCandidate = {
 
 export function isLikelyGitHubEnterpriseHostname(hostname: string) {
   const normalized = hostname.trim().toLowerCase();
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) {
+    return false;
+  }
   const [firstLabel = ""] = normalized.split(".");
   return normalized.includes(".")
     ? firstLabel === "git" || firstLabel === "ghe" || firstLabel === "github"

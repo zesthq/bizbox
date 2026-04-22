@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { looksLikeGitHubRepoImportUrl } from "../services/company-skills-github-source.js";
+import {
+  isLikelyGitHubEnterpriseHostname,
+  looksLikeGitHubRepoImportUrl,
+} from "../services/company-skills-github-source.js";
 
 describe("looksLikeGitHubRepoImportUrl", () => {
   it("accepts repo urls with .git suffix", () => {
@@ -28,5 +31,12 @@ describe("looksLikeGitHubRepoImportUrl", () => {
 
   it("rejects non-tree subpaths", () => {
     expect(looksLikeGitHubRepoImportUrl("https://example.com/a/b/c")).toBe(false);
+  });
+});
+
+describe("isLikelyGitHubEnterpriseHostname", () => {
+  it("rejects localhost hosts", () => {
+    expect(isLikelyGitHubEnterpriseHostname("localhost")).toBe(false);
+    expect(isLikelyGitHubEnterpriseHostname("api.localhost")).toBe(false);
   });
 });
