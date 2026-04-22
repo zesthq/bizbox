@@ -39,4 +39,13 @@ describe("isLikelyGitHubEnterpriseHostname", () => {
     expect(isLikelyGitHubEnterpriseHostname("localhost")).toBe(false);
     expect(isLikelyGitHubEnterpriseHostname("api.localhost")).toBe(false);
   });
+
+  it("accepts expected GitHub and GitHub Enterprise hostnames", () => {
+    expect(isLikelyGitHubEnterpriseHostname("github.com")).toBe(true);
+    expect(isLikelyGitHubEnterpriseHostname("www.github.com")).toBe(true);
+    expect(isLikelyGitHubEnterpriseHostname("git.example.com")).toBe(true);
+    expect(isLikelyGitHubEnterpriseHostname("ghe.corp.internal")).toBe(true);
+    expect(isLikelyGitHubEnterpriseHostname("github.acmecorp.com")).toBe(true);
+    expect(isLikelyGitHubEnterpriseHostname("gitserver")).toBe(true);
+  });
 });

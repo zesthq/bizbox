@@ -14,6 +14,9 @@ export function isLikelyGitHubEnterpriseHostname(hostname: string) {
   if (normalized === "localhost" || normalized.endsWith(".localhost")) {
     return false;
   }
+  if (normalized === "github.com" || normalized === "www.github.com") {
+    return true;
+  }
   const [firstLabel = ""] = normalized.split(".");
   return normalized.includes(".")
     ? firstLabel === "git" || firstLabel === "ghe" || firstLabel === "github"

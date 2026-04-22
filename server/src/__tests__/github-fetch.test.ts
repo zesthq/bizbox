@@ -32,4 +32,15 @@ describe("ghFetch", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("rejects forwarding auth to localhost", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ghFetch("https://localhost/private", undefined, { token: "ghp_test" }),
+    ).rejects.toThrow("Refusing to forward GitHub auth to non-GitHub URL");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
