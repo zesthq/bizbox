@@ -65,25 +65,27 @@ export function emergencyStopRoutes(db: Db) {
 
     // Log the emergency stop action to all affected companies
     const affectedCompanyIds = [...new Set(activeRuns.map((r) => r.companyId))];
-    for (const companyId of affectedCompanyIds) {
-      await logActivity(db, {
-        companyId,
-        actorType: actor.actorType,
-        actorId: actor.actorId,
-        agentId: actor.agentId,
-        runId: actor.runId,
-        action: "instance.emergency_stop.runs",
-        entityType: "instance_settings",
-        entityId: "emergency-stop",
-        details: {
-          cancelledCount,
-          totalAttempted: activeRuns.length,
-          errorCount: errors.length,
-        },
-      }).catch((logErr) => {
-        logger.error({ err: logErr }, "emergency-stop: failed to log activity");
-      });
-    }
+    await Promise.allSettled(
+      affectedCompanyIds.map((companyId) =>
+        logActivity(db, {
+          companyId,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId,
+          runId: actor.runId,
+          action: "instance.emergency_stop.runs",
+          entityType: "instance_settings",
+          entityId: "emergency-stop",
+          details: {
+            cancelledCount,
+            totalAttempted: activeRuns.length,
+            errorCount: errors.length,
+          },
+        }).catch((logErr) => {
+          logger.error({ err: logErr }, "emergency-stop: failed to log activity");
+        }),
+      ),
+    );
 
     logger.warn(
       { cancelledCount, errorCount: errors.length, totalAttempted: activeRuns.length },
@@ -137,19 +139,21 @@ export function emergencyStopRoutes(db: Db) {
     // Log to all companies before exiting
     const allCompanies = await db.select({ id: companies.id }).from(companies);
     const affectedCompanyIds = allCompanies.map((c) => c.id);
-    for (const companyId of affectedCompanyIds) {
-      await logActivity(db, {
-        companyId,
-        actorType: actor.actorType,
-        actorId: actor.actorId,
-        agentId: actor.agentId,
-        runId: actor.runId,
-        action: "instance.emergency_stop.server",
-        entityType: "instance_settings",
-        entityId: "emergency-stop",
-        details: { cancelledCount, totalAttempted: activeRuns.length },
-      }).catch(() => {});
-    }
+    await Promise.allSettled(
+      affectedCompanyIds.map((companyId) =>
+        logActivity(db, {
+          companyId,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId,
+          runId: actor.runId,
+          action: "instance.emergency_stop.server",
+          entityType: "instance_settings",
+          entityId: "emergency-stop",
+          details: { cancelledCount, totalAttempted: activeRuns.length },
+        }).catch(() => {}),
+      ),
+    );
 
     logger.warn(
       { cancelledCount, totalAttempted: activeRuns.length },
