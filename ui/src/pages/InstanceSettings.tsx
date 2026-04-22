@@ -343,7 +343,7 @@ export function InstanceSettings() {
           <Card className="border-destructive/20 bg-destructive/5">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-warning" />
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                 Cancel All Active Runs
               </CardTitle>
               <CardDescription>
