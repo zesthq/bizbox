@@ -3,10 +3,10 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockHeartbeatService = vi.hoisted(() => ({
-  cancelRun: vi.fn(),
+  cancelRun: vi.fn().mockResolvedValue(undefined),
 }));
 
-const mockLogActivity = vi.hoisted(() => vi.fn());
+const mockLogActivity = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock("../services/index.js", () => ({
   heartbeatService: () => mockHeartbeatService,
