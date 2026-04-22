@@ -348,6 +348,7 @@ export function formatGitHubSecretOptionLabel(secret: Pick<CompanySecret, "name"
 
 type PrivateGitHubImportDependencies = {
   createSecret: typeof secretsApi.create;
+  removeSecret: typeof secretsApi.remove;
   importFromSource: typeof companySkillsApi.importFromSource;
   onSecretCreated?: (secretId: string) => void | Promise<void>;
 };
@@ -370,6 +371,7 @@ export async function importPrivateGitHubSkill(
   options: PrivateGitHubImportOptions,
 ) {
   let secretId = options.payload.githubAuth.secretId ?? null;
+  let createdSecretId: string | null = null;
 
   if (!secretId && options.githubSecretMode === "new") {
     const trimmedGitHubToken = options.newGitHubToken.trim();
@@ -385,7 +387,7 @@ export async function importPrivateGitHubSkill(
       description: `GitHub PAT for ${options.parsedGitHubSource.hostname}/${options.parsedGitHubSource.owner} private skill imports`,
     });
     secretId = created.id;
-    await dependencies.onSecretCreated?.(secretId);
+    createdSecretId = created.id;
   }
 
   if (!secretId) {
@@ -394,13 +396,24 @@ export async function importPrivateGitHubSkill(
     );
   }
 
-  return dependencies.importFromSource(options.companyId, {
-    ...options.payload,
-    githubAuth: {
-      visibility: "private",
-      secretId,
-    },
-  });
+  try {
+    const result = await dependencies.importFromSource(options.companyId, {
+      ...options.payload,
+      githubAuth: {
+        visibility: "private",
+        secretId,
+      },
+    });
+    if (createdSecretId) {
+      await dependencies.onSecretCreated?.(createdSecretId);
+    }
+    return result;
+  } catch (error) {
+    if (createdSecretId) {
+      await dependencies.removeSecret(createdSecretId).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 function NewSkillForm({
@@ -1134,6 +1147,7 @@ export function CompanySkills() {
       }
       return importPrivateGitHubSkill({
         createSecret: secretsApi.create,
+        removeSecret: secretsApi.remove,
         importFromSource: companySkillsApi.importFromSource,
         onSecretCreated: async (secretId) => {
           setSelectedGitHubSecretId(secretId);
