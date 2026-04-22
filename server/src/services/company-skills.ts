@@ -34,6 +34,7 @@ import { resolvePaperclipInstanceRoot } from "../home-paths.js";
 import { internalError, notFound, unprocessable } from "../errors.js";
 import { ghFetch, gitHubApiBase, resolveRawGitHubUrl } from "./github-fetch.js";
 import {
+  isLikelyGitHubEnterpriseHostname,
   looksLikeGitHubRepoImportUrl,
   parseGitHubRepoImportUrlCandidate,
   normalizeGitHubCredentialAssociationHostname,
@@ -653,14 +654,31 @@ function parseGitHubSourceUrl(rawUrl: string): ParsedGitHubSkillImportSource {
   return { hostname: url.hostname, owner, repo, ref, basePath, filePath, explicitRef };
 }
 
-async function probeGitHubRepoImportSource(parsed: ParsedGitHubSkillImportSource) {
+async function probeGitHubRepoImportSource(
+  parsed: ParsedGitHubSkillImportSource,
+  auth?: ResolvedGitHubAuth,
+) {
   const apiBase = gitHubApiBase(parsed.hostname);
-  return ghFetch(`${apiBase}/repos/${parsed.owner}/${parsed.repo}`)
+  const probeUrl = `${apiBase}/repos/${parsed.owner}/${parsed.repo}`;
+  const unauthenticatedResponse = await ghFetch(probeUrl)
+    .catch(() => null);
+  if (unauthenticatedResponse?.ok) {
+    return true;
+  }
+
+  if (!auth?.token || !isLikelyGitHubEnterpriseHostname(parsed.hostname)) {
+    return false;
+  }
+
+  return ghFetch(probeUrl, undefined, { token: auth.token })
     .then((response) => response.ok)
     .catch(() => false);
 }
 
-async function resolveGitHubRepoImportSource(rawUrl: string): Promise<ParsedGitHubSkillImportSource | null> {
+async function resolveGitHubRepoImportSource(
+  rawUrl: string,
+  options?: { auth?: ResolvedGitHubAuth },
+): Promise<ParsedGitHubSkillImportSource | null> {
   const candidate = parseGitHubRepoImportUrlCandidate(rawUrl);
   if (!candidate) return null;
 
@@ -669,7 +687,7 @@ async function resolveGitHubRepoImportSource(rawUrl: string): Promise<ParsedGitH
     return parsed;
   }
 
-  return await probeGitHubRepoImportSource(parsed) ? parsed : null;
+  return await probeGitHubRepoImportSource(parsed, options?.auth) ? parsed : null;
 }
 
 async function resolveGitHubPinnedRef(
@@ -2641,11 +2659,22 @@ export function companySkillService(db: Db) {
     const local = !/^https?:\/\//i.test(parsed.resolvedSource);
     const privateGitHubAuth = request.githubAuth?.visibility === "private" ? request.githubAuth : null;
     const requiresPrivateGitHubAuth = privateGitHubAuth !== null;
-    const gitHubSource = !local ? await resolveGitHubRepoImportSource(parsed.resolvedSource) : null;
+    const explicitGitHubSecretId = privateGitHubAuth?.secretId ?? null;
+    const gitHubRepoCandidate = !local ? parseGitHubRepoImportUrlCandidate(parsed.resolvedSource) : null;
+    const gitHubProbeAuth = requiresPrivateGitHubAuth
+      && gitHubRepoCandidate?.isAmbiguous
+      && isLikelyGitHubEnterpriseHostname(gitHubRepoCandidate.hostname)
+      ? await resolveGitHubAuth(companyId, gitHubRepoCandidate.hostname, gitHubRepoCandidate.owner, {
+        explicitSecretId: explicitGitHubSecretId,
+        required: Boolean(explicitGitHubSecretId),
+      })
+      : undefined;
+    const gitHubSource = !local
+      ? await resolveGitHubRepoImportSource(parsed.resolvedSource, { auth: gitHubProbeAuth })
+      : null;
     if (!local && requiresPrivateGitHubAuth && !gitHubSource) {
       throw unprocessable("Private GitHub auth requires a GitHub or GitHub Enterprise repository URL.");
     }
-    const explicitGitHubSecretId = privateGitHubAuth?.secretId ?? null;
     const githubAuth = gitHubSource && requiresPrivateGitHubAuth
       ? await resolveGitHubAuth(companyId, gitHubSource.hostname, gitHubSource.owner, {
         explicitSecretId: explicitGitHubSecretId,

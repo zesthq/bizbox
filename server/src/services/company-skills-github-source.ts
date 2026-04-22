@@ -9,6 +9,14 @@ export type GitHubRepoImportUrlCandidate = {
   isAmbiguous: boolean;
 };
 
+export function isLikelyGitHubEnterpriseHostname(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  const [firstLabel = ""] = normalized.split(".");
+  return normalized.includes(".")
+    ? firstLabel === "git" || firstLabel === "ghe" || firstLabel === "github"
+    : true;
+}
+
 function normalizeGitHubHostname(rawHostname: string | null | undefined) {
   if (typeof rawHostname !== "string") return null;
   const trimmed = rawHostname.trim();

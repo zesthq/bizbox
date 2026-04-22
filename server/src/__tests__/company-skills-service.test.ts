@@ -369,15 +369,20 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const headers = new Headers(init?.headers ?? undefined);
+      const authorization = headers.get("authorization");
 
       if (url === "https://git.example.com/api/v3/repos/acme/private-skills") {
+        if (!authorization) {
+          return new Response("not found", { status: 404 });
+        }
+        expect(authorization).toBe("Bearer ghp_enterprise-token");
         return new Response(JSON.stringify({ default_branch: "main" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
       }
 
-      expect(headers.get("authorization")).toBe("Bearer ghp_enterprise-token");
+      expect(authorization).toBe("Bearer ghp_enterprise-token");
       if (url === "https://git.example.com/api/v3/repos/acme/private-skills/commits/main") {
         return new Response(JSON.stringify({ sha: commitSha }), {
           status: 200,
@@ -415,6 +420,95 @@ describeEmbeddedPostgres("companySkillService.list", () => {
       sourceType: "github",
       sourceLocator: sourceUrl,
     });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://git.example.com/api/v3/repos/acme/private-skills", undefined);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://git.example.com/api/v3/repos/acme/private-skills");
+    expect(new Headers((fetchMock.mock.calls[1]?.[1] as RequestInit | undefined)?.headers ?? undefined).get("authorization"))
+      .toBe("Bearer ghp_enterprise-token");
+  });
+
+  it("uses saved github credentials to confirm private GitHub Enterprise root repo urls", async () => {
+    const companyId = randomUUID();
+    const sourceUrl = "https://git.example.com/acme/private-skills";
+    const commitSha = "0123456789abcdef0123456789abcdef01234567";
+    const secrets = secretService(db);
+
+    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const secret = await secrets.create(companyId, {
+      name: "ghe-acme-saved-token",
+      provider: "local_encrypted",
+      value: "ghp_saved-enterprise-token",
+    });
+    await svc.upsertGitHubCredentialAssociation(companyId, {
+      hostname: "git.example.com",
+      owner: "acme",
+      secretId: secret.id,
+    });
+
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers ?? undefined);
+      const authorization = headers.get("authorization");
+
+      if (url === "https://git.example.com/api/v3/repos/acme/private-skills") {
+        if (!authorization) {
+          return new Response("not found", { status: 404 });
+        }
+        expect(authorization).toBe("Bearer ghp_saved-enterprise-token");
+        return new Response(JSON.stringify({ default_branch: "main" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      expect(authorization).toBe("Bearer ghp_saved-enterprise-token");
+      if (url === "https://git.example.com/api/v3/repos/acme/private-skills/commits/main") {
+        return new Response(JSON.stringify({ sha: commitSha }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === `https://git.example.com/api/v3/repos/acme/private-skills/git/trees/${commitSha}?recursive=1`) {
+        return new Response(JSON.stringify({
+          tree: [
+            { path: "skill-one/SKILL.md", type: "blob" },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === `https://git.example.com/raw/acme/private-skills/${commitSha}/skill-one/SKILL.md`) {
+        return new Response("---\nname: Enterprise Saved Private Skill\n---\n# Enterprise Saved Private Skill\n", { status: 200 });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await svc.importFromSource(companyId, {
+      source: sourceUrl,
+      githubAuth: {
+        visibility: "private",
+      },
+    });
+
+    expect(result.imported).toHaveLength(1);
+    expect(result.imported[0]).toMatchObject({
+      name: "Enterprise Saved Private Skill",
+      sourceType: "github",
+      sourceLocator: sourceUrl,
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://git.example.com/api/v3/repos/acme/private-skills", undefined);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://git.example.com/api/v3/repos/acme/private-skills");
+    expect(new Headers((fetchMock.mock.calls[1]?.[1] as RequestInit | undefined)?.headers ?? undefined).get("authorization"))
+      .toBe("Bearer ghp_saved-enterprise-token");
   });
 
   it("ignores saved github credentials unless private github auth was requested", async () => {
