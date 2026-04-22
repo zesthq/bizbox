@@ -73,10 +73,12 @@ jobs:
               exit 1
             fi
 
-            # Auto-resolve doc/docs conflicts by keeping the fork's version
+            # Auto-resolve doc/docs conflicts by keeping the fork's version (ours)
             echo "Auto-resolving doc/docs conflicts using fork version..."
-            printf '%s\n' "$CONFLICTED" | xargs git checkout HEAD --
-            git add -u
+            while IFS= read -r f; do
+              git checkout --ours -- "$f"
+              git add -- "$f"
+            done <<< "$CONFLICTED"
             git commit -m "chore: sync upstream paperclipai/paperclip $(date +%Y-%m-%d) [doc conflicts auto-resolved]"
           fi
 
