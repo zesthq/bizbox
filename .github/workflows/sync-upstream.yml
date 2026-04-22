@@ -54,8 +54,31 @@ jobs:
       - name: Merge upstream
         if: steps.check.outputs.needed == 'true'
         run: |
+          set +e
           git merge upstream/master --no-edit --allow-unrelated-histories \
             -m "chore: sync upstream paperclipai/paperclip $(date +%Y-%m-%d)"
+          MERGE_EXIT=$?
+          set -e
+
+          if [ "$MERGE_EXIT" -ne 0 ]; then
+            CONFLICTED=$(git diff --name-only --diff-filter=U)
+            echo "Conflicting files:"
+            echo "$CONFLICTED"
+
+            # Fail hard if any conflict is outside doc/ or docs/
+            NON_DOC_CONFLICTS=$(printf '%s\n' "$CONFLICTED" | grep -vE '^(doc|docs)/' || true)
+            if [ -n "$NON_DOC_CONFLICTS" ]; then
+              echo "ERROR: Unresolvable conflicts outside doc/ and docs/:"
+              echo "$NON_DOC_CONFLICTS"
+              exit 1
+            fi
+
+            # Auto-resolve doc/docs conflicts by keeping the fork's version
+            echo "Auto-resolving doc/docs conflicts using fork version..."
+            printf '%s\n' "$CONFLICTED" | xargs git checkout HEAD --
+            git add -u
+            git commit -m "chore: sync upstream paperclipai/paperclip $(date +%Y-%m-%d) [doc conflicts auto-resolved]"
+          fi
 
       - name: Exclude upstream doc/ changes
         if: steps.check.outputs.needed == 'true'
