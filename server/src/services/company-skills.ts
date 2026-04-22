@@ -2202,10 +2202,15 @@ export function companySkillService(db: Db) {
       throw unprocessable("Skill source locator is missing.");
     }
 
+    // Derive gitHubSource from stored metadata to bypass ambiguous URL re-parsing
+    const gitHubSource = skill.sourceType === "github" && sourceUrl
+      ? parseGitHubSourceUrl(sourceUrl)
+      : null;
+
     const result = await resolveGitHubSkillRefresh(
       companyId,
       skill,
-      (githubAuth) => readUrlSkillImports(companyId, sourceUrl, skill.slug, { githubAuth }),
+      (githubAuth) => readUrlSkillImports(companyId, sourceUrl, skill.slug, { githubAuth, gitHubSource }),
     );
     const matching = result.skills.find((entry) => entry.key === skill.key) ?? result.skills[0] ?? null;
     if (!matching) {
