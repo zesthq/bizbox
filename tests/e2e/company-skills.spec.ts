@@ -16,6 +16,9 @@ const COMPANY_NAME = `E2E Skills ${TEST_SUFFIX}`;
 const SKILL_NAME = `E2E Test Skill ${TEST_SUFFIX}`;
 const SKILL_SLUG = `e2e-test-skill-${TEST_SUFFIX}`;
 const SKILL_DESCRIPTION = `A test skill created by E2E automation ${TEST_SUFFIX}`;
+const IMPORTED_SKILL_SLUG = "doc-maintenance";
+const IMPORTED_SKILL_SOURCE =
+  "https://github.com/zesthq/bizbox/tree/master/.agents/skills/doc-maintenance";
 
 type Company = {
   id: string;
@@ -27,7 +30,8 @@ type Company = {
 // ---------------------------------------------------------------------------
 
 test.describe("Company Skills", () => {
-  let company: Company;
+  let company!: Company;
+  let companyIdForCleanup: string | null = null;
 
   test.beforeEach(async ({ page }) => {
     // Navigate to root to initialize page context, then create company via API
@@ -47,6 +51,7 @@ test.describe("Company Skills", () => {
       id: companyData.id,
       prefix: companyData.issuePrefix ?? companyData.id,
     };
+    companyIdForCleanup = company.id;
 
     // The UI company list is loaded before this out-of-band API setup runs.
     // Reload so route-prefix resolution and company-scoped queries target the
@@ -55,13 +60,18 @@ test.describe("Company Skills", () => {
     await page.waitForLoadState("networkidle");
   });
 
+  test.afterEach(async ({ page }) => {
+    if (!companyIdForCleanup) {
+      return;
+    }
+
+    await page.request.delete(`/api/companies/${companyIdForCleanup}`);
+    companyIdForCleanup = null;
+  });
+
   test("supports skill delete → re-import lifecycle with same slug", async ({ page }) => {
     // This test verifies the fix for the duplicate key constraint bug
     // that occurred when re-importing a skill with the same slug after deletion.
-
-    // Use a GitHub skill source that we can import multiple times
-    // Using anthropics/skills/pdf as a stable public test fixture
-    const skillSource = "https://github.com/anthropics/skills/tree/main/skills/pdf";
 
     // Navigate to Skills page
     await page.goto(`/${company.prefix}/skills`);
@@ -80,7 +90,7 @@ test.describe("Company Skills", () => {
     const sourceInput = skillsSidebar.getByPlaceholder(/Paste path, GitHub URL, or skills\.sh command/i);
     await expect(sourceInput).toBeVisible({ timeout: 5_000 });
     await expect(sourceInput).toBeEditable({ timeout: 5_000 });
-    await sourceInput.fill(skillSource);
+    await sourceInput.fill(IMPORTED_SKILL_SOURCE);
 
     const addButton = skillsSidebar.getByRole("button", { name: "Add" });
     await expect(addButton).toBeVisible({ timeout: 5_000 });
@@ -91,7 +101,7 @@ test.describe("Company Skills", () => {
     // The page may already be on another skill detail route before import.
     // Wait for the imported skill title and a URL change before capturing the id.
     await expect(
-      mainContent.getByRole("heading", { level: 1, name: "pdf", exact: true })
+      mainContent.getByRole("heading", { level: 1, name: IMPORTED_SKILL_SLUG, exact: true })
     ).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => page.url(), { timeout: 15_000 }).not.toBe(detailUrlBeforeImport);
     await expect(page).toHaveURL(new RegExp(`/${company.prefix}/skills/[0-9a-f-]+$`), {
@@ -148,7 +158,7 @@ test.describe("Company Skills", () => {
     // Ensure the input is ready, then fill it (fill() automatically clears first)
     await expect(sourceInput).toBeVisible({ timeout: 5_000 });
     await expect(sourceInput).toBeEditable({ timeout: 5_000 });
-    await sourceInput.fill(skillSource);
+    await sourceInput.fill(IMPORTED_SKILL_SOURCE);
 
     await expect(addButton).toBeVisible({ timeout: 5_000 });
     await expect(addButton).toBeEnabled({ timeout: 5_000 });
@@ -156,7 +166,7 @@ test.describe("Company Skills", () => {
     await addButton.click();
     
     await expect(
-      mainContent.getByRole("heading", { level: 1, name: "pdf", exact: true })
+      mainContent.getByRole("heading", { level: 1, name: IMPORTED_SKILL_SLUG, exact: true })
     ).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => page.url(), { timeout: 15_000 }).not.toBe(detailUrlBeforeReimport);
     await expect(page).toHaveURL(new RegExp(`/${company.prefix}/skills/[0-9a-f-]+$`), {
@@ -169,17 +179,17 @@ test.describe("Company Skills", () => {
     // Verify different skill ID (new import creates new record)
     expect(skillId2).not.toBe(skillId1);
 
-    // Verify the skill with slug 'pdf' exists and is the new one
+    // Verify the imported skill exists and is the new one
     const allSkillsRes = await page.request.get(
       `/api/companies/${company.id}/skills`
     );
     expect(allSkillsRes.ok()).toBe(true);
     const allSkills = await allSkillsRes.json();
-    const pdfSkills = allSkills.filter(
-      (s: { slug: string }) => s.slug === "pdf"
+    const importedSkills = allSkills.filter(
+      (s: { slug: string }) => s.slug === IMPORTED_SKILL_SLUG
     );
-    expect(pdfSkills.length).toBe(1);
-    expect(pdfSkills[0].id).toBe(skillId2);
+    expect(importedSkills.length).toBe(1);
+    expect(importedSkills[0].id).toBe(skillId2);
   });
 
   test("creates a new skill via the form", async ({ page }) => {
