@@ -1070,6 +1070,7 @@ export function CompanySkills() {
     }
     setNewGitHubToken("");
     if (didGitHubCredentialScopeChange(previousParsedGitHubSource, parsedGitHubSource)) {
+      setGitHubVisibility("public");
       setGitHubSecretMode("existing");
       setSelectedGitHubSecretId("");
     }

@@ -1,4 +1,5 @@
 import { unprocessable } from "../errors.js";
+import { isLikelyGitHubEnterpriseHostname } from "./company-skills-github-source.js";
 
 function isGitHubDotCom(hostname: string) {
   const h = hostname.toLowerCase();
@@ -8,6 +9,20 @@ function isGitHubDotCom(hostname: string) {
 export type GitHubRequestAuth = {
   token?: string | null;
 };
+
+function isAllowedGitHubFetchHost(url: string) {
+  try {
+    const { hostname } = new URL(url);
+    const normalized = hostname.trim().toLowerCase();
+    return normalized === "api.github.com"
+      || normalized === "github.com"
+      || normalized === "www.github.com"
+      || normalized === "raw.githubusercontent.com"
+      || isLikelyGitHubEnterpriseHostname(normalized);
+  } catch {
+    return false;
+  }
+}
 
 export function gitHubApiBase(hostname: string) {
   return isGitHubDotCom(hostname) ? "https://api.github.com" : `https://${hostname}/api/v3`;
@@ -33,6 +48,10 @@ export function withGitHubAuthHeaders(
 }
 
 export async function ghFetch(url: string, init?: RequestInit, auth?: GitHubRequestAuth): Promise<Response> {
+  if (auth?.token?.trim() && !isAllowedGitHubFetchHost(url)) {
+    throw unprocessable(`Refusing to forward GitHub auth to non-GitHub URL: ${url}`);
+  }
+
   try {
     return await fetch(url, withGitHubAuthHeaders(init, auth));
   } catch {
