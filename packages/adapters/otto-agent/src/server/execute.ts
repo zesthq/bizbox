@@ -2,7 +2,7 @@ import type {
   AdapterExecutionContext,
   AdapterExecutionResult,
 } from "@paperclipai/adapter-utils";
-import { asString, asNumber, parseObject } from "@paperclipai/adapter-utils/server-utils";
+import { asNumber, asString, parseObject } from "@paperclipai/adapter-utils/server-utils";
 
 type OttoAgentConfig = {
   url: string;
@@ -52,12 +52,25 @@ type OttoResponse = {
 function resolveConfig(ctx: AdapterExecutionContext): OttoAgentConfig {
   const raw = parseObject(ctx.config);
   const url = asString(raw.url, "").trim();
+
   if (!url) {
     throw new Error(
       "otto_agent adapter requires 'url' in adapterConfig. Contact your Otto operator for your endpoint.",
     );
   }
+
+  const parsedUrl = new URL(url);
+  if (
+    parsedUrl.protocol === "http:" &&
+    !["localhost", "127.0.0.1", "::1"].includes(parsedUrl.hostname)
+  ) {
+    throw new Error(
+      "otto_agent adapter: plaintext HTTP is not permitted for remote hosts. Use https://.",
+    );
+  }
+
   const apiKey = asString(raw.apiKey, "").trim() || undefined;
+
   return {
     url,
     apiKey,
@@ -65,19 +78,22 @@ function resolveConfig(ctx: AdapterExecutionContext): OttoAgentConfig {
     provider: asString(raw.provider, "").trim() || undefined,
     timeoutSec: asNumber(raw.timeoutSec, 1800),
     toolsets: asString(raw.toolsets, "").trim() || undefined,
-    env: typeof raw.env === "object" && raw.env !== null && !Array.isArray(raw.env)
-      ? (raw.env as Record<string, string>)
-      : undefined,
+    env:
+      typeof raw.env === "object" && raw.env !== null && !Array.isArray(raw.env)
+        ? (raw.env as Record<string, string>)
+        : undefined,
   };
 }
 
 function buildPrompt(ctx: AdapterExecutionContext): string {
   const parts: string[] = [];
   const c = parseObject(ctx.context);
+
   if (c.prompt) parts.push(String(c.prompt));
   if (c.instructions) parts.push(String(c.instructions));
   if (c.wakeText) parts.push(String(c.wakeText));
   if (parts.length === 0) parts.push(JSON.stringify(ctx.context, null, 2));
+
   return parts.join("\n\n");
 }
 
@@ -143,7 +159,9 @@ export async function execute(
     const errorMessage = isTimeout
       ? `Request timed out after ${config.timeoutSec}s`
       : `HTTP request failed: ${err instanceof Error ? err.message : String(err)}`;
+
     await ctx.onLog("stderr", `[otto-agent] ERROR: ${errorMessage}\n`);
+
     return {
       exitCode: 1,
       signal: null,
@@ -156,9 +174,11 @@ export async function execute(
   clearTimeout(timer);
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    const errorMessage = `HTTP ${response.status}: ${response.statusText}${body ? ` — ${body.slice(0, 500)}` : ""}`;
+    const responseBody = await response.text().catch(() => "");
+    const errorMessage = `HTTP ${response.status}: ${response.statusText}${responseBody ? ` — ${responseBody.slice(0, 500)}` : ""}`;
+
     await ctx.onLog("stderr", `[otto-agent] ERROR: ${errorMessage}\n`);
+
     return {
       exitCode: 1,
       signal: null,
@@ -185,6 +205,7 @@ export async function execute(
     "stdout",
     `[otto-agent] response ok — session=${result.sessionId ?? "none"}\n`,
   );
+
   if (result.summary) {
     await ctx.onLog("stdout", result.summary + "\n");
   }
@@ -215,7 +236,7 @@ export async function execute(
     usage: result.usage,
     model: result.model,
     provider: result.provider,
-    billingType: "subscription",
+    billingType: "subscription_included",
     costUsd: result.costUsd ?? null,
   };
 }
