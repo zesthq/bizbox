@@ -9,6 +9,7 @@ import { openClawGatewayUIAdapter } from "./openclaw-gateway";
 import { hermesLocalUIAdapter } from "./hermes-local";
 import { processUIAdapter } from "./process";
 import { httpUIAdapter } from "./http";
+import { ottoAgentUIAdapter } from "./otto-agent";
 import { loadDynamicParser, invalidateDynamicParser } from "./dynamic-loader";
 import { SchemaConfigFields, buildSchemaAdapterConfig } from "./schema-config-fields";
 
@@ -55,6 +56,7 @@ function registerBuiltInUIAdapters() {
     piLocalUIAdapter,
     cursorLocalUIAdapter,
     openClawGatewayUIAdapter,
+    ottoAgentUIAdapter,
     processUIAdapter,
     httpUIAdapter,
   ]) {
