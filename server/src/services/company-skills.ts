@@ -1783,6 +1783,29 @@ export function companySkillService(db: Db) {
     });
   }
 
+  async function resolveGitHubSkillRefresh<T>(
+    companyId: string,
+    skill: Pick<CompanySkill, "metadata">,
+    loader: (githubAuth: ResolvedGitHubAuth) => Promise<T>,
+  ): Promise<{ result: T; usedSavedCredential: boolean }> {
+    if (skillRequiresSavedGitHubCredential(skill)) {
+      try {
+        return {
+          result: await loader({ token: null, secretId: null }),
+          usedSavedCredential: false,
+        };
+      } catch {
+        // Fall through to the saved credential path when the repo is still private.
+      }
+    }
+
+    const githubAuth = await resolveSkillGitHubAuth(companyId, skill);
+    return {
+      result: await loader(githubAuth),
+      usedSavedCredential: Boolean(githubAuth.secretId),
+    };
+  }
+
   async function ensureBundledSkills(companyId: string) {
     for (const skillsRoot of resolveBundledSkillsRoot()) {
       const stats = await fs.stat(skillsRoot).catch(() => null);
@@ -2003,10 +2026,11 @@ export function companySkillService(db: Db) {
     const hostname = asString(metadata.hostname) || "github.com";
     const apiBase = gitHubApiBase(hostname);
     try {
-      const githubAuth = await resolveGitHubAuth(companyId, hostname, owner, {
-        required: skillRequiresSavedGitHubCredential(skill),
-      });
-      const latestRef = await resolveGitHubCommitSha(owner, repo, trackingRef, apiBase, githubAuth);
+      const { result: latestRef } = await resolveGitHubSkillRefresh(
+        companyId,
+        skill,
+        (githubAuth) => resolveGitHubCommitSha(owner, repo, trackingRef, apiBase, githubAuth),
+      );
       return {
         supported: true,
         reason: null,
@@ -2188,20 +2212,17 @@ export function companySkillService(db: Db) {
       throw unprocessable("Skill source locator is missing.");
     }
 
-    const githubAuth =
-      skill.sourceType === "github" || skill.sourceType === "skills_sh"
-        ? await resolveSkillGitHubAuth(companyId, skill)
-        : undefined;
-
-    const result = await readUrlSkillImports(companyId, sourceUrl, skill.slug, {
-      githubAuth,
-    });
+    const { result, usedSavedCredential } = await resolveGitHubSkillRefresh(
+      companyId,
+      skill,
+      (githubAuth) => readUrlSkillImports(companyId, sourceUrl, skill.slug, { githubAuth }),
+    );
     const matching = result.skills.find((entry) => entry.key === skill.key) ?? result.skills[0] ?? null;
     if (!matching) {
       throw unprocessable(`Skill ${skill.key} could not be re-imported from its source.`);
     }
 
-    if (skillRequiresSavedGitHubCredential(skill)) {
+    if (skillRequiresSavedGitHubCredential(skill) && usedSavedCredential) {
       matching.metadata = {
         ...(matching.metadata ?? {}),
         authScope: "owner",

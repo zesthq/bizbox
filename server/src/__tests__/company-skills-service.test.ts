@@ -182,6 +182,111 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     );
   });
 
+  it("clears owner auth on update when the repo is now publicly accessible", async () => {
+    const companyId = randomUUID();
+    const skillId = randomUUID();
+    const commitSha = "fedcba9876543210fedcba9876543210fedcba98";
+    const secrets = secretService(db);
+
+    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const secret = await secrets.create(companyId, {
+      name: "github-acme-token",
+      provider: "local_encrypted",
+      value: "ghp_saved-token",
+    });
+
+    await db.insert(companyGitHubCredentials).values({
+      companyId,
+      hostname: "github.com",
+      owner: "acme",
+      secretId: secret.id,
+    });
+
+    await db.insert(companySkills).values({
+      id: skillId,
+      companyId,
+      key: "acme/public-skills/skill-one",
+      slug: "skill-one",
+      name: "Skill One",
+      description: null,
+      markdown: "# Old Skill One\n",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/public-skills",
+      sourceRef: "old-sha",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [{ path: "SKILL.md", kind: "skill" }],
+      metadata: {
+        sourceKind: "github",
+        hostname: "github.com",
+        owner: "acme",
+        repo: "public-skills",
+        trackingRef: "main",
+        ref: "old-sha",
+        authScope: "owner",
+      },
+    });
+
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers ?? undefined);
+      expect(headers.get("authorization")).toBeNull();
+
+      if (url === "https://api.github.com/repos/acme/public-skills") {
+        return new Response(JSON.stringify({ default_branch: "main" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "https://api.github.com/repos/acme/public-skills/commits/main") {
+        return new Response(JSON.stringify({ sha: commitSha }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === `https://api.github.com/repos/acme/public-skills/git/trees/${commitSha}?recursive=1`) {
+        return new Response(JSON.stringify({
+          tree: [
+            { path: "skill-one/SKILL.md", type: "blob" },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === `https://raw.githubusercontent.com/acme/public-skills/${commitSha}/skill-one/SKILL.md`) {
+        return new Response("---\nslug: skill-one\nname: Public Skill\n---\n# Public Skill\n", { status: 200 });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await svc.updateStatus(companyId, skillId);
+    const updated = await svc.installUpdate(companyId, skillId);
+
+    expect(status).toMatchObject({
+      supported: true,
+      latestRef: commitSha,
+      hasUpdate: true,
+    });
+    expect(updated).toMatchObject({
+      id: skillId,
+      name: "Public Skill",
+      sourceRef: commitSha,
+    });
+    expect(updated?.metadata).not.toMatchObject({
+      authScope: "owner",
+    });
+  });
+
   it("imports plain markdown https skill urls without github auth", async () => {
     const companyId = randomUUID();
     const sourceUrl = "https://docs.example.com/skills/private-skill.md";

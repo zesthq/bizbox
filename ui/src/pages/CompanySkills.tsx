@@ -320,6 +320,32 @@ export function didGitHubCredentialScopeChange(
     || previous.owner.toLowerCase() !== next.owner.toLowerCase();
 }
 
+export function buildGitHubUpdateBlockedMessage(reason: string) {
+  return reason.startsWith("No GitHub credential saved")
+    ? `${reason} Re-import this skill from the source field with a private GitHub credential to restore update access.`
+    : reason;
+}
+
+export function isLikelyGitHubSecret(secret: Pick<CompanySecret, "name" | "description">) {
+  return /(github|personal access token|\bpat\b)/i.test(`${secret.name} ${secret.description ?? ""}`);
+}
+
+export function filterLikelyGitHubSecrets(
+  secrets: CompanySecret[],
+  preferredSecretId?: string | null,
+) {
+  const filtered = secrets.filter(isLikelyGitHubSecret);
+  if (!preferredSecretId) return filtered;
+  const preferred = secrets.find((secret) => secret.id === preferredSecretId);
+  if (!preferred || filtered.some((secret) => secret.id === preferred.id)) return filtered;
+  return [...filtered, preferred];
+}
+
+export function formatGitHubSecretOptionLabel(secret: Pick<CompanySecret, "name" | "description">) {
+  const description = secret.description?.trim();
+  return description ? `${secret.name} - ${description}` : secret.name;
+}
+
 type PrivateGitHubImportDependencies = {
   createSecret: typeof secretsApi.create;
   importFromSource: typeof companySkillsApi.importFromSource;
@@ -781,10 +807,7 @@ function SkillPane({
                 )}
                 {!updateStatus?.supported && updateStatus?.reason && (
                   <span className="text-xs text-muted-foreground">
-                    {updateStatus.reason}
-                    {updateStatus.reason.startsWith("No GitHub credential saved")
-                      ? " Add a private GitHub credential in the import panel to restore access."
-                      : ""}
+                    {buildGitHubUpdateBlockedMessage(updateStatus.reason)}
                   </span>
                 )}
               </div>
@@ -999,7 +1022,10 @@ export function CompanySkills() {
     ) ?? null;
   }, [githubCredentialsQuery.data, parsedGitHubSource]);
 
-  const availableSecrets = useMemo<CompanySecret[]>(() => secretsQuery.data ?? [], [secretsQuery.data]);
+  const availableSecrets = useMemo<CompanySecret[]>(
+    () => filterLikelyGitHubSecrets(secretsQuery.data ?? [], matchingGitHubCredential?.secretId),
+    [matchingGitHubCredential?.secretId, secretsQuery.data],
+  );
 
   useEffect(() => {
     setExpandedSkillId(selectedSkillId);
@@ -1542,21 +1568,30 @@ export function CompanySkills() {
                       </select>
                     </div>
                     {githubSecretMode === "existing" ? (
-                      <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-center">
-                        <label className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Secret</label>
-                        <select
-                          value={selectedGitHubSecretId}
-                          onChange={(event) => setSelectedGitHubSecretId(event.target.value)}
-                          className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-                        >
-                          <option value="">Select company secret...</option>
-                          {availableSecrets.map((secret) => (
-                            <option key={secret.id} value={secret.id}>
-                              {secret.name}
+                      <>
+                        <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-center">
+                          <label className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Secret</label>
+                          <select
+                            value={selectedGitHubSecretId}
+                            onChange={(event) => setSelectedGitHubSecretId(event.target.value)}
+                            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+                          >
+                            <option value="">
+                              {availableSecrets.length > 0 ? "Select GitHub company secret..." : "No likely GitHub secrets found"}
                             </option>
-                          ))}
-                        </select>
-                      </div>
+                            {availableSecrets.map((secret) => (
+                              <option key={secret.id} value={secret.id}>
+                                {formatGitHubSecretOptionLabel(secret)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {availableSecrets.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Use a secret named like <code>*github*</code> or <code>*_pat</code>, or create a new token below.
+                          </p>
+                        )}
+                      </>
                     ) : (
                       <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-start">
                         <label className="pt-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">Token</label>
