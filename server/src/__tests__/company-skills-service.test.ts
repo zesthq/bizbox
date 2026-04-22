@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   companies,
@@ -1114,5 +1115,124 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     await expect(svc.listGitHubCredentialAssociations(companyId, { hostname: "gist.github.com" })).resolves.toMatchObject([
       { hostname: "github.com", owner: "acme", secretId: secret.id },
     ]);
+  });
+
+  it("supports import → update → delete → re-import lifecycle without duplicate key errors", async () => {
+    const companyId = randomUUID();
+    const initialSha = "abc123initial";
+    const updatedSha = "def456updated";
+    const source = "https://github.com/testorg/testrepo";
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Test Company",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    // Mock GitHub API responses
+    let commitCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      
+      if (url === "https://api.github.com/repos/testorg/testrepo") {
+        return new Response(JSON.stringify({ default_branch: "main" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      
+      if (url === "https://api.github.com/repos/testorg/testrepo/commits/main") {
+        // Return initial SHA on first import, updated SHA on re-imports
+        commitCallCount++;
+        const sha = commitCallCount <= 1 ? initialSha : updatedSha;
+        return new Response(JSON.stringify({ sha }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      
+      if (url === `https://api.github.com/repos/testorg/testrepo/git/trees/${initialSha}?recursive=1`) {
+        return new Response(JSON.stringify({
+          tree: [
+            { path: "test-skill/SKILL.md", type: "blob" },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      
+      if (url === `https://api.github.com/repos/testorg/testrepo/git/trees/${updatedSha}?recursive=1`) {
+        return new Response(JSON.stringify({
+          tree: [
+            { path: "test-skill/SKILL.md", type: "blob" },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      
+      if (url === `https://raw.githubusercontent.com/testorg/testrepo/${initialSha}/test-skill/SKILL.md`) {
+        return new Response("---\nslug: test-skill\nname: Test Skill\n---\n# Test Skill Initial\n", { status: 200 });
+      }
+      
+      if (url === `https://raw.githubusercontent.com/testorg/testrepo/${updatedSha}/test-skill/SKILL.md`) {
+        return new Response("---\nslug: test-skill\nname: Test Skill\n---\n# Test Skill Updated\n", { status: 200 });
+      }
+      
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      // Step 1: Initial import
+      const importResult1 = await svc.importFromSource(companyId, { source });
+      expect(importResult1.imported).toHaveLength(1);
+      const skill1 = importResult1.imported[0]!;
+      expect(skill1.key).toBe("testorg/testrepo/test-skill");
+      expect(skill1.slug).toBe("test-skill");
+      expect(skill1.name).toBe("Test Skill");
+      expect(skill1.sourceRef).toBe(initialSha);
+      expect(skill1.markdown).toContain("Test Skill Initial");
+
+      // Step 2: Re-import same source (simulating update)
+      const importResult2 = await svc.importFromSource(companyId, { source });
+      expect(importResult2.imported).toHaveLength(1);
+      const skill2 = importResult2.imported[0]!;
+
+      // Should update existing skill, not create new one
+      expect(skill2.id).toBe(skill1.id);
+      expect(skill2.key).toBe("testorg/testrepo/test-skill");
+      expect(skill2.sourceRef).toBe(updatedSha);
+      expect(skill2.markdown).toContain("Test Skill Updated");
+
+      // Step 3: Delete skill
+      const deleted = await svc.deleteSkill(companyId, skill1.id);
+      expect(deleted).toBeTruthy();
+      expect(deleted!.id).toBe(skill1.id);
+
+      // Step 4: Re-import after deletion (this should NOT throw duplicate key error)
+      const importResult3 = await svc.importFromSource(companyId, { source });
+      expect(importResult3.imported).toHaveLength(1);
+      const skill3 = importResult3.imported[0]!;
+
+      // Should create new skill (different ID from original)
+      expect(skill3.id).not.toBe(skill1.id);
+      expect(skill3.key).toBe("testorg/testrepo/test-skill");
+      expect(skill3.slug).toBe("test-skill");
+      expect(skill3.sourceRef).toBe(updatedSha);
+
+      // Verify no duplicate key constraint violation occurred
+      const allSkills = await db
+        .select()
+        .from(companySkills)
+        .where(eq(companySkills.companyId, companyId));
+      const testSkills = allSkills.filter((s) => s.key === "testorg/testrepo/test-skill");
+      expect(testSkills).toHaveLength(1);
+      expect(testSkills[0]!.id).toBe(skill3.id);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
