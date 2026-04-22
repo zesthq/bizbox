@@ -909,4 +909,111 @@ describeEmbeddedPostgres("companySkillService.list", () => {
       secretId: secret.id,
     });
   });
+
+  it("redacts private github raw URLs from readFile fetch failures", async () => {
+    const companyId = randomUUID();
+    const skillId = randomUUID();
+    const commitSha = "0123456789abcdef0123456789abcdef01234567";
+    const secrets = secretService(db);
+
+    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const secret = await secrets.create(companyId, {
+      name: "github-acme-token",
+      provider: "local_encrypted",
+      value: "ghp_saved-token",
+    });
+
+    await db.insert(companyGitHubCredentials).values({
+      companyId,
+      hostname: "github.com",
+      owner: "acme",
+      secretId: secret.id,
+    });
+
+    await db.insert(companySkills).values({
+      id: skillId,
+      companyId,
+      key: "acme/private-skills/skill-one",
+      slug: "skill-one",
+      name: "Skill One",
+      description: null,
+      markdown: "# Old Skill One\n",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skills",
+      sourceRef: commitSha,
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [{ path: "SKILL.md", kind: "skill" }],
+      metadata: {
+        sourceKind: "github",
+        hostname: "github.com",
+        owner: "acme",
+        repo: "private-skills",
+        ref: commitSha,
+        authScope: "owner",
+      },
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers ?? undefined);
+      expect(headers.get("authorization")).toBe("Bearer ghp_saved-token");
+
+      if (url === `https://raw.githubusercontent.com/acme/private-skills/${commitSha}/skill-one/SKILL.md`) {
+        return new Response("missing", { status: 404 });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }));
+
+    const error = await svc.readFile(companyId, skillId, "SKILL.md").catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("Failed to fetch skill files from raw.githubusercontent.com: 404");
+    expect((error as Error).message).not.toMatch(/acme|private-skills|skill-one|SKILL\.md/);
+  });
+
+  it("ignores invalid github hostnames for credential lookups instead of querying them directly", async () => {
+    const companyId = randomUUID();
+    const secrets = secretService(db);
+
+    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const secret = await secrets.create(companyId, {
+      name: "github-acme-token",
+      provider: "local_encrypted",
+      value: "ghp_saved-token",
+    });
+
+    await db.insert(companyGitHubCredentials).values({
+      companyId,
+      hostname: "github.com",
+      owner: "acme",
+      secretId: secret.id,
+    });
+
+    const selectSpy = vi.spyOn(db, "select");
+
+    await expect(svc.getGitHubCredentialAssociation(companyId, "gist.github.com", "acme")).resolves.toBeNull();
+    expect(selectSpy).not.toHaveBeenCalled();
+
+    await expect(svc.listGitHubCredentialAssociations(companyId, { hostname: "gist.github.com" })).resolves.toMatchObject([
+      { hostname: "github.com", owner: "acme", secretId: secret.id },
+    ]);
+  });
 });

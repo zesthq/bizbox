@@ -16,6 +16,7 @@ const mockCompanySkillService = vi.hoisted(() => ({
   importFromSource: vi.fn(),
   installUpdate: vi.fn(),
   listGitHubCredentialAssociations: vi.fn(),
+  readFile: vi.fn(),
   updateStatus: vi.fn(),
   upsertGitHubCredentialAssociation: vi.fn(),
   deleteSkill: vi.fn(),
@@ -103,6 +104,15 @@ describe("company skill mutation permissions", () => {
       currentRef: "sha-1",
     });
     mockCompanySkillService.listGitHubCredentialAssociations.mockResolvedValue([]);
+    mockCompanySkillService.readFile.mockResolvedValue({
+      skillId: "skill-1",
+      path: "SKILL.md",
+      kind: "skill",
+      content: "# Test Skill",
+      language: "markdown",
+      markdown: true,
+      editable: false,
+    });
     mockCompanySkillService.upsertGitHubCredentialAssociation.mockResolvedValue({
       id: "assoc-1",
       companyId: "company-1",
@@ -747,5 +757,96 @@ describe("company skill mutation permissions", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(mockCompanySkillService.updateStatus).toHaveBeenCalledWith("company-1", "skill-1");
+  });
+
+  it("blocks agents from reading files for private github skills that require saved owner auth", async () => {
+    mockCompanySkillService.detail.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "acme/private-skill/private-skill",
+      slug: "private-skill",
+      name: "Private Skill",
+      description: null,
+      markdown: "# Private Skill",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skill",
+      sourceRef: "sha-1",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: { authScope: "owner" },
+      sourceBadge: "github",
+      editable: false,
+      editableReason: null,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .get("/api/companies/company-1/skills/skill-1/files")
+      .query({ path: "SKILL.md" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.readFile).not.toHaveBeenCalled();
+  });
+
+  it("still allows board users to read files for private github skills that require saved owner auth", async () => {
+    mockCompanySkillService.detail.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "acme/private-skill/private-skill",
+      slug: "private-skill",
+      name: "Private Skill",
+      description: null,
+      markdown: "# Private Skill",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skill",
+      sourceRef: "sha-1",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: { authScope: "owner" },
+      sourceBadge: "github",
+      editable: false,
+      editableReason: null,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .get("/api/companies/company-1/skills/skill-1/files")
+      .query({ path: "SKILL.md" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.readFile).toHaveBeenCalledWith("company-1", "skill-1", "SKILL.md");
+  });
+
+  it("still allows agents to read files for skills that do not require owner github auth", async () => {
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .get("/api/companies/company-1/skills/skill-1/files")
+      .query({ path: "SKILL.md" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.readFile).toHaveBeenCalledWith("company-1", "skill-1", "SKILL.md");
   });
 });

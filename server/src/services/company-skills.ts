@@ -272,11 +272,6 @@ function normalizeSkillKey(value: string | null | undefined) {
   return segments.length > 0 ? segments.join("/") : null;
 }
 
-function normalizeGitHubHostname(value: string | null | undefined) {
-  const trimmed = asString(value);
-  return trimmed ? trimmed.toLowerCase() : null;
-}
-
 function normalizeGitHubOwner(value: string | null | undefined) {
   const trimmed = asString(value);
   return trimmed ? trimmed.toLowerCase() : null;
@@ -582,7 +577,7 @@ function parseFrontmatterMarkdown(raw: string): { frontmatter: Record<string, un
 async function fetchText(url: string, auth?: ResolvedGitHubAuth) {
   const response = await ghFetch(url, undefined, auth ? { token: auth.token } : undefined);
   if (!response.ok) {
-    throw unprocessable(`Failed to fetch ${url}: ${response.status}`);
+    throw unprocessable(buildFetchFailureMessage(url, response.status));
   }
   return response.text();
 }
@@ -594,9 +589,18 @@ async function fetchJson<T>(url: string, auth?: ResolvedGitHubAuth): Promise<T> 
     },
   }, auth ? { token: auth.token } : undefined);
   if (!response.ok) {
-    throw unprocessable(`Failed to fetch ${url}: ${response.status}`);
+    throw unprocessable(buildFetchFailureMessage(url, response.status));
   }
   return response.json() as Promise<T>;
+}
+
+function buildFetchFailureMessage(url: string, status: number) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return `Failed to fetch skill files from ${hostname}: ${status}`;
+  } catch {
+    return `Failed to fetch skill files: ${status}`;
+  }
 }
 
 
@@ -1652,7 +1656,7 @@ export function companySkillService(db: Db) {
     hostname: string,
     owner: string,
   ): Promise<CompanyGitHubCredentialAssociation | null> {
-    const normalizedHostname = normalizeGitHubHostname(hostname);
+    const normalizedHostname = normalizeGitHubCredentialAssociationHostname(hostname);
     const normalizedOwner = normalizeGitHubOwner(owner);
     if (!normalizedHostname || !normalizedOwner) return null;
 
@@ -1675,7 +1679,7 @@ export function companySkillService(db: Db) {
     filter?: { hostname?: string | null; owner?: string | null },
   ): Promise<CompanyGitHubCredentialAssociation[]> {
     const conditions = [eq(companyGitHubCredentials.companyId, companyId)];
-    const normalizedHostname = normalizeGitHubHostname(filter?.hostname);
+    const normalizedHostname = normalizeGitHubCredentialAssociationHostname(filter?.hostname);
     const normalizedOwner = normalizeGitHubOwner(filter?.owner);
     if (normalizedHostname) {
       conditions.push(eq(companyGitHubCredentials.hostname, normalizedHostname));
@@ -1736,7 +1740,7 @@ export function companySkillService(db: Db) {
     owner: string,
     options?: GitHubAuthResolutionOptions,
   ): Promise<ResolvedGitHubAuth> {
-    const normalizedHostname = normalizeGitHubHostname(hostname);
+    const normalizedHostname = normalizeGitHubCredentialAssociationHostname(hostname);
     const normalizedOwner = normalizeGitHubOwner(owner);
     if (!normalizedHostname || !normalizedOwner) {
       throw unprocessable("GitHub source metadata is incomplete.");
