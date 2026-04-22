@@ -9,8 +9,8 @@
 
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { heartbeatRuns } from "@paperclipai/db";
-import { eq, inArray } from "drizzle-orm";
+import { heartbeatRuns, companies } from "@paperclipai/db";
+import { inArray } from "drizzle-orm";
 import { assertInstanceAdmin, getActorInfo } from "./authz.js";
 import { heartbeatService, logActivity } from "../services/index.js";
 import { logger } from "../middleware/logger.js";
@@ -47,16 +47,21 @@ export function emergencyStopRoutes(db: Db) {
     let cancelledCount = 0;
     const errors: Array<{ runId: string; error: string }> = [];
 
-    for (const run of activeRuns) {
-      try {
-        await heartbeat.cancelRun(run.id);
+    const results = await Promise.allSettled(
+      activeRuns.map((run) => heartbeat.cancelRun(run.id))
+    );
+
+    results.forEach((result, i) => {
+      if (result.status === "fulfilled") {
         cancelledCount++;
-      } catch (err) {
+      } else {
+        const run = activeRuns[i]!;
+        const err = result.reason;
         const message = err instanceof Error ? err.message : String(err);
         errors.push({ runId: run.id, error: message });
         logger.error({ runId: run.id, err: message }, "emergency-stop: failed to cancel run");
       }
-    }
+    });
 
     // Log the emergency stop action to all affected companies
     const affectedCompanyIds = [...new Set(activeRuns.map((r) => r.companyId))];
@@ -111,20 +116,27 @@ export function emergencyStopRoutes(db: Db) {
       .where(inArray(heartbeatRuns.status, ["queued", "running"]));
 
     let cancelledCount = 0;
-    for (const run of activeRuns) {
-      try {
-        await heartbeat.cancelRun(run.id);
+    
+    const results = await Promise.allSettled(
+      activeRuns.map((run) => heartbeat.cancelRun(run.id))
+    );
+
+    results.forEach((result, i) => {
+      if (result.status === "fulfilled") {
         cancelledCount++;
-      } catch (err) {
+      } else {
+        const run = activeRuns[i]!;
+        const err = result.reason;
         logger.error(
           { runId: run.id, err: err instanceof Error ? err.message : String(err) },
           "emergency-stop-server: failed to cancel run",
         );
       }
-    }
+    });
 
     // Log to all companies before exiting
-    const affectedCompanyIds = [...new Set(activeRuns.map((r) => r.companyId))];
+    const allCompanies = await db.select({ id: companies.id }).from(companies);
+    const affectedCompanyIds = allCompanies.map((c) => c.id);
     for (const companyId of affectedCompanyIds) {
       await logActivity(db, {
         companyId,

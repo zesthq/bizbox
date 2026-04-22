@@ -7,6 +7,7 @@ import { heartbeatsApi } from "../api/heartbeats";
 import { emergencyStopApi } from "../api/emergencyStop";
 import { agentsApi } from "../api/agents";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useToastActions } from "../context/ToastContext";
 import { EmptyState } from "../components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ export function InstanceSettings() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+  const { pushToast } = useToastActions();
 
   useEffect(() => {
     setBreadcrumbs([
@@ -154,7 +156,7 @@ export function InstanceSettings() {
     mutationFn: () => emergencyStopApi.shutdownServer(),
     onSuccess: (data) => {
       setActionError(null);
-      alert(`Shutdown initiated. ${data.message} The UI will now lose connection.`);
+      pushToast({ title: "Shutdown initiated", body: `${data.message} The UI will now lose connection.`, tone: "info" });
     },
     onError: (error) => {
       setActionError(error instanceof Error ? error.message : "Failed to shutdown server.");
@@ -165,7 +167,7 @@ export function InstanceSettings() {
     mutationFn: () => emergencyStopApi.stopAllRuns(),
     onSuccess: (data) => {
       setActionError(null);
-      alert(data.message);
+      pushToast({ title: "Success", body: data.message, tone: "success" });
       queryClient.invalidateQueries({ queryKey: ["instance", "emergency-stop", "status"] });
     },
     onError: (error) => {
