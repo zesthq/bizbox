@@ -1698,6 +1698,7 @@ export function companySkillService(db: Db) {
   async function upsertGitHubCredentialAssociation(
     companyId: string,
     input: { hostname: string; owner: string; secretId: string },
+    dbOrTx: Db | Parameters<Parameters<Db["transaction"]>[0]>[0] = db,
   ): Promise<CompanyGitHubCredentialAssociation> {
     const preparedInput = prepareGitHubCredentialAssociationInput(input);
 
@@ -1709,7 +1710,7 @@ export function companySkillService(db: Db) {
     const now = new Date();
     const existing = await getGitHubCredentialAssociation(companyId, preparedInput.hostname, preparedInput.owner);
     const row = existing
-      ? await db
+      ? await dbOrTx
         .update(companyGitHubCredentials)
         .set({
           secretId: preparedInput.secretId,
@@ -1718,7 +1719,7 @@ export function companySkillService(db: Db) {
         .where(eq(companyGitHubCredentials.id, existing.id))
         .returning()
         .then((rows) => rows[0] ?? null)
-      : await db
+      : await dbOrTx
         .insert(companyGitHubCredentials)
         .values({
           companyId,
@@ -2614,7 +2615,11 @@ export function companySkillService(db: Db) {
     return out;
   }
 
-  async function upsertImportedSkills(companyId: string, imported: ImportedSkill[]): Promise<CompanySkill[]> {
+  async function upsertImportedSkills(
+    companyId: string,
+    imported: ImportedSkill[],
+    dbOrTx: Db | Parameters<Parameters<Db["transaction"]>[0]>[0] = db,
+  ): Promise<CompanySkill[]> {
     const out: CompanySkill[] = [];
     for (const skill of imported) {
       const existing = await getByKey(companyId, skill.key);
@@ -2655,13 +2660,13 @@ export function companySkillService(db: Db) {
         updatedAt: new Date(),
       };
       const row = existing
-        ? await db
+        ? await dbOrTx
           .update(companySkills)
           .set(values)
           .where(eq(companySkills.id, existing.id))
           .returning()
           .then((rows) => rows[0] ?? null)
-        : await db
+        : await dbOrTx
           .insert(companySkills)
           .values(values)
           .returning()
@@ -2754,10 +2759,13 @@ export function companySkillService(db: Db) {
         secretId: githubAuth.secretId,
       })
       : null;
-    const imported = await upsertImportedSkills(companyId, filteredSkills);
-    if (gitHubCredentialAssociationInput) {
-      await upsertGitHubCredentialAssociation(companyId, gitHubCredentialAssociationInput);
-    }
+    const imported = await db.transaction(async (tx) => {
+      const skills = await upsertImportedSkills(companyId, filteredSkills, tx);
+      if (gitHubCredentialAssociationInput) {
+        await upsertGitHubCredentialAssociation(companyId, gitHubCredentialAssociationInput, tx);
+      }
+      return skills;
+    });
     return { imported, warnings };
   }
 
