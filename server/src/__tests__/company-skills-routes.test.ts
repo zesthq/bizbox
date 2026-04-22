@@ -406,6 +406,30 @@ describe("company skill mutation permissions", () => {
     });
   });
 
+  it("allows agent callers to import two-segment non-github https urls", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: { canCreateAgents: true },
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .post("/api/companies/company-1/skills/import")
+      .send({
+        source: "https://example.com/a/b",
+      });
+
+    expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
+    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
+      source: "https://example.com/a/b",
+    });
+  });
+
   it("blocks agent callers from importing with an explicit github secret id even when visibility is public", async () => {
     mockAgentService.getById.mockResolvedValue({
       id: "agent-1",

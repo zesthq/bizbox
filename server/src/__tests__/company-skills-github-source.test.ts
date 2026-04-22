@@ -12,8 +12,18 @@ describe("looksLikeGitHubRepoImportUrl", () => {
     );
   });
 
+  it("accepts blob urls", () => {
+    expect(
+      looksLikeGitHubRepoImportUrl("https://github.com/zesthq/citro-box/blob/main/skills/private-skill/SKILL.md"),
+    ).toBe(true);
+  });
+
   it("rejects plain markdown urls on non-github hosts", () => {
     expect(looksLikeGitHubRepoImportUrl("https://docs.example.com/skills/private-skill.md")).toBe(false);
+  });
+
+  it("rejects two-segment non-github urls without an explicit repo marker", () => {
+    expect(looksLikeGitHubRepoImportUrl("https://docs.example.com/skills/private-skill")).toBe(false);
   });
 
   it("rejects non-tree subpaths", () => {

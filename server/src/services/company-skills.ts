@@ -33,7 +33,11 @@ import { findActiveServerAdapter } from "../adapters/index.js";
 import { resolvePaperclipInstanceRoot } from "../home-paths.js";
 import { internalError, notFound, unprocessable } from "../errors.js";
 import { ghFetch, gitHubApiBase, resolveRawGitHubUrl } from "./github-fetch.js";
-import { looksLikeGitHubRepoImportUrl } from "./company-skills-github-source.js";
+import {
+  looksLikeGitHubRepoImportUrl,
+  parseGitHubRepoImportUrlCandidate,
+  normalizeGitHubCredentialAssociationHostname,
+} from "./company-skills-github-source.js";
 import { agentService } from "./agents.js";
 import { projectService } from "./projects.js";
 import { secretService } from "./secrets.js";
@@ -147,8 +151,19 @@ type GitHubAuthResolutionOptions = {
   required?: boolean;
 };
 
+type ParsedGitHubSkillImportSource = {
+  hostname: string;
+  owner: string;
+  repo: string;
+  ref: string;
+  basePath: string;
+  filePath: string | null;
+  explicitRef: boolean;
+};
+
 type ReadUrlSkillImportsOptions = {
   githubAuth?: ResolvedGitHubAuth;
+  gitHubSource?: ParsedGitHubSkillImportSource | null;
 };
 
 export type LocalSkillInventoryMode = "full" | "project_root";
@@ -264,6 +279,19 @@ function normalizeGitHubHostname(value: string | null | undefined) {
 function normalizeGitHubOwner(value: string | null | undefined) {
   const trimmed = asString(value);
   return trimmed ? trimmed.toLowerCase() : null;
+}
+
+function prepareGitHubCredentialAssociationInput(input: { hostname: string; owner: string; secretId: string }) {
+  const normalizedHostname = normalizeGitHubCredentialAssociationHostname(input.hostname);
+  const normalizedOwner = normalizeGitHubOwner(input.owner);
+  if (!normalizedHostname || !normalizedOwner) {
+    throw unprocessable("GitHub credential association requires a GitHub-style hostname and owner.");
+  }
+  return {
+    hostname: normalizedHostname,
+    owner: normalizedOwner,
+    secretId: input.secretId,
+  };
 }
 
 function skillRequiresSavedGitHubCredential(skill: Pick<CompanySkill, "metadata">) {
@@ -597,7 +625,7 @@ async function resolveGitHubCommitSha(
   return sha;
 }
 
-function parseGitHubSourceUrl(rawUrl: string) {
+function parseGitHubSourceUrl(rawUrl: string): ParsedGitHubSkillImportSource {
   const url = new URL(rawUrl);
   if (url.protocol !== "https:") {
     throw unprocessable("GitHub source URL must use HTTPS");
@@ -625,8 +653,27 @@ function parseGitHubSourceUrl(rawUrl: string) {
   return { hostname: url.hostname, owner, repo, ref, basePath, filePath, explicitRef };
 }
 
+async function probeGitHubRepoImportSource(parsed: ParsedGitHubSkillImportSource) {
+  const apiBase = gitHubApiBase(parsed.hostname);
+  return ghFetch(`${apiBase}/repos/${parsed.owner}/${parsed.repo}`)
+    .then((response) => response.ok)
+    .catch(() => false);
+}
+
+async function resolveGitHubRepoImportSource(rawUrl: string): Promise<ParsedGitHubSkillImportSource | null> {
+  const candidate = parseGitHubRepoImportUrlCandidate(rawUrl);
+  if (!candidate) return null;
+
+  const parsed = parseGitHubSourceUrl(rawUrl);
+  if (!candidate.isAmbiguous) {
+    return parsed;
+  }
+
+  return await probeGitHubRepoImportSource(parsed) ? parsed : null;
+}
+
 async function resolveGitHubPinnedRef(
-  parsed: ReturnType<typeof parseGitHubSourceUrl>,
+  parsed: ParsedGitHubSkillImportSource,
   auth?: ResolvedGitHubAuth,
 ) {
   const apiBase = gitHubApiBase(parsed.hostname);
@@ -1075,9 +1122,8 @@ async function readUrlSkillImports(
 ): Promise<{ skills: ImportedSkill[]; warnings: string[] }> {
   const url = sourceUrl.trim();
   const warnings: string[] = [];
-  const looksLikeRepoUrl = looksLikeGitHubRepoImportUrl(url);
-  if (looksLikeRepoUrl) {
-    const parsed = parseGitHubSourceUrl(url);
+  const parsed = options?.gitHubSource ?? (looksLikeGitHubRepoImportUrl(url) ? parseGitHubSourceUrl(url) : null);
+  if (parsed) {
     const apiBase = gitHubApiBase(parsed.hostname);
     const { pinnedRef, trackingRef } = await resolveGitHubPinnedRef(parsed, options?.githubAuth);
     let ref = pinnedRef;
@@ -1631,24 +1677,20 @@ export function companySkillService(db: Db) {
     companyId: string,
     input: { hostname: string; owner: string; secretId: string },
   ): Promise<CompanyGitHubCredentialAssociation> {
-    const normalizedHostname = normalizeGitHubHostname(input.hostname);
-    const normalizedOwner = normalizeGitHubOwner(input.owner);
-    if (!normalizedHostname || !normalizedOwner) {
-      throw unprocessable("GitHub credential association requires hostname and owner.");
-    }
+    const preparedInput = prepareGitHubCredentialAssociationInput(input);
 
-    const secret = await secretsSvc.getById(input.secretId);
+    const secret = await secretsSvc.getById(preparedInput.secretId);
     if (!secret || secret.companyId !== companyId) {
       throw unprocessable("GitHub credential secret must belong to the same company.");
     }
 
     const now = new Date();
-    const existing = await getGitHubCredentialAssociation(companyId, normalizedHostname, normalizedOwner);
+    const existing = await getGitHubCredentialAssociation(companyId, preparedInput.hostname, preparedInput.owner);
     const row = existing
       ? await db
         .update(companyGitHubCredentials)
         .set({
-          secretId: input.secretId,
+          secretId: preparedInput.secretId,
           updatedAt: now,
         })
         .where(eq(companyGitHubCredentials.id, existing.id))
@@ -1658,9 +1700,9 @@ export function companySkillService(db: Db) {
         .insert(companyGitHubCredentials)
         .values({
           companyId,
-          hostname: normalizedHostname,
-          owner: normalizedOwner,
-          secretId: input.secretId,
+          hostname: preparedInput.hostname,
+          owner: preparedInput.owner,
+          secretId: preparedInput.secretId,
           createdAt: now,
           updatedAt: now,
         })
@@ -2597,20 +2639,17 @@ export function companySkillService(db: Db) {
     const request = typeof input === "string" ? { source: input } : input;
     const parsed = parseSkillImportSourceInput(request.source);
     const local = !/^https?:\/\//i.test(parsed.resolvedSource);
-    const gitHubSource = !local && looksLikeGitHubRepoImportUrl(parsed.resolvedSource) && (() => {
-      try {
-        return parseGitHubSourceUrl(parsed.resolvedSource);
-      } catch {
-        return null;
-      }
-    })();
-    const explicitGitHubSecretId = request.githubAuth?.visibility === "private"
-      ? request.githubAuth.secretId ?? null
-      : null;
-    const githubAuth = gitHubSource
+    const privateGitHubAuth = request.githubAuth?.visibility === "private" ? request.githubAuth : null;
+    const requiresPrivateGitHubAuth = privateGitHubAuth !== null;
+    const gitHubSource = !local ? await resolveGitHubRepoImportSource(parsed.resolvedSource) : null;
+    if (!local && requiresPrivateGitHubAuth && !gitHubSource) {
+      throw unprocessable("Private GitHub auth requires a GitHub or GitHub Enterprise repository URL.");
+    }
+    const explicitGitHubSecretId = privateGitHubAuth?.secretId ?? null;
+    const githubAuth = gitHubSource && requiresPrivateGitHubAuth
       ? await resolveGitHubAuth(companyId, gitHubSource.hostname, gitHubSource.owner, {
         explicitSecretId: explicitGitHubSecretId,
-        required: request.githubAuth?.visibility === "private",
+        required: true,
       })
       : undefined;
     const { skills, warnings } = local
@@ -2621,6 +2660,7 @@ export function companySkillService(db: Db) {
       }
       : await readUrlSkillImports(companyId, parsed.resolvedSource, parsed.requestedSkillSlug, {
         githubAuth,
+        gitHubSource,
       })
         .then((result) => ({
           skills: result.skills,
@@ -2647,22 +2687,25 @@ export function companySkillService(db: Db) {
         skill.key = deriveCanonicalSkillKey(companyId, skill);
       }
     }
-    if (request.githubAuth?.visibility === "private" && gitHubSource) {
+    if (requiresPrivateGitHubAuth && gitHubSource) {
       for (const skill of filteredSkills) {
         skill.metadata = {
           ...(skill.metadata ?? {}),
           authScope: "owner",
         };
       }
-      if (githubAuth?.secretId) {
-        await upsertGitHubCredentialAssociation(companyId, {
-          hostname: gitHubSource.hostname,
-          owner: gitHubSource.owner,
-          secretId: githubAuth.secretId,
-        });
-      }
     }
+    const gitHubCredentialAssociationInput = requiresPrivateGitHubAuth && gitHubSource && githubAuth?.secretId
+      ? prepareGitHubCredentialAssociationInput({
+        hostname: gitHubSource.hostname,
+        owner: gitHubSource.owner,
+        secretId: githubAuth.secretId,
+      })
+      : null;
     const imported = await upsertImportedSkills(companyId, filteredSkills);
+    if (gitHubCredentialAssociationInput) {
+      await upsertGitHubCredentialAssociation(companyId, gitHubCredentialAssociationInput);
+    }
     return { imported, warnings };
   }
 

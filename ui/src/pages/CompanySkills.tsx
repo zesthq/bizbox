@@ -251,6 +251,17 @@ export type ParsedGitHubSkillSource = {
   repo: string;
 };
 
+function isIpHostname(hostname: string) {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) || hostname.includes(":");
+}
+
+function isLikelyGitHubEnterpriseHostname(hostname: string) {
+  const [firstLabel = ""] = hostname.split(".");
+  return hostname.includes(".")
+    ? firstLabel === "git" || firstLabel === "ghe" || firstLabel === "github"
+    : true;
+}
+
 export function parseGitHubSkillSource(source: string): ParsedGitHubSkillSource | null {
   const trimmed = source.trim();
   if (!trimmed) return null;
@@ -258,14 +269,31 @@ export function parseGitHubSkillSource(source: string): ParsedGitHubSkillSource 
     const url = new URL(trimmed);
     if (url.protocol !== "https:") return null;
     const hostname = url.hostname.toLowerCase();
-    if (hostname.endsWith(".githubusercontent.com") || hostname === "gist.github.com") return null;
+    if (
+      !hostname
+      || isIpHostname(hostname)
+      || hostname === "localhost"
+      || hostname.endsWith(".localhost")
+      || hostname.endsWith(".githubusercontent.com")
+      || hostname === "gist.github.com"
+    ) {
+      return null;
+    }
     const parts = url.pathname.split("/").filter(Boolean);
     if (parts.length < 2) return null;
-    if (parts.length > 2 && parts[2] !== "tree") return null;
+    if (parts.length > 2 && parts[2] !== "tree" && parts[2] !== "blob") return null;
     const owner = parts[0]!;
-    const repo = parts[1]!.replace(/\.git$/i, "");
+    const rawRepoSegment = parts[1]!;
+    const repo = rawRepoSegment.replace(/\.git$/i, "");
     if (!owner || !repo) return null;
     if (/\.md$/i.test(repo)) return null;
+    const isGitHubDotCom = hostname === "github.com" || hostname === "www.github.com";
+    const hasExplicitGitHubRepoMarker = /\.git$/i.test(rawRepoSegment)
+      || parts[2] === "tree"
+      || parts[2] === "blob";
+    if (!isGitHubDotCom && !hasExplicitGitHubRepoMarker && !isLikelyGitHubEnterpriseHostname(hostname)) {
+      return null;
+    }
     return {
       hostname,
       owner,

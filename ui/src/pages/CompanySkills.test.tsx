@@ -23,6 +23,40 @@ describe("parseGitHubSkillSource", () => {
     });
   });
 
+  it("parses blob urls", () => {
+    expect(parseGitHubSkillSource("https://github.com/zesthq/citro-box/blob/main/skills/private-skill/SKILL.md"))
+      .toEqual({
+        hostname: "github.com",
+        owner: "zesthq",
+        repo: "citro-box",
+      });
+  });
+
+  it("parses explicit GitHub Enterprise repo urls", () => {
+    expect(parseGitHubSkillSource("https://git.example.com/zesthq/citro-box/tree/main/skills/private-skill"))
+      .toEqual({
+        hostname: "git.example.com",
+        owner: "zesthq",
+        repo: "citro-box",
+      });
+  });
+
+  it("parses GitHub Enterprise root repo urls", () => {
+    expect(parseGitHubSkillSource("https://git.example.com/zesthq/citro-box")).toEqual({
+      hostname: "git.example.com",
+      owner: "zesthq",
+      repo: "citro-box",
+    });
+  });
+
+  it("parses single-label enterprise root repo urls", () => {
+    expect(parseGitHubSkillSource("https://ghe/zesthq/citro-box")).toEqual({
+      hostname: "ghe",
+      owner: "zesthq",
+      repo: "citro-box",
+    });
+  });
+
   it("rejects non-githubusercontent markdown urls", () => {
     expect(parseGitHubSkillSource("https://raw.githubusercontent.com/zesthq/citro-box/main/SKILL.md")).toBeNull();
   });
@@ -31,8 +65,17 @@ describe("parseGitHubSkillSource", () => {
     expect(parseGitHubSkillSource("https://docs.example.com/skills/private-skill.md")).toBeNull();
   });
 
+  it("rejects ambiguous two-segment https urls that do not look like github enterprise", () => {
+    expect(parseGitHubSkillSource("https://docs.example.com/skills/private-skill")).toBeNull();
+  });
+
   it("rejects non-tree subpaths", () => {
     expect(parseGitHubSkillSource("https://example.com/a/b/c")).toBeNull();
+  });
+
+  it("rejects localhost and ip hosts", () => {
+    expect(parseGitHubSkillSource("https://localhost/acme/private-skill")).toBeNull();
+    expect(parseGitHubSkillSource("https://127.0.0.1/acme/private-skill")).toBeNull();
   });
 });
 
