@@ -58,6 +58,12 @@ export function companySkillRoutes(db: Db) {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  function skillNeedsBoardAuthForInstallUpdate(skill: {
+    metadata?: Record<string, unknown> | null;
+  }) {
+    return asString(skill.metadata?.authScope) === "owner";
+  }
+
   function deriveTrackedSkillRef(skill: SkillTelemetryInput): string | null {
     if (asString(skill.metadata?.authScope)) {
       return null;
@@ -357,6 +363,14 @@ export function companySkillRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     const skillId = req.params.skillId as string;
     await assertCanMutateCompanySkills(req, companyId);
+    const skill = await svc.detail(companyId, skillId);
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found" });
+      return;
+    }
+    if (skillNeedsBoardAuthForInstallUpdate(skill)) {
+      assertBoard(req);
+    }
     const result = await svc.installUpdate(companyId, skillId);
     if (!result) {
       res.status(404).json({ error: "Skill not found" });
