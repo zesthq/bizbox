@@ -178,6 +178,14 @@ export function companySkillRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     const skillId = req.params.skillId as string;
     assertCompanyAccess(req, companyId);
+    const skill = await svc.detail(companyId, skillId);
+    if (!skill) {
+      res.status(404).json({ error: "Skill not found" });
+      return;
+    }
+    if (skillNeedsBoardAuthForInstallUpdate(skill)) {
+      assertBoard(req);
+    }
     const result = await svc.updateStatus(companyId, skillId);
     if (!result) {
       res.status(404).json({ error: "Skill not found" });

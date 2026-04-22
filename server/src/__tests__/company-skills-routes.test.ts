@@ -16,6 +16,7 @@ const mockCompanySkillService = vi.hoisted(() => ({
   importFromSource: vi.fn(),
   installUpdate: vi.fn(),
   listGitHubCredentialAssociations: vi.fn(),
+  updateStatus: vi.fn(),
   upsertGitHubCredentialAssociation: vi.fn(),
   deleteSkill: vi.fn(),
 }));
@@ -95,6 +96,11 @@ describe("company skill mutation permissions", () => {
       id: "skill-1",
       slug: "test-skill",
       sourceRef: "sha-2",
+    });
+    mockCompanySkillService.updateStatus.mockResolvedValue({
+      updateAvailable: true,
+      latestRef: "sha-2",
+      currentRef: "sha-1",
     });
     mockCompanySkillService.listGitHubCredentialAssociations.mockResolvedValue([]);
     mockCompanySkillService.upsertGitHubCredentialAssociation.mockResolvedValue({
@@ -683,5 +689,55 @@ describe("company skill mutation permissions", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(mockCompanySkillService.installUpdate).toHaveBeenCalledWith("company-1", "skill-1");
+  });
+
+  it("blocks agents from checking update status for private github skills that require saved owner auth", async () => {
+    mockCompanySkillService.detail.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "acme/private-skill/private-skill",
+      slug: "private-skill",
+      name: "Private Skill",
+      description: null,
+      markdown: "# Private Skill",
+      sourceType: "github",
+      sourceLocator: "https://github.com/acme/private-skill",
+      sourceRef: "sha-1",
+      trustLevel: "markdown_only",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: { authScope: "owner" },
+      sourceBadge: "github",
+      editable: false,
+      editableReason: null,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .get("/api/companies/company-1/skills/skill-1/update-status");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockCompanySkillService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("still allows agents to check update status for skills that do not require owner github auth", async () => {
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    }))
+      .get("/api/companies/company-1/skills/skill-1/update-status");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.updateStatus).toHaveBeenCalledWith("company-1", "skill-1");
   });
 });
