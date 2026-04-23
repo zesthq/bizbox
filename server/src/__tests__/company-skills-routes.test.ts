@@ -26,26 +26,52 @@ const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockTrackSkillImported = vi.hoisted(() => vi.fn());
 const mockGetTelemetryClient = vi.hoisted(() => vi.fn());
 
-vi.mock("@paperclipai/shared/telemetry", () => ({
-  trackSkillImported: mockTrackSkillImported,
-  trackErrorHandlerCrash: vi.fn(),
-}));
+function registerModuleMocks() {
+  vi.doMock("../routes/authz.js", async () =>
+    vi.importActual("../routes/authz.js"),
+  );
 
-vi.mock("../telemetry.js", () => ({
-  getTelemetryClient: mockGetTelemetryClient,
-}));
+  vi.doMock("@paperclipai/shared/telemetry", () => ({
+    trackSkillImported: mockTrackSkillImported,
+    trackErrorHandlerCrash: vi.fn(),
+  }));
 
-vi.mock("../services/index.js", () => ({
-  accessService: () => mockAccessService,
-  agentService: () => mockAgentService,
-  companySkillService: () => mockCompanySkillService,
-  logActivity: mockLogActivity,
-}));
+  vi.doMock("../telemetry.js", () => ({
+    getTelemetryClient: mockGetTelemetryClient,
+  }));
+
+  vi.doMock("../services/access.js", () => ({
+    accessService: () => mockAccessService,
+  }));
+
+  vi.doMock("../services/activity-log.js", () => ({
+    logActivity: mockLogActivity,
+  }));
+
+  vi.doMock("../services/agents.js", () => ({
+    agentService: () => mockAgentService,
+  }));
+
+  vi.doMock("../services/company-skills.js", () => ({
+    companySkillService: () => mockCompanySkillService,
+  }));
+
+  vi.doMock("../services/index.js", () => ({
+    accessService: () => mockAccessService,
+    agentService: () => mockAgentService,
+    companySkillService: () => mockCompanySkillService,
+    logActivity: mockLogActivity,
+  }));
+}
 
 async function createApp(actor: Record<string, unknown>) {
   const [{ companySkillRoutes }, { errorHandler }] = await Promise.all([
-    vi.importActual<typeof import("../routes/company-skills.js")>("../routes/company-skills.js"),
-    vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
+    vi.importActual<typeof import("../routes/company-skills.js")>(
+      "../routes/company-skills.js",
+    ),
+    vi.importActual<typeof import("../middleware/index.js")>(
+      "../middleware/index.js",
+    ),
   ]);
   const app = express();
   app.use(express.json());
@@ -61,9 +87,17 @@ async function createApp(actor: Record<string, unknown>) {
 describe("company skill mutation permissions", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock("@paperclipai/shared/telemetry");
+    vi.doUnmock("../telemetry.js");
+    vi.doUnmock("../services/access.js");
+    vi.doUnmock("../services/activity-log.js");
+    vi.doUnmock("../services/agents.js");
+    vi.doUnmock("../services/company-skills.js");
+    vi.doUnmock("../services/index.js");
     vi.doUnmock("../routes/company-skills.js");
     vi.doUnmock("../routes/authz.js");
     vi.doUnmock("../middleware/index.js");
+    registerModuleMocks();
     vi.resetAllMocks();
     mockGetTelemetryClient.mockReturnValue({ track: vi.fn() });
     mockCompanySkillService.importFromSource.mockResolvedValue({
@@ -103,7 +137,9 @@ describe("company skill mutation permissions", () => {
       latestRef: "sha-2",
       currentRef: "sha-1",
     });
-    mockCompanySkillService.listGitHubCredentialAssociations.mockResolvedValue([]);
+    mockCompanySkillService.listGitHubCredentialAssociations.mockResolvedValue(
+      [],
+    );
     mockCompanySkillService.readFile.mockResolvedValue({
       skillId: "skill-1",
       path: "SKILL.md",
@@ -113,15 +149,17 @@ describe("company skill mutation permissions", () => {
       markdown: true,
       editable: false,
     });
-    mockCompanySkillService.upsertGitHubCredentialAssociation.mockResolvedValue({
-      id: "assoc-1",
-      companyId: "company-1",
-      hostname: "github.com",
-      owner: "vercel-labs",
-      secretId: "11111111-1111-4111-8111-111111111111",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    mockCompanySkillService.upsertGitHubCredentialAssociation.mockResolvedValue(
+      {
+        id: "assoc-1",
+        companyId: "company-1",
+        hostname: "github.com",
+        owner: "vercel-labs",
+        secretId: "11111111-1111-4111-8111-111111111111",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    );
     mockCompanySkillService.deleteSkill.mockResolvedValue({
       id: "skill-1",
       slug: "find-skills",
@@ -133,13 +171,15 @@ describe("company skill mutation permissions", () => {
   });
 
   it("allows local board operators to mutate company skills", async () => {
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({ source: "https://github.com/vercel-labs/agent-browser" });
 
@@ -179,13 +219,15 @@ describe("company skill mutation permissions", () => {
       warnings: [],
     });
 
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({ source: "https://github.com/vercel-labs/agent-browser" });
 
@@ -225,13 +267,15 @@ describe("company skill mutation permissions", () => {
       warnings: [],
     });
 
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({ source: "https://ghe.example.com/acme/private-skill" });
 
@@ -267,13 +311,15 @@ describe("company skill mutation permissions", () => {
       warnings: [],
     });
 
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({ source: "https://github.com/acme/private-skill" });
 
@@ -314,13 +360,15 @@ describe("company skill mutation permissions", () => {
       warnings: [],
     });
 
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "https://github.com/acme/private-skill",
@@ -344,12 +392,14 @@ describe("company skill mutation permissions", () => {
       permissions: {},
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({ source: "https://github.com/vercel-labs/agent-browser" });
 
@@ -364,12 +414,14 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({ source: "https://example.com/skills/agent-browser.md" });
 
@@ -387,12 +439,14 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "https://github.com/acme/private-skill",
@@ -413,12 +467,14 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "https://github.com/acme/private-repo",
@@ -435,12 +491,14 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "acme/private-repo",
@@ -457,12 +515,14 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "acme/private-repo/private-skill",
@@ -479,12 +539,14 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "https://skills.sh/acme/private-repo/private-skill",
@@ -501,21 +563,26 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "https://example.com/a/b/c",
       });
 
     expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
-    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
-      source: "https://example.com/a/b/c",
-    });
+    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith(
+      "company-1",
+      {
+        source: "https://example.com/a/b/c",
+      },
+    );
   });
 
   it("allows agent callers to import two-segment non-github https urls", async () => {
@@ -525,21 +592,26 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "https://example.com/a/b",
       });
 
     expect([200, 201], JSON.stringify(res.body)).toContain(res.status);
-    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith("company-1", {
-      source: "https://example.com/a/b",
-    });
+    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith(
+      "company-1",
+      {
+        source: "https://example.com/a/b",
+      },
+    );
   });
 
   it("blocks agent callers from importing with an explicit github secret id even when visibility is public", async () => {
@@ -549,12 +621,14 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "https://github.com/acme/private-skill",
@@ -569,13 +643,15 @@ describe("company skill mutation permissions", () => {
   });
 
   it("rejects public github auth payloads that still include a secret id", async () => {
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
       .post("/api/companies/company-1/skills/import")
       .send({
         source: "https://github.com/acme/private-skill",
@@ -590,13 +666,15 @@ describe("company skill mutation permissions", () => {
   });
 
   it("allows board users to upsert a company GitHub credential association", async () => {
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
       .put("/api/companies/company-1/skills/github-credentials")
       .send({
         hostname: "github.com",
@@ -605,14 +683,13 @@ describe("company skill mutation permissions", () => {
       });
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(mockCompanySkillService.upsertGitHubCredentialAssociation).toHaveBeenCalledWith(
-      "company-1",
-      {
-        hostname: "github.com",
-        owner: "vercel-labs",
-        secretId: "11111111-1111-4111-8111-111111111111",
-      },
-    );
+    expect(
+      mockCompanySkillService.upsertGitHubCredentialAssociation,
+    ).toHaveBeenCalledWith("company-1", {
+      hostname: "github.com",
+      owner: "vercel-labs",
+      secretId: "11111111-1111-4111-8111-111111111111",
+    });
   });
 
   it("returns a blocking error when attempting to delete a skill still used by agents", async () => {
@@ -623,20 +700,25 @@ describe("company skill mutation permissions", () => {
       );
     });
 
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
-      .delete("/api/companies/company-1/skills/skill-1");
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    ).delete("/api/companies/company-1/skills/skill-1");
 
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(res.body).toEqual({
-      error: 'Cannot delete skill "Find Skills" while it is still used by Builder, Reviewer. Detach it from those agents first.',
+      error:
+        'Cannot delete skill "Find Skills" while it is still used by Builder, Reviewer. Detach it from those agents first.',
     });
-    expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith(
+      "company-1",
+      "skill-1",
+    );
     expect(mockLogActivity).not.toHaveBeenCalled();
   });
 
@@ -670,13 +752,14 @@ describe("company skill mutation permissions", () => {
       updatedAt: new Date(),
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
-      .post("/api/companies/company-1/skills/skill-1/install-update");
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    ).post("/api/companies/company-1/skills/skill-1/install-update");
 
     expect(res.status, JSON.stringify(res.body)).toBe(403);
     expect(mockCompanySkillService.installUpdate).not.toHaveBeenCalled();
@@ -689,16 +772,20 @@ describe("company skill mutation permissions", () => {
       permissions: { canCreateAgents: true },
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
-      .post("/api/companies/company-1/skills/skill-1/install-update");
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    ).post("/api/companies/company-1/skills/skill-1/install-update");
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(mockCompanySkillService.installUpdate).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockCompanySkillService.installUpdate).toHaveBeenCalledWith(
+      "company-1",
+      "skill-1",
+    );
   });
 
   it("blocks agents from checking update status for private github skills that require saved owner auth", async () => {
@@ -726,29 +813,34 @@ describe("company skill mutation permissions", () => {
       updatedAt: new Date(),
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
-      .get("/api/companies/company-1/skills/skill-1/update-status");
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    ).get("/api/companies/company-1/skills/skill-1/update-status");
 
     expect(res.status, JSON.stringify(res.body)).toBe(403);
     expect(mockCompanySkillService.updateStatus).not.toHaveBeenCalled();
   });
 
   it("still allows agents to check update status for skills that do not require owner github auth", async () => {
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
-      .get("/api/companies/company-1/skills/skill-1/update-status");
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    ).get("/api/companies/company-1/skills/skill-1/update-status");
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(mockCompanySkillService.updateStatus).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockCompanySkillService.updateStatus).toHaveBeenCalledWith(
+      "company-1",
+      "skill-1",
+    );
   });
 
   it("blocks agents from reading files for private github skills that require saved owner auth", async () => {
@@ -776,12 +868,14 @@ describe("company skill mutation permissions", () => {
       updatedAt: new Date(),
     });
 
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .get("/api/companies/company-1/skills/skill-1/files")
       .query({ path: "SKILL.md" });
 
@@ -814,31 +908,43 @@ describe("company skill mutation permissions", () => {
       updatedAt: new Date(),
     });
 
-    const res = await request(await createApp({
-      type: "board",
-      userId: "local-board",
-      companyIds: ["company-1"],
-      source: "local_implicit",
-      isInstanceAdmin: false,
-    }))
+    const res = await request(
+      await createApp({
+        type: "board",
+        userId: "local-board",
+        companyIds: ["company-1"],
+        source: "local_implicit",
+        isInstanceAdmin: false,
+      }),
+    )
       .get("/api/companies/company-1/skills/skill-1/files")
       .query({ path: "SKILL.md" });
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(mockCompanySkillService.readFile).toHaveBeenCalledWith("company-1", "skill-1", "SKILL.md");
+    expect(mockCompanySkillService.readFile).toHaveBeenCalledWith(
+      "company-1",
+      "skill-1",
+      "SKILL.md",
+    );
   });
 
   it("still allows agents to read files for skills that do not require owner github auth", async () => {
-    const res = await request(await createApp({
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      runId: "run-1",
-    }))
+    const res = await request(
+      await createApp({
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        runId: "run-1",
+      }),
+    )
       .get("/api/companies/company-1/skills/skill-1/files")
       .query({ path: "SKILL.md" });
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(mockCompanySkillService.readFile).toHaveBeenCalledWith("company-1", "skill-1", "SKILL.md");
+    expect(mockCompanySkillService.readFile).toHaveBeenCalledWith(
+      "company-1",
+      "skill-1",
+      "SKILL.md",
+    );
   });
 });
