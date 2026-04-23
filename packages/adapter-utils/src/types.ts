@@ -411,6 +411,7 @@ export interface CreateConfigValues {
   envBindings: Record<string, unknown>;
   url: string;
   apiKey?: string;
+  timeoutSec?: number;
   bootstrapPrompt: string;
   payloadTemplateJson?: string;
   workspaceStrategyType?: string;

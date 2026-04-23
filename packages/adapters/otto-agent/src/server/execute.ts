@@ -59,7 +59,12 @@ function resolveConfig(ctx: AdapterExecutionContext): OttoAgentConfig {
     );
   }
 
-  const parsedUrl = new URL(url);
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error(`otto_agent adapter: invalid URL '${url}'. Use https:// for remote hosts.`);
+  }
   if (
     parsedUrl.protocol === "http:" &&
     !["localhost", "127.0.0.1", "::1"].includes(parsedUrl.hostname)
@@ -70,6 +75,11 @@ function resolveConfig(ctx: AdapterExecutionContext): OttoAgentConfig {
   }
 
   const apiKey = asString(raw.apiKey, "").trim() || undefined;
+  if (!apiKey) {
+    throw new Error(
+      "otto_agent adapter requires 'apiKey' in adapterConfig. Contact your Otto operator for credentials.",
+    );
+  }
 
   return {
     url,
@@ -100,7 +110,20 @@ function buildPrompt(ctx: AdapterExecutionContext): string {
 export async function execute(
   ctx: AdapterExecutionContext,
 ): Promise<AdapterExecutionResult> {
-  const config = resolveConfig(ctx);
+  let config: OttoAgentConfig;
+  try {
+    config = resolveConfig(ctx);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    await ctx.onLog("stderr", `[otto-agent] ERROR: ${errorMessage}\n`);
+    return {
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      errorMessage,
+      errorCode: "CONFIG_ERROR",
+    };
+  }
   const prompt = buildPrompt(ctx);
 
   const body: OttoRequest = {

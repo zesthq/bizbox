@@ -82,6 +82,24 @@ export function OttoAgentConfigFields({
         placeholder="Issued by your Otto operator — keep this secret"
       />
 
+      <Field label="Timeout (seconds)">
+        <DraftInput
+          value={
+            isCreate
+              ? String(values!.timeoutSec ?? 1800)
+              : String(eff("adapterConfig", "timeoutSec", config.timeoutSec ?? 1800))
+          }
+          onCommit={(v) =>
+            isCreate
+              ? set!({ timeoutSec: v ? Number(v) : 1800 })
+              : mark("adapterConfig", "timeoutSec", v ? Number(v) : undefined)
+          }
+          immediate
+          className={inputClass}
+          placeholder="1800"
+        />
+      </Field>
+
       {!isCreate && (
         <>
           <Field label="Model override">
@@ -101,18 +119,6 @@ export function OttoAgentConfigFields({
               immediate
               className={inputClass}
               placeholder="e.g. web,terminal (leave blank for all)"
-            />
-          </Field>
-
-          <Field label="Timeout (seconds)">
-            <DraftInput
-              value={String(eff("adapterConfig", "timeoutSec", config.timeoutSec ?? 1800))}
-              onCommit={(v) =>
-                mark("adapterConfig", "timeoutSec", v ? Number(v) : undefined)
-              }
-              immediate
-              className={inputClass}
-              placeholder="1800"
             />
           </Field>
         </>

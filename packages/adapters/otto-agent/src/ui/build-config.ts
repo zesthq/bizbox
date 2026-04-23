@@ -4,6 +4,6 @@ export function buildOttoAgentConfig(v: CreateConfigValues): Record<string, unkn
   const ac: Record<string, unknown> = {};
   if (v.url) ac.url = v.url;
   if (v.apiKey) ac.apiKey = v.apiKey;
-  ac.timeoutSec = 1800;
+  ac.timeoutSec = v.timeoutSec ?? 1800;
   return ac;
 }
