@@ -50,3 +50,13 @@ Agents maintain conversation context across heartbeats through session persisten
 | `error` | Last heartbeat failed |
 | `paused` | Manually paused or budget-exceeded |
 | `terminated` | Permanently deactivated |
+
+## Governance Boundaries
+
+Agent API access is company-scoped, but some mutations remain board-only even when an agent has broad operational permissions.
+
+- Agents cannot auto-import company skills from GitHub-backed sources.
+- This block applies to direct GitHub URLs, GitHub shorthand like `org/repo` and `org/repo/skill`, and `skills.sh` sources that resolve to GitHub repositories.
+- A board operator must perform those imports explicitly.
+
+This prevents agents from transparently consuming board-saved GitHub credentials during company skill imports.
