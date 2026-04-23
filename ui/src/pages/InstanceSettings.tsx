@@ -1,15 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock3, ExternalLink, Settings } from "lucide-react";
+import { Clock3, ExternalLink, Settings, AlertTriangle, ShieldAlert } from "lucide-react";
 import type { InstanceSchedulerHeartbeatAgent } from "@paperclipai/shared";
 import { Link } from "@/lib/router";
 import { heartbeatsApi } from "../api/heartbeats";
+import { emergencyStopApi } from "../api/emergencyStop";
 import { agentsApi } from "../api/agents";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useToastActions } from "../context/ToastContext";
 import { EmptyState } from "../components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { queryKeys } from "../lib/queryKeys";
 import { formatDateTime, relativeTime } from "../lib/utils";
 
@@ -30,6 +44,7 @@ export function InstanceSettings() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+  const { pushToast } = useToastActions();
 
   useEffect(() => {
     setBreadcrumbs([
@@ -42,6 +57,12 @@ export function InstanceSettings() {
     queryKey: queryKeys.instance.schedulerHeartbeats,
     queryFn: () => heartbeatsApi.listInstanceSchedulerAgents(),
     refetchInterval: 15_000,
+  });
+
+  const emergencyStatusQuery = useQuery({
+    queryKey: ["instance", "emergency-stop", "status"],
+    queryFn: () => emergencyStopApi.getStatus(),
+    refetchInterval: 5_000,
   });
 
   const toggleMutation = useMutation({
@@ -127,6 +148,32 @@ export function InstanceSettings() {
     },
     onError: (error) => {
       setActionError(error instanceof Error ? error.message : "Failed to disable all heartbeats.");
+    },
+  });
+
+  const [confirmShutdownText, setConfirmShutdownText] = useState("");
+  const shutdownServerMutation = useMutation({
+    mutationFn: (confirm: string) => emergencyStopApi.shutdownServer(confirm),
+    onSuccess: (data) => {
+      setActionError(null);
+      pushToast({ title: "Shutdown initiated", body: `${data.message} The UI will now lose connection.`, tone: "info" });
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Failed to shutdown server.");
+    },
+  });
+
+  const [isStopRunsOpen, setIsStopRunsOpen] = useState(false);
+  const stopAllRunsMutation = useMutation({
+    mutationFn: () => emergencyStopApi.stopAllRuns(),
+    onSuccess: (data) => {
+      setActionError(null);
+      pushToast({ title: "Success", body: data.message, tone: "success" });
+      queryClient.invalidateQueries({ queryKey: ["instance", "emergency-stop", "status"] });
+      setIsStopRunsOpen(false);
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Failed to stop runs.");
     },
   });
 
@@ -278,6 +325,122 @@ export function InstanceSettings() {
           ))}
         </div>
       )}
+
+      {/* Emergency Stop Section */}
+      <div className="pt-8 mt-8 border-t space-y-6">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-5 w-5 text-destructive" />
+            <h2 className="text-lg font-semibold text-destructive">Emergency Controls</h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Instance-wide emergency actions. Use with extreme caution.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* Stop Runs Card */}
+          <Card className="border-destructive/20 bg-destructive/5">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                Cancel All Active Runs
+              </CardTitle>
+              <CardDescription>
+                Immediately cancels all currently running and queued agent processes across every company. The server will remain running.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-sm">
+                Currently tracking <strong>{emergencyStatusQuery.data?.totalActive ?? 0}</strong> active run(s).
+              </div>
+              <Dialog open={isStopRunsOpen} onOpenChange={(open) => {
+                setIsStopRunsOpen(open);
+                if (!open) stopAllRunsMutation.reset();
+              }}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="w-full text-destructive border-destructive/20 hover:bg-destructive/10">
+                    Cancel All Runs
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Cancel All Active Runs?</DialogTitle>
+                    <DialogDescription>
+                      This will forcefully terminate {emergencyStatusQuery.data?.totalActive ?? 0} active agent processes across {emergencyStatusQuery.data?.companyCount ?? 0} companies. Data from currently executing steps may be lost.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <Button variant="outline">Cancel</Button>
+                    </DialogClose>
+                    <Button 
+                      variant="destructive" 
+                      onClick={() => stopAllRunsMutation.mutate()}
+                      disabled={stopAllRunsMutation.isPending}
+                    >
+                      {stopAllRunsMutation.isPending ? "Cancelling..." : "Yes, Cancel All Runs"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardContent>
+          </Card>
+
+          {/* Full Shutdown Card */}
+          <Card className="border-destructive bg-destructive/10">
+            <CardHeader>
+              <CardTitle className="text-base text-destructive flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4" />
+                Full Server Shutdown
+              </CardTitle>
+              <CardDescription className="text-destructive/80">
+                Cancels all runs and completely terminates the Paperclip server process. You will need CLI access to restart it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Dialog onOpenChange={(open) => !open && setConfirmShutdownText("")}>
+                <DialogTrigger asChild>
+                  <Button variant="destructive" className="w-full">
+                    Initiate Shutdown
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="text-destructive">Initiate Full Server Shutdown?</DialogTitle>
+                    <DialogDescription>
+                      This action cannot be undone from the UI. The Paperclip server will immediately terminate all agents and exit. Connect to the host machine to restart it.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm">Type SHUTDOWN to confirm</Label>
+                      <Input
+                        id="confirm"
+                        value={confirmShutdownText}
+                        onChange={(e) => setConfirmShutdownText(e.target.value)}
+                        placeholder="SHUTDOWN"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <Button variant="outline">Cancel</Button>
+                    </DialogClose>
+                    <Button 
+                      variant="destructive"
+                      disabled={confirmShutdownText !== "SHUTDOWN" || shutdownServerMutation.isPending}
+                      onClick={() => shutdownServerMutation.mutate(confirmShutdownText)}
+                    >
+                      {shutdownServerMutation.isPending ? "Shutting down..." : "Terminate Server"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
