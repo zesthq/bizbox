@@ -207,6 +207,19 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  packages/adapters/otto-agent:
+    dependencies:
+      '@paperclipai/adapter-utils':
+        specifier: workspace:*
+        version: link:../../adapter-utils
+    devDependencies:
+      '@types/node':
+        specifier: ^24.6.0
+        version: 24.12.0
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/adapters/pi-local:
     dependencies:
       '@paperclipai/adapter-utils':
@@ -483,6 +496,9 @@ importers:
       '@paperclipai/adapter-opencode-local':
         specifier: workspace:*
         version: link:../packages/adapters/opencode-local
+      '@paperclipai/adapter-otto-agent':
+        specifier: workspace:*
+        version: link:../packages/adapters/otto-agent
       '@paperclipai/adapter-pi-local':
         specifier: workspace:*
         version: link:../packages/adapters/pi-local
@@ -640,6 +656,9 @@ importers:
       '@paperclipai/adapter-opencode-local':
         specifier: workspace:*
         version: link:../packages/adapters/opencode-local
+      '@paperclipai/adapter-otto-agent':
+        specifier: workspace:*
+        version: link:../packages/adapters/otto-agent
       '@paperclipai/adapter-pi-local':
         specifier: workspace:*
         version: link:../packages/adapters/pi-local

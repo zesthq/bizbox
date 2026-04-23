@@ -1226,12 +1226,20 @@ export function CompanySkills() {
     mutationFn: (payload: CompanySkillCreateRequest) => companySkillsApi.create(selectedCompanyId!, payload),
     onSuccess: async (skill) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(selectedCompanyId!) });
-      navigate(skillRoute(skill.id));
+      const refreshedSkills = await queryClient.fetchQuery({
+        queryKey: queryKeys.companySkills.list(selectedCompanyId!),
+        queryFn: () => companySkillsApi.list(selectedCompanyId!),
+      });
+      const persistedSkill = refreshedSkills.find((entry) => entry.key === skill.key)
+        ?? refreshedSkills.find((entry) => entry.slug === skill.slug)
+        ?? refreshedSkills.find((entry) => entry.name === skill.name)
+        ?? skill;
+      navigate(skillRoute(persistedSkill.id));
       setCreateOpen(false);
       pushToast({
         tone: "success",
         title: "Skill created",
-        body: `${skill.name} is now editable in the Paperclip workspace.`,
+        body: `${persistedSkill.name} is now editable in the Paperclip workspace.`,
       });
     },
     onError: (error) => {
