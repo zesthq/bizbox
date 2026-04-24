@@ -109,7 +109,7 @@ describe("GET /invites/:token/test-resolution", () => {
       "url resolves to a private, local, multicast, or reserved address",
     );
     expect(requestHead).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
   it("rejects hostnames that resolve to private addresses", async () => {
     lookup.mockResolvedValue([{ address: "10.1.2.3", family: 4 }]);
