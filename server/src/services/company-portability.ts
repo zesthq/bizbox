@@ -2840,6 +2840,36 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     }
   }
 
+  async function persistImportedOpenClawAuthToken(
+    companyId: string,
+    adapterConfig: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const plainToken = asNonEmptyString(adapterConfig.authToken) ?? asNonEmptyString(adapterConfig.token);
+    if (!plainToken) {
+      return adapterConfig;
+    }
+
+    const sanitized = { ...adapterConfig };
+    delete sanitized.authToken;
+    delete sanitized.token;
+
+    const secret = await secrets.create(
+      companyId,
+      {
+        name: `OpenClaw Gateway Token`,
+        provider: "local_encrypted",
+        value: plainToken,
+        description: `OpenClaw gateway access token for imported agent`,
+      },
+      { agentId: null, userId: null },
+    );
+
+    return {
+      ...sanitized,
+      authTokenRef: { secretId: secret.id },
+    };
+  }
+
   async function prepareImportedAgentAdapter(
     companyId: string,
     adapterType: string | null | undefined,
@@ -2851,13 +2881,18 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     if (mode === "agent_safe" && IMPORT_FORBIDDEN_ADAPTER_TYPES.has(effectiveAdapterType)) {
       throw forbidden(`Adapter type "${effectiveAdapterType}" is not allowed in safe imports`);
     }
-    const nextAdapterConfig = writePaperclipSkillSyncPreference({ ...adapterConfig }, desiredSkills);
+    let nextAdapterConfig = writePaperclipSkillSyncPreference({ ...adapterConfig }, desiredSkills);
     delete nextAdapterConfig.promptTemplate;
     delete nextAdapterConfig.bootstrapPromptTemplate;
     delete nextAdapterConfig.instructionsFilePath;
     delete nextAdapterConfig.instructionsBundleMode;
     delete nextAdapterConfig.instructionsRootPath;
     delete nextAdapterConfig.instructionsEntryFile;
+
+    if (effectiveAdapterType === "openclaw_gateway") {
+      nextAdapterConfig = await persistImportedOpenClawAuthToken(companyId, nextAdapterConfig);
+    }
+
     const normalizedAdapterConfig = await secrets.normalizeAdapterConfigForPersistence(
       companyId,
       nextAdapterConfig,
