@@ -13,9 +13,14 @@ import {
   createAgentSchema,
   deriveAgentUrlKey,
   isUuidLike,
+  openClawConnectionStatusSchema,
   resetAgentSessionSchema,
   testAdapterEnvironmentSchema,
+  testOpenClawConnectionSchema,
   type AgentSkillSnapshot,
+  type OpenClawConnectionState,
+  type OpenClawConnectionStatus,
+  type OpenClawConnectionTestResult,
   type InstanceSchedulerHeartbeatAgent,
   upsertAgentInstructionsFileSchema,
   updateAgentInstructionsBundleSchema,
@@ -465,6 +470,186 @@ export function agentRoutes(db: Db) {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  function getHeaderValueIgnoreCase(
+    headers: Record<string, unknown>,
+    key: string,
+  ): string | null {
+    const match = Object.entries(headers).find(([entryKey]) => entryKey.toLowerCase() === key.toLowerCase());
+    return typeof match?.[1] === "string" && match[1].trim().length > 0 ? match[1].trim() : null;
+  }
+
+  function deleteHeaderIgnoreCase(headers: Record<string, unknown>, key: string) {
+    for (const entryKey of Object.keys(headers)) {
+      if (entryKey.toLowerCase() === key.toLowerCase()) {
+        delete headers[entryKey];
+      }
+    }
+  }
+
+  function tokenFromAuthorizationHeader(value: string | null) {
+    if (!value) return null;
+    const match = value.match(/^bearer\s+(.+)$/i);
+    return match?.[1]?.trim() || value.trim() || null;
+  }
+
+  function extractOpenClawAuthToken(adapterConfig: Record<string, unknown>) {
+    const explicit = asNonEmptyString(adapterConfig.authToken) ?? asNonEmptyString(adapterConfig.token);
+    if (explicit) return explicit;
+    const headers = asRecord(adapterConfig.headers) ?? {};
+    const tokenHeader = getHeaderValueIgnoreCase(headers, "x-openclaw-token");
+    if (tokenHeader) return tokenHeader;
+    const authHeader =
+      getHeaderValueIgnoreCase(headers, "x-openclaw-auth")
+      ?? getHeaderValueIgnoreCase(headers, "authorization");
+    return tokenFromAuthorizationHeader(authHeader);
+  }
+
+  function sanitizeOpenClawAdapterConfig(adapterConfig: Record<string, unknown>) {
+    const next = { ...adapterConfig };
+    delete next.authToken;
+    delete next.token;
+
+    const headers = asRecord(next.headers);
+    if (headers) {
+      const sanitizedHeaders = { ...headers };
+      deleteHeaderIgnoreCase(sanitizedHeaders, "x-openclaw-token");
+      deleteHeaderIgnoreCase(sanitizedHeaders, "x-openclaw-auth");
+      deleteHeaderIgnoreCase(sanitizedHeaders, "authorization");
+      next.headers = Object.keys(sanitizedHeaders).length > 0 ? sanitizedHeaders : undefined;
+    }
+
+    return next;
+  }
+
+  function buildOpenClawSecretName(agentName: string | null | undefined) {
+    const slug = (agentName ?? "agent")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "agent";
+    return `openclaw-gateway-token-${slug}-${randomUUID().slice(0, 8)}`;
+  }
+
+  async function persistOpenClawGatewayAuthToken(params: {
+    companyId: string;
+    adapterConfig: Record<string, unknown>;
+    agentName?: string | null;
+    existingAuthTokenRef?: unknown;
+    requireToken?: boolean;
+    actor: { agentId?: string | null; userId?: string | null };
+  }) {
+    const plainToken = extractOpenClawAuthToken(params.adapterConfig);
+    const sanitized = sanitizeOpenClawAdapterConfig(params.adapterConfig);
+    const requestedAuthTokenRef = sanitized.authTokenRef ?? params.existingAuthTokenRef;
+
+    if (!plainToken) {
+      if (requestedAuthTokenRef !== undefined) {
+        const normalizedRef = await secretsSvc.normalizeSecretRefBindingForPersistence(
+          params.companyId,
+          requestedAuthTokenRef,
+          "adapterConfig.authTokenRef",
+        );
+        return {
+          ...sanitized,
+          authTokenRef: normalizedRef,
+        };
+      }
+      if (params.requireToken) {
+        throw unprocessable("OpenClaw Gateway requires an access token.");
+      }
+      return sanitized;
+    }
+
+    if (requestedAuthTokenRef !== undefined) {
+      const normalizedExistingRef = await secretsSvc.normalizeSecretRefBindingForPersistence(
+        params.companyId,
+        requestedAuthTokenRef,
+        "adapterConfig.authTokenRef",
+      );
+      await secretsSvc.rotate(
+        normalizedExistingRef.secretId,
+        { value: plainToken },
+        params.actor,
+      );
+      return {
+        ...sanitized,
+        authTokenRef: normalizedExistingRef,
+      };
+    }
+
+    const secret = await secretsSvc.create(
+      params.companyId,
+      {
+        name: buildOpenClawSecretName(params.agentName),
+        provider: "local_encrypted",
+        value: plainToken,
+        description: `OpenClaw gateway access token for ${params.agentName ?? "agent"}`,
+      },
+      params.actor,
+    );
+    return {
+      ...sanitized,
+      authTokenRef: {
+        type: "secret_ref" as const,
+        secretId: secret.id,
+        version: "latest" as const,
+      },
+    };
+  }
+
+  function getOpenClawConnectionState(metadata: unknown): OpenClawConnectionState | null {
+    const candidate = asRecord(asRecord(metadata)?.openclawConnection);
+    if (!candidate || typeof candidate.checkedAt !== "string") return null;
+    const parsedStatus = openClawConnectionStatusSchema.safeParse(candidate.status);
+    if (!parsedStatus.success) return null;
+    return {
+      status: parsedStatus.data,
+      checkedAt: candidate.checkedAt,
+      message: typeof candidate.message === "string" ? candidate.message : null,
+    };
+  }
+
+  function normalizeOpenClawConnectionResult(
+    result: {
+      testedAt?: string;
+      checks?: Array<{ code?: string; message?: string | null }>;
+    },
+  ): OpenClawConnectionState {
+    const checks = Array.isArray(result.checks) ? result.checks : [];
+    const findCheck = (code: string) => checks.find((check) => check.code === code) ?? null;
+    const status: OpenClawConnectionStatus =
+      findCheck("openclaw_gateway_probe_ok")
+        ? "connected"
+        : findCheck("openclaw_gateway_invalid_token")
+          ? "invalid_token"
+          : findCheck("openclaw_gateway_pairing_required")
+            ? "pairing_required"
+            : findCheck("openclaw_gateway_unreachable") || findCheck("openclaw_gateway_probe_failed") || findCheck("openclaw_gateway_probe_error")
+              ? "unreachable"
+              : findCheck("openclaw_gateway_url_missing") || findCheck("openclaw_gateway_auth_missing")
+                ? "not_configured"
+                : "unreachable";
+    const message =
+      checks.find((check) =>
+        [
+          "openclaw_gateway_probe_ok",
+          "openclaw_gateway_invalid_token",
+          "openclaw_gateway_pairing_required",
+          "openclaw_gateway_unreachable",
+          "openclaw_gateway_probe_failed",
+          "openclaw_gateway_probe_error",
+          "openclaw_gateway_url_missing",
+          "openclaw_gateway_auth_missing",
+        ].includes(String(check.code ?? "")),
+      )?.message ?? null;
+    return {
+      status,
+      checkedAt: typeof result.testedAt === "string" ? result.testedAt : new Date().toISOString(),
+      message,
+    };
+  }
+
   function preserveInstructionsBundleConfig(
     existingAdapterConfig: Record<string, unknown>,
     nextAdapterConfig: Record<string, unknown>,
@@ -543,8 +728,8 @@ export function agentRoutes(db: Db) {
     adapterConfig: Record<string, unknown>,
   ): Record<string, unknown> {
     if (adapterType !== "openclaw_gateway") return adapterConfig;
-    const disableDeviceAuth = parseBooleanLike(adapterConfig.disableDeviceAuth) === true;
-    if (disableDeviceAuth) return adapterConfig;
+    const disableDeviceAuth = parseBooleanLike(adapterConfig.disableDeviceAuth);
+    if (disableDeviceAuth !== false) return adapterConfig;
     if (asNonEmptyString(adapterConfig.devicePrivateKeyPem)) return adapterConfig;
     return { ...adapterConfig, devicePrivateKeyPem: generateEd25519PrivateKeyPem() };
   }
@@ -899,6 +1084,80 @@ export function agentRoutes(db: Db) {
       });
 
       res.json(result);
+    },
+  );
+
+  router.post(
+    "/agents/:id/openclaw/connection-test",
+    validate(testOpenClawConnectionSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const existing = await svc.getById(id);
+      if (!existing) {
+        res.status(404).json({ error: "Agent not found" });
+        return;
+      }
+      await assertCanUpdateAgent(req, existing);
+      if (existing.adapterType !== "openclaw_gateway") {
+        throw unprocessable("OpenClaw connection tests are only supported for openclaw_gateway agents.");
+      }
+
+      const adapter = requireServerAdapter(existing.adapterType);
+      const existingAdapterConfig = asRecord(existing.adapterConfig) ?? {};
+      const hasAdapterConfigOverride = hasOwn(req.body as object, "adapterConfig");
+      const requestedAdapterConfig = hasAdapterConfigOverride
+        ? (asRecord(req.body?.adapterConfig) ?? {})
+        : {};
+      const effectiveAdapterConfig = applyCreateDefaultsByAdapterType(
+        existing.adapterType,
+        { ...existingAdapterConfig, ...requestedAdapterConfig },
+      );
+      const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
+        existing.companyId,
+        effectiveAdapterConfig,
+        { strictMode: strictSecretsMode },
+      );
+      const { config: runtimeAdapterConfig } = await secretsSvc.resolveAdapterConfigForRuntime(
+        existing.companyId,
+        normalizedAdapterConfig,
+      );
+      const environmentResult = await adapter.testEnvironment({
+        companyId: existing.companyId,
+        adapterType: existing.adapterType,
+        config: runtimeAdapterConfig,
+      });
+      const connectionState = normalizeOpenClawConnectionResult(environmentResult);
+      if (!hasAdapterConfigOverride) {
+        const nextMetadata = {
+          ...((asRecord(existing.metadata) ?? {}) as Record<string, unknown>),
+          openclawConnection: connectionState,
+        };
+        await svc.update(existing.id, { metadata: nextMetadata });
+      }
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: existing.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "agent.openclaw_connection_tested",
+        entityType: "agent",
+        entityId: existing.id,
+        details: {
+          status: connectionState.status,
+          checkedAt: connectionState.checkedAt,
+          persisted: !hasAdapterConfigOverride,
+        },
+      });
+
+      const response: OpenClawConnectionTestResult = {
+        agentId: existing.id,
+        adapterType: "openclaw_gateway",
+        ...connectionState,
+      };
+      res.json(response);
     },
   );
 
@@ -1388,6 +1647,7 @@ export function agentRoutes(db: Db) {
   router.post("/companies/:companyId/agent-hires", validate(createAgentHireSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     await assertCanCreateAgentsForCompany(req, companyId);
+    const actor = getActorInfo(req);
     const sourceIssueIds = parseSourceIssueIds(req.body);
     const {
       desiredSkills: requestedDesiredSkills,
@@ -1408,10 +1668,23 @@ export function agentRoutes(db: Db) {
       hireInput.adapterType,
       ((hireInput.adapterConfig ?? {}) as Record<string, unknown>),
     );
+    const persistedRequestedAdapterConfig =
+      hireInput.adapterType === "openclaw_gateway"
+        ? await persistOpenClawGatewayAuthToken({
+            companyId,
+            adapterConfig: requestedAdapterConfig,
+            agentName: hireInput.name,
+            requireToken: true,
+            actor: {
+              agentId: actor.agentId,
+              userId: actor.actorType === "user" ? actor.actorId : null,
+            },
+          })
+        : requestedAdapterConfig;
     const desiredSkillAssignment = await resolveDesiredSkillAssignment(
       companyId,
       hireInput.adapterType,
-      requestedAdapterConfig,
+      persistedRequestedAdapterConfig,
       Array.isArray(requestedDesiredSkills) ? requestedDesiredSkills : undefined,
     );
     const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
@@ -1451,7 +1724,6 @@ export function agentRoutes(db: Db) {
     const agent = await materializeDefaultInstructionsBundleForNewAgent(createdAgent);
 
     let approval: Awaited<ReturnType<typeof approvalsSvc.getById>> | null = null;
-    const actor = getActorInfo(req);
 
     if (requiresApproval) {
       const requestedAdapterType = normalizedHireInput.adapterType ?? agent.adapterType;
@@ -1560,6 +1832,7 @@ export function agentRoutes(db: Db) {
   router.post("/companies/:companyId/agents", validate(createAgentSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     await assertCanCreateAgentsForCompany(req, companyId);
+    const actor = getActorInfo(req);
 
     const company = await db
       .select()
@@ -1593,10 +1866,23 @@ export function agentRoutes(db: Db) {
       createInput.adapterType,
       ((createInput.adapterConfig ?? {}) as Record<string, unknown>),
     );
+    const persistedRequestedAdapterConfig =
+      createInput.adapterType === "openclaw_gateway"
+        ? await persistOpenClawGatewayAuthToken({
+            companyId,
+            adapterConfig: requestedAdapterConfig,
+            agentName: createInput.name,
+            requireToken: true,
+            actor: {
+              agentId: actor.agentId,
+              userId: actor.actorType === "user" ? actor.actorId : null,
+            },
+          })
+        : requestedAdapterConfig;
     const desiredSkillAssignment = await resolveDesiredSkillAssignment(
       companyId,
       createInput.adapterType,
-      requestedAdapterConfig,
+      persistedRequestedAdapterConfig,
       Array.isArray(requestedDesiredSkills) ? requestedDesiredSkills : undefined,
     );
     const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
@@ -1620,7 +1906,6 @@ export function agentRoutes(db: Db) {
     });
     const agent = await materializeDefaultInstructionsBundleForNewAgent(createdAgent);
 
-    const actor = getActorInfo(req);
     await logActivity(db, {
       companyId,
       actorType: actor.actorType,
@@ -2046,10 +2331,25 @@ export function agentRoutes(db: Db) {
           rawEffectiveAdapterConfig,
         );
       }
-      const effectiveAdapterConfig = applyCreateDefaultsByAdapterType(
+      let effectiveAdapterConfig = applyCreateDefaultsByAdapterType(
         requestedAdapterType,
         rawEffectiveAdapterConfig,
       );
+      if (requestedAdapterType === "openclaw_gateway") {
+        effectiveAdapterConfig = await persistOpenClawGatewayAuthToken({
+          companyId: existing.companyId,
+          adapterConfig: effectiveAdapterConfig,
+          agentName:
+            (typeof patchData.name === "string" && patchData.name.trim().length > 0)
+              ? patchData.name
+              : existing.name,
+          existingAuthTokenRef: (asRecord(existingAdapterConfig)?.authTokenRef ?? undefined),
+          actor: {
+            agentId: req.actor.type === "agent" ? req.actor.agentId : null,
+            userId: req.actor.type === "board" ? req.actor.userId ?? null : null,
+          },
+        });
+      }
       const normalizedEffectiveAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
         existing.companyId,
         effectiveAdapterConfig,

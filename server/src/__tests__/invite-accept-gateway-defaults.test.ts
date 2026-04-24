@@ -74,6 +74,26 @@ describe("buildJoinDefaultsPayloadForAccept (openclaw_gateway)", () => {
 });
 
 describe("normalizeAgentDefaultsForJoin (openclaw_gateway)", () => {
+  it("defaults to token-only mode when disableDeviceAuth is omitted", () => {
+    const normalized = normalizeAgentDefaultsForJoin({
+      adapterType: "openclaw_gateway",
+      defaultsPayload: {
+        url: "ws://127.0.0.1:18789",
+        headers: {
+          "x-openclaw-token": "gateway-token-1234567890",
+        },
+      },
+      deploymentMode: "authenticated",
+      deploymentExposure: "private",
+      bindHost: "127.0.0.1",
+      allowedHostnames: [],
+    });
+
+    expect(normalized.fatalErrors).toEqual([]);
+    expect(normalized.normalized?.disableDeviceAuth).toBe(true);
+    expect(normalized.normalized?.devicePrivateKeyPem).toBeUndefined();
+  });
+
   it("generates persistent device key when device auth is enabled", () => {
     const normalized = normalizeAgentDefaultsForJoin({
       adapterType: "openclaw_gateway",
@@ -94,6 +114,27 @@ describe("normalizeAgentDefaultsForJoin (openclaw_gateway)", () => {
     expect(normalized.normalized?.disableDeviceAuth).toBe(false);
     expect(typeof normalized.normalized?.devicePrivateKeyPem).toBe("string");
     expect((normalized.normalized?.devicePrivateKeyPem as string).length).toBeGreaterThan(64);
+  });
+
+  it("preserves pairing mode for existing configs that already include a device key", () => {
+    const normalized = normalizeAgentDefaultsForJoin({
+      adapterType: "openclaw_gateway",
+      defaultsPayload: {
+        url: "ws://127.0.0.1:18789",
+        headers: {
+          "x-openclaw-token": "gateway-token-1234567890",
+        },
+        devicePrivateKeyPem: "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+      },
+      deploymentMode: "authenticated",
+      deploymentExposure: "private",
+      bindHost: "127.0.0.1",
+      allowedHostnames: [],
+    });
+
+    expect(normalized.fatalErrors).toEqual([]);
+    expect(normalized.normalized?.disableDeviceAuth).toBe(false);
+    expect(normalized.normalized?.devicePrivateKeyPem).toContain("BEGIN PRIVATE KEY");
   });
 
   it("does not generate device key when disableDeviceAuth=true", () => {

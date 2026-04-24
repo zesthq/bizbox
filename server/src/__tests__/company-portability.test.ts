@@ -519,6 +519,62 @@ describe("company portability", () => {
     });
   });
 
+  it("exports OpenClaw agents without leaking token material and adds a portable token input", async () => {
+    agentSvc.list.mockResolvedValueOnce([
+      {
+        id: "agent-openclaw",
+        name: "CEO",
+        status: "idle",
+        role: "ceo",
+        title: "CEO",
+        icon: "briefcase",
+        reportsTo: null,
+        capabilities: "Leads the company",
+        adapterType: "openclaw_gateway",
+        adapterConfig: {
+          url: "ws://citro-openclaw.internal:18789",
+          authTokenRef: {
+            type: "secret_ref",
+            secretId: "secret-openclaw",
+            version: "latest",
+          },
+          headers: {
+            "x-openclaw-token": "should-not-export",
+          },
+        },
+        runtimeConfig: {},
+        budgetMonthlyCents: 0,
+        permissions: {
+          canCreateAgents: false,
+        },
+        metadata: null,
+      },
+    ]);
+    agentInstructionsSvc.exportFiles.mockResolvedValueOnce({
+      files: { "AGENTS.md": "You are CEO." },
+      entryFile: "AGENTS.md",
+      warnings: [],
+    });
+
+    const portability = companyPortabilityService({} as any);
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+    });
+
+    const extension = asTextFile(exported.files[".paperclip.yaml"]);
+    expect(extension).toContain('type: "openclaw_gateway"');
+    expect(extension).toContain("OPENCLAW_GATEWAY_TOKEN:");
+    expect(extension).not.toContain("secret-openclaw");
+    expect(extension).not.toContain("should-not-export");
+    expect(extension).not.toContain("authTokenRef:");
+    expect(extension).not.toContain("x-openclaw-token");
+  });
+
   it("expands referenced skills when requested", async () => {
     const portability = companyPortabilityService({} as any);
 

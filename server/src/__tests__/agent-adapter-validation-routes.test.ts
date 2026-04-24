@@ -6,6 +6,7 @@ import type { ServerAdapterModule } from "../adapters/index.js";
 const mockAgentService = vi.hoisted(() => ({
   create: vi.fn(),
   getById: vi.fn(),
+  update: vi.fn(),
 }));
 
 const mockAccessService = vi.hoisted(() => ({
@@ -23,6 +24,9 @@ const mockCompanySkillService = vi.hoisted(() => ({
 const mockSecretService = vi.hoisted(() => ({
   normalizeAdapterConfigForPersistence: vi.fn(async (_companyId: string, config: Record<string, unknown>) => config),
   resolveAdapterConfigForRuntime: vi.fn(async (_companyId: string, config: Record<string, unknown>) => ({ config })),
+  normalizeSecretRefBindingForPersistence: vi.fn(async (_companyId: string, value: Record<string, unknown>) => value),
+  create: vi.fn(async () => ({ id: "secret-1" })),
+  rotate: vi.fn(async () => ({ id: "secret-1" })),
 }));
 
 const mockAgentInstructionsService = vi.hoisted(() => ({
@@ -193,13 +197,40 @@ describe("agent routes adapter validation", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     }));
+    mockAgentService.getById.mockResolvedValue(null);
+    mockAgentService.update.mockImplementation(async (id: string, patch: Record<string, unknown>) => ({
+      id,
+      companyId: "company-1",
+      name: "Agent",
+      urlKey: "agent",
+      role: "general",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "openclaw_gateway",
+      adapterConfig: {},
+      runtimeConfig: {},
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: (patch.metadata as Record<string, unknown> | undefined) ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
     await unregisterTestAdapter("external_test");
     await unregisterTestAdapter(missingAdapterType);
+    await unregisterTestAdapter("openclaw_gateway");
   });
 
   afterEach(async () => {
     await unregisterTestAdapter("external_test");
     await unregisterTestAdapter(missingAdapterType);
+    await unregisterTestAdapter("openclaw_gateway");
   });
 
   it("creates agents for dynamically registered external adapter types", async () => {
@@ -229,5 +260,248 @@ describe("agent routes adapter validation", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(String(res.body.error ?? res.body.message ?? "")).toContain(`Unknown adapter type: ${missingAdapterType}`);
+  });
+
+  it("stores OpenClaw gateway tokens as secret refs during create", async () => {
+    const { registerServerAdapter } = await import("../adapters/index.js");
+    registerServerAdapter({
+      type: "openclaw_gateway",
+      execute: async () => ({ exitCode: 0, signal: null, timedOut: false }),
+      testEnvironment: async () => ({
+        adapterType: "openclaw_gateway",
+        status: "pass",
+        checks: [],
+        testedAt: new Date(0).toISOString(),
+      }),
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/companies/company-1/agents")
+      .send({
+        name: "CEO",
+        adapterType: "openclaw_gateway",
+        adapterConfig: {
+          url: "ws://citro-openclaw.internal:18789",
+          authToken: "gateway-token",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockSecretService.create).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({
+        provider: "local_encrypted",
+        value: "gateway-token",
+      }),
+      expect.any(Object),
+    );
+    expect(mockAgentService.create).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({
+        adapterConfig: expect.objectContaining({
+          url: "ws://citro-openclaw.internal:18789",
+          authTokenRef: {
+            type: "secret_ref",
+            secretId: "secret-1",
+            version: "latest",
+          },
+        }),
+      }),
+    );
+    expect(mockAgentService.create.mock.calls[0]?.[1]?.adapterConfig).not.toHaveProperty("authToken");
+    expect(mockAgentService.create.mock.calls[0]?.[1]?.adapterConfig).not.toHaveProperty("devicePrivateKeyPem");
+  });
+
+  it("generates an OpenClaw device key only when pairing mode is explicit", async () => {
+    const { registerServerAdapter } = await import("../adapters/index.js");
+    registerServerAdapter({
+      type: "openclaw_gateway",
+      execute: async () => ({ exitCode: 0, signal: null, timedOut: false }),
+      testEnvironment: async () => ({
+        adapterType: "openclaw_gateway",
+        status: "pass",
+        checks: [],
+        testedAt: new Date(0).toISOString(),
+      }),
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/companies/company-1/agents")
+      .send({
+        name: "CEO",
+        adapterType: "openclaw_gateway",
+        adapterConfig: {
+          url: "ws://citro-openclaw.internal:18789",
+          authToken: "gateway-token",
+          disableDeviceAuth: false,
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const adapterConfig = mockAgentService.create.mock.calls[0]?.[1]?.adapterConfig as
+      | Record<string, unknown>
+      | undefined;
+    expect(adapterConfig?.disableDeviceAuth).toBe(false);
+    expect(typeof adapterConfig?.devicePrivateKeyPem).toBe("string");
+    expect(String(adapterConfig?.devicePrivateKeyPem ?? "")).toContain("BEGIN PRIVATE KEY");
+  });
+
+  it("persists normalized OpenClaw connection status on agent metadata", async () => {
+    const { registerServerAdapter } = await import("../adapters/index.js");
+    registerServerAdapter({
+      type: "openclaw_gateway",
+      execute: async () => ({ exitCode: 0, signal: null, timedOut: false }),
+      testEnvironment: async () => ({
+        adapterType: "openclaw_gateway",
+        status: "warn",
+        testedAt: "2026-04-23T12:00:00.000Z",
+        checks: [
+          {
+            code: "openclaw_gateway_pairing_required",
+            level: "warn",
+            message: "Gateway requires device pairing before the connection can be approved.",
+          },
+        ],
+      }),
+    });
+    mockAgentService.getById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111112",
+      companyId: "company-1",
+      name: "CEO",
+      urlKey: "ceo",
+      role: "ceo",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "openclaw_gateway",
+      adapterConfig: {
+        url: "ws://citro-openclaw.internal:18789",
+        authTokenRef: { type: "secret_ref", secretId: "secret-1", version: "latest" },
+      },
+      runtimeConfig: {},
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockSecretService.resolveAdapterConfigForRuntime.mockResolvedValue({
+      config: {
+        url: "ws://citro-openclaw.internal:18789",
+        authToken: "resolved-token",
+      },
+      secretKeys: new Set(["authToken"]),
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/agents/11111111-1111-4111-8111-111111111112/openclaw/connection-test")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      agentId: "11111111-1111-4111-8111-111111111112",
+      adapterType: "openclaw_gateway",
+      status: "pairing_required",
+      checkedAt: "2026-04-23T12:00:00.000Z",
+    });
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111112",
+      expect.objectContaining({
+        metadata: {
+          openclawConnection: {
+            status: "pairing_required",
+            checkedAt: "2026-04-23T12:00:00.000Z",
+            message: "Gateway requires device pairing before the connection can be approved.",
+          },
+        },
+      }),
+    );
+  });
+
+  it("does not persist OpenClaw connection preview results with adapter config overrides", async () => {
+    const { registerServerAdapter } = await import("../adapters/index.js");
+    registerServerAdapter({
+      type: "openclaw_gateway",
+      execute: async () => ({ exitCode: 0, signal: null, timedOut: false }),
+      testEnvironment: async () => ({
+        adapterType: "openclaw_gateway",
+        status: "fail",
+        testedAt: "2026-04-23T13:00:00.000Z",
+        checks: [
+          {
+            code: "openclaw_gateway_invalid_token",
+            level: "error",
+            message: "OpenClaw rejected the gateway access token.",
+          },
+        ],
+      }),
+    });
+    mockAgentService.getById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111112",
+      companyId: "company-1",
+      name: "CEO",
+      urlKey: "ceo",
+      role: "ceo",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "openclaw_gateway",
+      adapterConfig: {
+        url: "ws://citro-openclaw.internal:18789",
+        authTokenRef: { type: "secret_ref", secretId: "secret-1", version: "latest" },
+      },
+      runtimeConfig: {},
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: {
+        openclawConnection: {
+          status: "connected",
+          checkedAt: "2026-04-23T12:00:00.000Z",
+          message: null,
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockSecretService.resolveAdapterConfigForRuntime.mockResolvedValue({
+      config: {
+        url: "ws://citro-openclaw.internal:18789",
+        authToken: "preview-token",
+      },
+      secretKeys: new Set(["authToken"]),
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/agents/11111111-1111-4111-8111-111111111112/openclaw/connection-test")
+      .send({
+        adapterConfig: {
+          authToken: "preview-token",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      agentId: "11111111-1111-4111-8111-111111111112",
+      adapterType: "openclaw_gateway",
+      status: "invalid_token",
+      checkedAt: "2026-04-23T13:00:00.000Z",
+    });
+    expect(mockAgentService.update).not.toHaveBeenCalled();
   });
 });

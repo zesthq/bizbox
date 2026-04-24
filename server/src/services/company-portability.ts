@@ -1619,6 +1619,49 @@ function normalizePortableConfig(
   return next;
 }
 
+function sanitizePortableOpenClawAdapterConfig(
+  adapterConfig: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...adapterConfig };
+  delete next.authToken;
+  delete next.token;
+  delete next.authTokenRef;
+
+  if (isPlainRecord(next.headers)) {
+    const headers = { ...(next.headers as Record<string, unknown>) };
+    for (const key of Object.keys(headers)) {
+      const normalized = key.toLowerCase();
+      if (
+        normalized === "x-openclaw-token" ||
+        normalized === "x-openclaw-auth" ||
+        normalized === "authorization"
+      ) {
+        delete headers[key];
+      }
+    }
+    if (Object.keys(headers).length > 0) {
+      next.headers = headers;
+    } else {
+      delete next.headers;
+    }
+  }
+
+  return next;
+}
+
+function buildPortableOpenClawTokenInput(agentSlug: string): CompanyPortabilityEnvInput {
+  return {
+    key: "OPENCLAW_GATEWAY_TOKEN",
+    description: "Access token used for the OpenClaw gateway connection.",
+    agentSlug,
+    projectSlug: null,
+    kind: "secret",
+    requirement: "required",
+    defaultValue: null,
+    portability: "portable",
+  };
+}
+
 function isAbsoluteCommand(value: string) {
   return path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value);
 }
@@ -3252,8 +3295,13 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         );
         envInputs.push(...exportedEnvInputs);
         const adapterDefaultRules = ADAPTER_DEFAULT_RULES_BY_TYPE[agent.adapterType] ?? [];
+        const basePortableAdapterConfig = normalizePortableConfig(agent.adapterConfig);
+        const sanitizedPortableAdapterConfig =
+          agent.adapterType === "openclaw_gateway"
+            ? sanitizePortableOpenClawAdapterConfig(basePortableAdapterConfig)
+            : basePortableAdapterConfig;
         const portableAdapterConfig = pruneDefaultLikeValue(
-          normalizePortableConfig(agent.adapterConfig),
+          sanitizedPortableAdapterConfig,
           {
             dropFalseBooleans: true,
             defaultRules: adapterDefaultRules,
@@ -3272,6 +3320,14 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
             .slice(envInputsStart)
             .filter((inputValue) => inputValue.agentSlug === slug),
         );
+        if (
+          agent.adapterType === "openclaw_gateway"
+          && !agentEnvInputs.some((inputValue) => inputValue.key === "OPENCLAW_GATEWAY_TOKEN")
+        ) {
+          const openClawTokenInput = buildPortableOpenClawTokenInput(slug);
+          agentEnvInputs.push(openClawTokenInput);
+          envInputs.push(openClawTokenInput);
+        }
         const reportsToSlug = agent.reportsTo ? (idToSlug.get(agent.reportsTo) ?? null) : null;
         const desiredSkills = readPaperclipSkillSyncPreference(
           (agent.adapterConfig as Record<string, unknown>) ?? {},

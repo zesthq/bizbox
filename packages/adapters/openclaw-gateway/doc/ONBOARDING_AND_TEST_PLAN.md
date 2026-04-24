@@ -9,7 +9,7 @@ This plan is now **gateway-only**. Paperclip supports OpenClaw through `openclaw
 ## Requirements
 1. OpenClaw test image must be stock/clean every run.
 2. Onboarding must work from one primary prompt pasted into OpenClaw (optional one follow-up ping allowed).
-3. Device auth stays enabled by default; pairing is persisted via `adapterConfig.devicePrivateKeyPem`.
+3. Token-only cloud-first setup is the default; pairing is available only as an advanced/manual path.
 4. Invite/access flow must be secure:
 - invite prompt endpoint is board-permission protected
 - CEO agent is allowed to invoke the invite prompt endpoint for their own company
@@ -23,16 +23,18 @@ This plan is now **gateway-only**. Paperclip supports OpenClaw through `openclaw
 - `adapterType: "openclaw_gateway"`
 - `agentDefaultsPayload.url: ws://... | wss://...`
 - `agentDefaultsPayload.headers["x-openclaw-token"]`
+ - `agentDefaultsPayload.disableDeviceAuth: true`
 5. Board approves join request.
 6. OpenClaw claims API key and installs/uses Paperclip skill.
-7. First task run may trigger pairing approval once; after approval, pairing persists via stored device key.
+7. Pairing is only expected for advanced/manual setups that explicitly enable device auth.
 
 ## Technical Contract (Gateway)
 `agentDefaultsPayload` minimum:
 ```json
 {
   "url": "ws://127.0.0.1:18789",
-  "headers": { "x-openclaw-token": "<gateway-token>" }
+  "headers": { "x-openclaw-token": "<gateway-token>" },
+  "disableDeviceAuth": true
 }
 ```
 
@@ -48,8 +50,8 @@ Recommended fields:
 ```
 
 Security/pairing defaults:
-- `disableDeviceAuth`: default false
-- `devicePrivateKeyPem`: generated during join if missing
+- `disableDeviceAuth`: default true
+- `devicePrivateKeyPem`: only needed for explicit token + device pairing setups
 
 ## Codex Automation Workflow
 
@@ -77,10 +79,10 @@ curl -fsS http://127.0.0.1:3100/api/health
 - assert created agent:
   - `adapterType == openclaw_gateway`
   - token header exists and length >= 16
-  - `devicePrivateKeyPem` exists
+  - `disableDeviceAuth == true`
 
-### 3) Pairing stabilization
-- if first run returns `pairing required`, approve pending device in OpenClaw
+### 3) Advanced pairing stabilization
+- for an explicit pairing-mode setup, if first run returns `pairing required`, approve pending device in OpenClaw
 - rerun task and confirm success
 - assert later runs do not require re-pairing for same agent
 

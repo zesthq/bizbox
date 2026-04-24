@@ -15,6 +15,8 @@ type CanonicalEnvBinding =
   | { type: "plain"; value: string }
   | { type: "secret_ref"; secretId: string; version: number | "latest" };
 
+type CanonicalSecretRefBinding = { type: "secret_ref"; secretId: string; version: number | "latest" };
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -36,6 +38,11 @@ function canonicalizeBinding(binding: EnvBinding): CanonicalEnvBinding {
     secretId: binding.secretId,
     version: binding.version ?? "latest",
   };
+}
+
+function canonicalizeSecretRefBinding(binding: EnvBinding): CanonicalSecretRefBinding | null {
+  const canonical = canonicalizeBinding(binding);
+  return canonical.type === "secret_ref" ? canonical : null;
 }
 
 export function secretService(db: Db) {
@@ -139,6 +146,23 @@ export function secretService(db: Db) {
     return normalized;
   }
 
+  async function normalizeSecretRefBinding(
+    companyId: string,
+    rawValue: unknown,
+    fieldPath = "secretRef",
+  ): Promise<CanonicalSecretRefBinding> {
+    const parsed = envBindingSchema.safeParse(rawValue);
+    if (!parsed.success) {
+      throw unprocessable(`${fieldPath} must be a valid secret reference`);
+    }
+    const binding = canonicalizeSecretRefBinding(parsed.data as EnvBinding);
+    if (!binding) {
+      throw unprocessable(`${fieldPath} must be a secret reference`);
+    }
+    await assertSecretInCompany(companyId, binding.secretId);
+    return binding;
+  }
+
   async function normalizeAdapterConfigForPersistenceInternal(
     companyId: string,
     adapterConfig: Record<string, unknown>,
@@ -165,6 +189,7 @@ export function secretService(db: Db) {
     getById,
     getByName,
     resolveSecretValue,
+    normalizeSecretRefBindingForPersistence: normalizeSecretRefBinding,
 
     create: async (
       companyId: string,
@@ -348,6 +373,19 @@ export function secretService(db: Db) {
     resolveAdapterConfigForRuntime: async (companyId: string, adapterConfig: Record<string, unknown>): Promise<{ config: Record<string, unknown>; secretKeys: Set<string> }> => {
       const resolved = { ...adapterConfig };
       const secretKeys = new Set<string>();
+      if (
+        Object.prototype.hasOwnProperty.call(adapterConfig, "authTokenRef")
+        && typeof adapterConfig.authToken !== "string"
+        && typeof adapterConfig.token !== "string"
+      ) {
+        const binding = await normalizeSecretRefBinding(
+          companyId,
+          adapterConfig.authTokenRef,
+          "adapterConfig.authTokenRef",
+        );
+        resolved.authToken = await resolveSecretValue(companyId, binding.secretId, binding.version);
+        secretKeys.add("authToken");
+      }
       if (!Object.prototype.hasOwnProperty.call(adapterConfig, "env")) {
         return { config: resolved, secretKeys };
       }

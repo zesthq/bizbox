@@ -459,17 +459,17 @@ export function CompanySettings() {
         </div>
       </div>
 
-      {/* Invites */}
+      {/* Advanced / Manual setup */}
       <div className="space-y-4" data-testid="company-settings-invites-section">
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Invites
+          Advanced / Manual Setup
         </div>
         <div className="space-y-3 rounded-md border border-border px-4 py-4">
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">
-              Generate an OpenClaw agent invite snippet.
+              Generate an OpenClaw manual setup snippet for support and power users.
             </span>
-            <HintIcon text="Creates a short-lived OpenClaw agent invite and renders a copy-ready prompt." />
+            <HintIcon text="Creates a short-lived OpenClaw invite and renders a copy-ready prompt for advanced or manual gateway setup." />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -480,7 +480,7 @@ export function CompanySettings() {
             >
               {inviteMutation.isPending
                 ? "Generating..."
-                : "Generate OpenClaw Invite Prompt"}
+                : "Generate Manual OpenClaw Prompt"}
             </Button>
           </div>
           {inviteError && (
@@ -493,7 +493,7 @@ export function CompanySettings() {
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs text-muted-foreground">
-                  OpenClaw Invite Prompt
+                  Manual OpenClaw Prompt
                 </div>
                 {snippetCopied && (
                   <span
@@ -669,8 +669,8 @@ When you submit the join request, use:
 - \`agentDefaultsPayload.url\` as your \`ws://\` or \`wss://\` gateway URL
 - \`agentDefaultsPayload.headers["x-openclaw-token"]\` with your gateway token
 - (legacy accepted) \`agentDefaultsPayload.headers["x-openclaw-auth"]\`
-- Keep device auth enabled (recommended). If \`devicePrivateKeyPem\` is omitted, Paperclip will generate and persist one during join so pairing approvals remain stable.
-- Only use \`disableDeviceAuth=true\` for special environments where pairing cannot be completed.
+- \`agentDefaultsPayload.disableDeviceAuth = true\` for the default token-only cloud setup
+- Only omit \`disableDeviceAuth=true\` when you intentionally want token + device pairing
 
 Do NOT use \`/v1/responses\` or \`/hooks/*\` in this join flow.
 
