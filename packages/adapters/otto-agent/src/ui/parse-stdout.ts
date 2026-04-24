@@ -15,7 +15,7 @@ function safeJsonParse(text: string): unknown {
 
 /**
  * Parse a stdout line emitted by the otto_agent server adapter.
- * Lines prefixed with [otto-agent:event] carry structured JSON.
+ * Lines prefixed with [otto-agent:event] carry structured JSON for future streaming output.
  * Lines prefixed with [otto-agent] are system messages.
  * Everything else passes through as raw stdout.
  */

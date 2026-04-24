@@ -1,4 +1,5 @@
 import type {
+  AdapterBillingType,
   AdapterExecutionContext,
   AdapterExecutionResult,
 } from "@paperclipai/adapter-utils";
@@ -44,7 +45,8 @@ type OttoResponse = {
   model?: string;
   provider?: string;
   usage?: UsageSummary;
-  costUsd?: number;
+  billingType?: unknown;
+  costUsd?: unknown;
   errorMessage?: string;
   errorCode?: string;
 };
@@ -105,6 +107,27 @@ function buildPrompt(ctx: AdapterExecutionContext): string {
   if (parts.length === 0) parts.push(JSON.stringify(ctx.context, null, 2));
 
   return parts.join("\n\n");
+}
+
+function resolveBillingType(result: OttoResponse): AdapterBillingType {
+  switch (result.billingType) {
+    case "api":
+    case "subscription":
+    case "metered_api":
+    case "subscription_included":
+    case "subscription_overage":
+    case "credits":
+    case "fixed":
+    case "unknown":
+      return result.billingType;
+  }
+  return typeof result.costUsd === "number" && result.costUsd > 0 ? "metered_api" : "unknown";
+}
+
+function resolveCostUsd(result: OttoResponse): number | null {
+  return typeof result.costUsd === "number" && Number.isFinite(result.costUsd)
+    ? result.costUsd
+    : null;
 }
 
 export async function execute(
@@ -249,6 +272,8 @@ export async function execute(
     };
   }
 
+  const costUsd = resolveCostUsd(result);
+
   return {
     exitCode: 0,
     signal: null,
@@ -259,7 +284,7 @@ export async function execute(
     usage: result.usage,
     model: result.model,
     provider: result.provider,
-    billingType: "subscription_included",
-    costUsd: result.costUsd ?? null,
+    billingType: resolveBillingType(result),
+    costUsd,
   };
 }
