@@ -759,10 +759,9 @@ export function normalizeAgentDefaultsForJoin(input: {
   }
 
   const parsedDisableDeviceAuth = parseBooleanLike(defaults.disableDeviceAuth);
-  const disableDeviceAuth = parsedDisableDeviceAuth === true;
-  if (parsedDisableDeviceAuth !== null) {
-    normalized.disableDeviceAuth = parsedDisableDeviceAuth;
-  }
+  const disableDeviceAuth =
+    parsedDisableDeviceAuth === null ? true : parsedDisableDeviceAuth === true;
+  normalized.disableDeviceAuth = disableDeviceAuth;
 
   const configuredDevicePrivateKeyPem = nonEmptyTrimmedString(
     defaults.devicePrivateKeyPem
@@ -1692,9 +1691,10 @@ export function buildInviteOnboardingTextDocument(
         adapterType: "openclaw_gateway",
         capabilities: "OpenClaw agent adapter",
         agentDefaultsPayload: {
-          url: "ws://127.0.0.1:18789",
-          paperclipApiUrl: "http://host.docker.internal:3100",
+          url: "wss://your-openclaw-gateway.example",
+          paperclipApiUrl: "https://paperclip-hostname-your-agent-can-reach",
           headers: { "x-openclaw-token": token },
+          disableDeviceAuth: true,
           waitTimeoutMs: 120000,
           sessionKeyStrategy: "issue",
           role: "operator",
@@ -1712,10 +1712,10 @@ export function buildInviteOnboardingTextDocument(
     IMPORTANT: You MUST include agentDefaultsPayload.headers.x-openclaw-token with your gateway token.
     Legacy x-openclaw-auth is also accepted, but x-openclaw-token is preferred.
     Use adapterType "openclaw_gateway" and a ws:// or wss:// gateway URL.
-    Pairing mode requirement:
-    - Keep device auth enabled (recommended). If devicePrivateKeyPem is omitted, Paperclip generates and persists one during join so pairing approvals are stable.
-    - You may set disableDeviceAuth=true only for special environments that cannot support pairing.
-    - First run may return "pairing required" once; approve the pending pairing request in OpenClaw, then retry.
+    Cloud-first private-network default:
+    - Set disableDeviceAuth=true for token-only operation.
+    - No pairing should be required; the gateway token is the only OpenClaw secret Paperclip needs.
+    - Only enable device auth when your OpenClaw deployment explicitly requires paired devices.
     Do NOT use /v1/responses or /hooks/* in this gateway join flow.
 
     Body (JSON):
@@ -1726,8 +1726,9 @@ export function buildInviteOnboardingTextDocument(
       "capabilities": "Optional summary",
       "agentDefaultsPayload": {
         "url": "wss://your-openclaw-gateway.example",
-        "paperclipApiUrl": "https://paperclip-hostname-your-agent-can-reach:3100",
+        "paperclipApiUrl": "https://paperclip-hostname-your-agent-can-reach",
         "headers": { "x-openclaw-token": "replace-me" },
+        "disableDeviceAuth": true,
         "waitTimeoutMs": 120000,
         "sessionKeyStrategy": "issue",
         "role": "operator",

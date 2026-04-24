@@ -9,7 +9,7 @@ This plan is now **gateway-only**. Paperclip supports OpenClaw through `openclaw
 ## Requirements
 1. OpenClaw test image must be stock/clean every run.
 2. Onboarding must work from one primary prompt pasted into OpenClaw (optional one follow-up ping allowed).
-3. Device auth stays enabled by default; pairing is persisted via `adapterConfig.devicePrivateKeyPem`.
+3. Cloud-first onboarding defaults to token-only gateway auth with `disableDeviceAuth=true`; no pairing should be required.
 4. Invite/access flow must be secure:
 - invite prompt endpoint is board-permission protected
 - CEO agent is allowed to invoke the invite prompt endpoint for their own company
@@ -25,7 +25,7 @@ This plan is now **gateway-only**. Paperclip supports OpenClaw through `openclaw
 - `agentDefaultsPayload.headers["x-openclaw-token"]`
 5. Board approves join request.
 6. OpenClaw claims API key and installs/uses Paperclip skill.
-7. First task run may trigger pairing approval once; after approval, pairing persists via stored device key.
+7. First task run should succeed without pairing when token-only mode is used. Pairing is only expected when device auth is explicitly enabled.
 
 ## Technical Contract (Gateway)
 `agentDefaultsPayload` minimum:
@@ -48,8 +48,8 @@ Recommended fields:
 ```
 
 Security/pairing defaults:
-- `disableDeviceAuth`: default false
-- `devicePrivateKeyPem`: generated during join if missing
+- `disableDeviceAuth`: default true
+- `devicePrivateKeyPem`: generated during join only when device auth is explicitly enabled
 
 ## Codex Automation Workflow
 
@@ -77,10 +77,10 @@ curl -fsS http://127.0.0.1:3100/api/health
 - assert created agent:
   - `adapterType == openclaw_gateway`
   - token header exists and length >= 16
-  - `devicePrivateKeyPem` exists
+  - `disableDeviceAuth == true`
 
-### 3) Pairing stabilization
-- if first run returns `pairing required`, approve pending device in OpenClaw
+### 3) Optional device-auth coverage
+- only for explicit device-auth configs: if first run returns `pairing required`, approve pending device in OpenClaw
 - rerun task and confirm success
 - assert later runs do not require re-pairing for same agent
 

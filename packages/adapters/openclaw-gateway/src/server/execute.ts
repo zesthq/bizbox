@@ -1099,7 +1099,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const role = nonEmpty(ctx.config.role) ?? DEFAULT_ROLE;
   const scopes = normalizeScopes(ctx.config.scopes);
   const deviceFamily = nonEmpty(ctx.config.deviceFamily);
-  const disableDeviceAuth = parseBoolean(ctx.config.disableDeviceAuth, false);
+  const disableDeviceAuth = parseBoolean(ctx.config.disableDeviceAuth, true);
 
   const wakePayload = buildWakePayload(ctx);
   const paperclipEnv = buildPaperclipEnvForWake(ctx, wakePayload);

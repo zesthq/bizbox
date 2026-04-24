@@ -74,7 +74,27 @@ describe("buildJoinDefaultsPayloadForAccept (openclaw_gateway)", () => {
 });
 
 describe("normalizeAgentDefaultsForJoin (openclaw_gateway)", () => {
-  it("generates persistent device key when device auth is enabled", () => {
+  it("defaults to token-only mode when device auth is omitted", () => {
+    const normalized = normalizeAgentDefaultsForJoin({
+      adapterType: "openclaw_gateway",
+      defaultsPayload: {
+        url: "ws://127.0.0.1:18789",
+        headers: {
+          "x-openclaw-token": "gateway-token-1234567890",
+        },
+      },
+      deploymentMode: "authenticated",
+      deploymentExposure: "private",
+      bindHost: "127.0.0.1",
+      allowedHostnames: [],
+    });
+
+    expect(normalized.fatalErrors).toEqual([]);
+    expect(normalized.normalized?.disableDeviceAuth).toBe(true);
+    expect(normalized.normalized?.devicePrivateKeyPem).toBeUndefined();
+  });
+
+  it("generates persistent device key when device auth is explicitly enabled", () => {
     const normalized = normalizeAgentDefaultsForJoin({
       adapterType: "openclaw_gateway",
       defaultsPayload: {

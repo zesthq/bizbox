@@ -56,6 +56,16 @@ function parseScopes(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function parseDisableDeviceAuth(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return true;
+}
+
 export function OpenClawGatewayConfigFields({
   isCreate,
   values,
@@ -94,6 +104,9 @@ export function OpenClawGatewayConfigFields({
     "adapterConfig",
     "sessionKeyStrategy",
     String(config.sessionKeyStrategy ?? "fixed"),
+  );
+  const disableDeviceAuth = parseDisableDeviceAuth(
+    eff("adapterConfig", "disableDeviceAuth", config.disableDeviceAuth ?? true),
   );
 
   return (
@@ -234,10 +247,18 @@ export function OpenClawGatewayConfigFields({
             />
           </Field>
 
-          <Field label="Device auth">
-            <div className="text-xs text-muted-foreground leading-relaxed">
-              Always enabled for gateway agents. Paperclip persists a device key during onboarding so pairing approvals
-              remain stable across runs.
+          <Field label="Gateway auth mode">
+            <select
+              value={disableDeviceAuth ? "token" : "device"}
+              onChange={(e) => mark("adapterConfig", "disableDeviceAuth", e.target.value === "token")}
+              className={inputClass}
+            >
+              <option value="token">Token only (cloud-first)</option>
+              <option value="device">Token + device pairing</option>
+            </select>
+            <div className="mt-1 text-xs text-muted-foreground leading-relaxed">
+              Token-only mode is the default and avoids pairing. Enable device auth only when your OpenClaw gateway
+              explicitly requires paired devices.
             </div>
           </Field>
         </>

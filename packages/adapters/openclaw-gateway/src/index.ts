@@ -27,14 +27,14 @@ Gateway connect identity fields:
 - clientVersion (string, optional): client version string
 - role (string, optional): gateway role (default operator)
 - scopes (string[] | comma string, optional): gateway scopes (default ["operator.admin"])
-- disableDeviceAuth (boolean, optional): disable signed device payload in connect params (default false)
+- disableDeviceAuth (boolean, optional): disable signed device payload in connect params (default true for cloud-first gateway deployments)
 
 Request behavior fields:
 - payloadTemplate (object, optional): additional fields merged into gateway agent params
 - workspaceRuntime (object, optional): reserved workspace runtime metadata; workspace runtime services are manually controlled from the workspace UI and are not auto-started by heartbeats
 - timeoutSec (number, optional): adapter timeout in seconds (default 120)
 - waitTimeoutMs (number, optional): agent.wait timeout override (default timeoutSec * 1000)
-- autoPairOnFirstConnect (boolean, optional): on first "pairing required", attempt device.pair.list/device.pair.approve via shared auth, then retry once (default true)
+- autoPairOnFirstConnect (boolean, optional): on first "pairing required", attempt device.pair.list/device.pair.approve via shared auth, then retry once (default true; only relevant when device auth is enabled)
 - paperclipApiUrl (string, optional): absolute Paperclip base URL advertised in wake text
 - claimedApiKeyPath (string, optional): path to the claimed API key JSON file read by the agent at wake time (default ~/.openclaw/workspace/paperclip-claimed-api-key.json)
 

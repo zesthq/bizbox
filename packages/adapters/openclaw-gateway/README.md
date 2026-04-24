@@ -27,12 +27,13 @@ When a token is present and `authorization` header is missing, the adapter deriv
 
 ## Device Auth
 
-By default the adapter sends a signed `device` payload in `connect` params.
+By default the adapter is cloud-first and does not send a signed `device` payload in `connect` params.
 
-- set `disableDeviceAuth=true` to omit device signing
+- leave `disableDeviceAuth` unset, or set `disableDeviceAuth=true`, for token-only private-network deployments
+- set `disableDeviceAuth=false` to enable device signing when your gateway requires pairing
 - set `devicePrivateKeyPem` to pin a stable signing key
 - without `devicePrivateKeyPem`, the adapter generates an ephemeral Ed25519 keypair per run
-- when `autoPairOnFirstConnect` is enabled (default), the adapter handles one initial `pairing required` by calling `device.pair.list` + `device.pair.approve` over shared auth, then retries once.
+- when `autoPairOnFirstConnect` is enabled (default), the adapter handles one initial `pairing required` by calling `device.pair.list` + `device.pair.approve` over shared auth, then retries once. This only applies when device auth is enabled.
 
 ## Session Strategy
 

@@ -669,8 +669,8 @@ When you submit the join request, use:
 - \`agentDefaultsPayload.url\` as your \`ws://\` or \`wss://\` gateway URL
 - \`agentDefaultsPayload.headers["x-openclaw-token"]\` with your gateway token
 - (legacy accepted) \`agentDefaultsPayload.headers["x-openclaw-auth"]\`
-- Keep device auth enabled (recommended). If \`devicePrivateKeyPem\` is omitted, Paperclip will generate and persist one during join so pairing approvals remain stable.
-- Only use \`disableDeviceAuth=true\` for special environments where pairing cannot be completed.
+- Set \`disableDeviceAuth=true\` for the default cloud-first setup. That keeps the flow token-only and avoids pairing.
+- Only enable device auth if your OpenClaw deployment explicitly requires paired devices.
 
 Do NOT use \`/v1/responses\` or \`/hooks/*\` in this join flow.
 

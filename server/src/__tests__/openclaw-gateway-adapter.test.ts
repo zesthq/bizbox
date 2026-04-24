@@ -646,6 +646,7 @@ describe("openclaw gateway ui build config", () => {
     expect(config).toEqual(
       expect.objectContaining({
         url: "wss://gateway.example/ws",
+        disableDeviceAuth: true,
         payloadTemplate: {
           agentId: "remote-agent-123",
           metadata: { team: "platform" },
