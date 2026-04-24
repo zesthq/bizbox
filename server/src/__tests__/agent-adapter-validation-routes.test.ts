@@ -427,6 +427,133 @@ describe("agent routes adapter validation", () => {
     );
   });
 
+  it("treats unknown passing OpenClaw checks as connected", async () => {
+    const { registerServerAdapter } = await import("../adapters/index.js");
+    registerServerAdapter({
+      type: "openclaw_gateway",
+      execute: async () => ({ exitCode: 0, signal: null, timedOut: false }),
+      testEnvironment: async () => ({
+        adapterType: "openclaw_gateway",
+        status: "pass",
+        testedAt: "2026-04-23T12:30:00.000Z",
+        checks: [
+          {
+            code: "openclaw_gateway_probe_ok_with_warning",
+            level: "info",
+            message: "Gateway probe passed with additional adapter detail.",
+          },
+        ],
+      }),
+    });
+    mockAgentService.getById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111112",
+      companyId: "company-1",
+      name: "CEO",
+      urlKey: "ceo",
+      role: "ceo",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "openclaw_gateway",
+      adapterConfig: {
+        url: "ws://citro-openclaw.internal:18789",
+        authTokenRef: { type: "secret_ref", secretId: "secret-1", version: "latest" },
+      },
+      runtimeConfig: {},
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockSecretService.resolveAdapterConfigForRuntime.mockResolvedValue({
+      config: {
+        url: "ws://citro-openclaw.internal:18789",
+        authToken: "resolved-token",
+      },
+      secretKeys: new Set(["authToken"]),
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/agents/11111111-1111-4111-8111-111111111112/openclaw/connection-test")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      agentId: "11111111-1111-4111-8111-111111111112",
+      adapterType: "openclaw_gateway",
+      status: "connected",
+      checkedAt: "2026-04-23T12:30:00.000Z",
+    });
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111112",
+      expect.objectContaining({
+        metadata: {
+          openclawConnection: {
+            status: "connected",
+            checkedAt: "2026-04-23T12:30:00.000Z",
+            message: null,
+          },
+        },
+      }),
+    );
+  });
+
+  it("returns persisted OpenClaw connection status", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111112",
+      companyId: "company-1",
+      name: "CEO",
+      urlKey: "ceo",
+      role: "ceo",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "openclaw_gateway",
+      adapterConfig: {
+        url: "ws://citro-openclaw.internal:18789",
+        authTokenRef: { type: "secret_ref", secretId: "secret-1", version: "latest" },
+      },
+      runtimeConfig: {},
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: {
+        openclawConnection: {
+          status: "connected",
+          checkedAt: "2026-04-23T12:30:00.000Z",
+          message: "Gateway probe passed.",
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .get("/api/agents/11111111-1111-4111-8111-111111111112/openclaw-connection-status")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toEqual({
+      status: "connected",
+      checkedAt: "2026-04-23T12:30:00.000Z",
+      message: "Gateway probe passed.",
+    });
+  });
+
   it("does not persist OpenClaw connection preview results with adapter config overrides", async () => {
     const { registerServerAdapter } = await import("../adapters/index.js");
     registerServerAdapter({

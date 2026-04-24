@@ -10,6 +10,7 @@ import type {
   AgentTaskSession,
   AgentWakeupResponse,
   HeartbeatRun,
+  OpenClawConnectionState,
   OpenClawConnectionTestResult,
   Approval,
   AgentConfigRevision,
@@ -190,6 +191,10 @@ export const agentsApi = {
     api.post<OpenClawConnectionTestResult>(
       agentPath(id, companyId, "/openclaw/connection-test"),
       data ?? {},
+    ),
+  getOpenClawConnectionStatus: (id: string, companyId?: string) =>
+    api.get<OpenClawConnectionState | null>(
+      agentPath(id, companyId, "/openclaw-connection-status"),
     ),
   invoke: (id: string, companyId?: string) => api.post<HeartbeatRun>(agentPath(id, companyId, "/heartbeat/invoke"), {}),
   wakeup: (
