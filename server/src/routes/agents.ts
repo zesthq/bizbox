@@ -34,6 +34,7 @@ import {
   writePaperclipSkillSyncPreference,
 } from "@paperclipai/adapter-utils/server-utils";
 import { trackAgentCreated } from "@paperclipai/shared/telemetry";
+import { logger } from "../middleware/logger.js";
 import { validate } from "../middleware/validate.js";
 import {
   agentService,
@@ -612,13 +613,14 @@ export function agentRoutes(db: Db) {
 
   function normalizeOpenClawConnectionResult(
     result: {
+      status?: "pass" | "warn" | "fail";
       testedAt?: string;
       checks?: Array<{ code?: string; message?: string | null }>;
     },
   ): OpenClawConnectionState {
     const checks = Array.isArray(result.checks) ? result.checks : [];
     const findCheck = (code: string) => checks.find((check) => check.code === code) ?? null;
-    const status: OpenClawConnectionStatus =
+    const knownStatus: OpenClawConnectionStatus | null =
       findCheck("openclaw_gateway_probe_ok")
         ? "connected"
         : findCheck("openclaw_gateway_invalid_token")
@@ -629,7 +631,19 @@ export function agentRoutes(db: Db) {
               ? "unreachable"
               : findCheck("openclaw_gateway_url_missing") || findCheck("openclaw_gateway_auth_missing")
                 ? "not_configured"
-                : "unreachable";
+                : null;
+    if (!knownStatus) {
+      logger.warn(
+        {
+          adapterType: "openclaw_gateway",
+          status: result.status,
+          checkCodes: checks.map((check) => check.code),
+        },
+        "unknown OpenClaw connection test check codes",
+      );
+    }
+    const status: OpenClawConnectionStatus =
+      knownStatus ?? (result.status === "pass" ? "connected" : "unreachable");
     const message =
       checks.find((check) =>
         [
@@ -1160,6 +1174,21 @@ export function agentRoutes(db: Db) {
       res.json(response);
     },
   );
+
+  router.get("/agents/:id/openclaw-connection-status", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+    await assertCanReadAgent(req, agent);
+    if (agent.adapterType !== "openclaw_gateway") {
+      throw unprocessable("OpenClaw connection status is only supported for openclaw_gateway agents.");
+    }
+
+    res.json(getOpenClawConnectionState(agent.metadata));
+  });
 
   router.get("/agents/:id/skills", async (req, res) => {
     const id = req.params.id as string;
