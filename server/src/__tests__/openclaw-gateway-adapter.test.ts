@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { execute, testEnvironment } from "@paperclipai/adapter-openclaw-gateway/server";
+import * as openClawGateway from "@paperclipai/adapter-openclaw-gateway";
 import {
   buildOpenClawGatewayConfig,
   parseOpenClawGatewayStdoutLine,
@@ -502,12 +503,9 @@ describe("openclaw gateway adapter execute", () => {
       );
       expect(String(payload?.message ?? "")).toContain("First comment");
       expect(String(payload?.message ?? "")).toContain("\"commentIds\":[\"comment-1\",\"comment-2\"]");
-      expect(payload?.paperclip).toMatchObject({
-        wake: {
-          latestCommentId: "comment-2",
-          commentIds: ["comment-1", "comment-2"],
-        },
-      });
+      expect(String(payload?.message ?? "")).toContain("\"latestCommentId\":\"comment-2\"");
+      // Regression guard for #606/#617/#626: OpenClaw rejects unknown top-level agent params.
+      expect(payload?.paperclip).toBeUndefined();
 
       expect(logs.some((entry) => entry.includes("[openclaw-gateway:event] run=run-123 stream=assistant"))).toBe(true);
     } finally {
@@ -581,6 +579,7 @@ describe("openclaw gateway adapter execute", () => {
             headers: {
               "x-openclaw-token": "gateway-token",
             },
+            disableDeviceAuth: false,
             payloadTemplate: {
               message: "wake now",
             },
@@ -605,10 +604,50 @@ describe("openclaw gateway adapter execute", () => {
       await gateway.close();
     }
   });
+
+  it("defaults missing disableDeviceAuth to token-only mode", async () => {
+    const gateway = await createMockGatewayServerWithPairing();
+    const logs: string[] = [];
+
+    try {
+      const result = await execute(
+        buildContext(
+          {
+            url: gateway.url,
+            headers: {
+              "x-openclaw-token": "gateway-token",
+            },
+            waitTimeoutMs: 2000,
+          },
+          {
+            onLog: async (_stream, chunk) => {
+              logs.push(chunk);
+            },
+          },
+        ),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(logs.some((entry) => entry.includes("device auth disabled (token-only mode)"))).toBe(true);
+      expect(logs.some((entry) => entry.includes("pairing required; attempting automatic pairing approval"))).toBe(
+        false,
+      );
+    } finally {
+      await gateway.close();
+    }
+  });
 });
 
 describe("openclaw gateway ui build config", () => {
-  it("parses payload template and runtime services json", () => {
+  it("documents the current outbound payload contract", () => {
+    expect(openClawGateway.type).toBe("openclaw_gateway");
+    expect(openClawGateway.agentConfigurationDoc).not.toContain("paperclip (object)");
+    expect(openClawGateway.agentConfigurationDoc).not.toContain("paperclip.workspace");
+    expect(openClawGateway.agentConfigurationDoc).toContain("Wake context is included in the structured wake message/text");
+    expect(openClawGateway.agentConfigurationDoc).toContain("Do not rely on a top-level paperclip params object");
+  });
+
+  it("builds the simplified connect config with hidden defaults", () => {
     const config = buildOpenClawGatewayConfig({
       adapterType: "openclaw_gateway",
       cwd: "",
@@ -625,18 +664,7 @@ describe("openclaw gateway ui build config", () => {
       envVars: "",
       envBindings: {},
       url: "wss://gateway.example/ws",
-      payloadTemplateJson: JSON.stringify({
-        agentId: "remote-agent-123",
-        metadata: { team: "platform" },
-      }),
-      runtimeServicesJson: JSON.stringify({
-        services: [
-          {
-            name: "preview",
-            lifecycle: "shared",
-          },
-        ],
-      }),
+      accessToken: "gateway-token",
       bootstrapPrompt: "",
       maxTurnsPerRun: 0,
       heartbeatEnabled: true,
@@ -646,20 +674,42 @@ describe("openclaw gateway ui build config", () => {
     expect(config).toEqual(
       expect.objectContaining({
         url: "wss://gateway.example/ws",
-        payloadTemplate: {
-          agentId: "remote-agent-123",
-          metadata: { team: "platform" },
-        },
-        workspaceRuntime: {
-          services: [
-            {
-              name: "preview",
-              lifecycle: "shared",
-            },
-          ],
-        },
+        authToken: "gateway-token",
+        disableDeviceAuth: true,
+        waitTimeoutMs: 120000,
+        sessionKeyStrategy: "issue",
+        role: "operator",
+        scopes: ["operator.admin"],
       }),
     );
+  });
+
+  it("persists pairing mode when explicitly selected", () => {
+    const config = buildOpenClawGatewayConfig({
+      adapterType: "openclaw_gateway",
+      cwd: "",
+      promptTemplate: "",
+      model: "",
+      thinkingEffort: "",
+      chrome: false,
+      dangerouslySkipPermissions: false,
+      search: false,
+      dangerouslyBypassSandbox: false,
+      command: "",
+      args: "",
+      extraArgs: "",
+      envVars: "",
+      envBindings: {},
+      url: "wss://gateway.example/ws",
+      accessToken: "gateway-token",
+      openClawSetupMode: "token_and_device_pairing",
+      bootstrapPrompt: "",
+      maxTurnsPerRun: 0,
+      heartbeatEnabled: true,
+      intervalSec: 300,
+    });
+
+    expect(config.disableDeviceAuth).toBe(false);
   });
 });
 

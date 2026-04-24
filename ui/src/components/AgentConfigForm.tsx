@@ -5,6 +5,8 @@ import type {
   AdapterEnvironmentTestResult,
   CompanySecret,
   EnvBinding,
+  OpenClawConnectionState,
+  OpenClawConnectionStatus,
 } from "@paperclipai/shared";
 import { AGENT_DEFAULT_MAX_CONCURRENT_RUNS } from "@paperclipai/shared";
 import type { AdapterModel } from "../api/agents";
@@ -23,7 +25,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { FolderOpen, Heart, ChevronDown, X } from "lucide-react";
+import { FolderOpen, Heart, ChevronDown, X, CheckCircle2, AlertTriangle, CircleSlash } from "lucide-react";
 import { cn } from "../lib/utils";
 import { extractModelName, extractProviderId } from "../lib/model-utils";
 import { queryKeys } from "../lib/queryKeys";
@@ -164,6 +166,90 @@ const claudeThinkingEffortOptions = [
   { id: "high", label: "High" },
 ] as const;
 
+function readOpenClawConnectionState(metadata: unknown): OpenClawConnectionState | null {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return null;
+  const candidate = (metadata as Record<string, unknown>).openclawConnection;
+  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return null;
+  const record = candidate as Record<string, unknown>;
+  if (typeof record.status !== "string" || typeof record.checkedAt !== "string") return null;
+  return {
+    status: record.status as OpenClawConnectionStatus,
+    checkedAt: record.checkedAt,
+    message: typeof record.message === "string" ? record.message : null,
+  };
+}
+
+function normalizeOpenClawConnectionFromEnvironmentResult(
+  result: AdapterEnvironmentTestResult,
+): OpenClawConnectionState {
+  const hasCode = (code: string) => result.checks.some((check) => check.code === code);
+  const status: OpenClawConnectionStatus =
+    hasCode("openclaw_gateway_probe_ok")
+      ? "connected"
+      : hasCode("openclaw_gateway_invalid_token")
+        ? "invalid_token"
+        : hasCode("openclaw_gateway_pairing_required")
+          ? "pairing_required"
+          : hasCode("openclaw_gateway_url_missing") || hasCode("openclaw_gateway_auth_missing")
+            ? "not_configured"
+            : "unreachable";
+
+  const message =
+    result.checks.find((check) =>
+      [
+        "openclaw_gateway_probe_ok",
+        "openclaw_gateway_invalid_token",
+        "openclaw_gateway_pairing_required",
+        "openclaw_gateway_unreachable",
+        "openclaw_gateway_probe_failed",
+        "openclaw_gateway_probe_error",
+        "openclaw_gateway_url_missing",
+        "openclaw_gateway_auth_missing",
+      ].includes(check.code),
+    )?.message ?? null;
+
+  return {
+    status,
+    checkedAt: result.testedAt,
+    message,
+  };
+}
+
+function openClawConnectionAppearance(status: OpenClawConnectionStatus) {
+  switch (status) {
+    case "connected":
+      return {
+        label: "Connected",
+        className: "border-green-300/70 bg-green-50 text-green-700 dark:border-green-500/40 dark:bg-green-500/10 dark:text-green-300",
+        icon: CheckCircle2,
+      };
+    case "pairing_required":
+      return {
+        label: "Pairing required",
+        className: "border-amber-300/70 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200",
+        icon: AlertTriangle,
+      };
+    case "invalid_token":
+      return {
+        label: "Invalid token",
+        className: "border-destructive/40 bg-destructive/10 text-destructive",
+        icon: CircleSlash,
+      };
+    case "not_configured":
+      return {
+        label: "Not configured",
+        className: "border-border bg-muted/40 text-muted-foreground",
+        icon: CircleSlash,
+      };
+    default:
+      return {
+        label: "Needs attention",
+        className: "border-destructive/40 bg-destructive/10 text-destructive",
+        icon: AlertTriangle,
+      };
+  }
+}
+
 
 /* ---- Form ---- */
 
@@ -273,6 +359,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     : overlay.adapterType ?? props.agent.adapterType;
   const getCapabilities = useAdapterCapabilities();
   const adapterCaps = getCapabilities(adapterType);
+  const isOpenClawGateway = adapterType === "openclaw_gateway";
   const isLocal = adapterCaps.supportsInstructionsBundle || adapterCaps.supportsSkills || adapterCaps.supportsLocalAgentJwt;
   
   const showLegacyWorkingDirectoryField =
@@ -373,6 +460,41 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       });
     },
   });
+  const testOpenClawConnection = useMutation({
+    mutationFn: async () => {
+      if (isCreate) {
+        if (!selectedCompanyId) throw new Error("Select a company to test OpenClaw");
+        return normalizeOpenClawConnectionFromEnvironmentResult(
+          await agentsApi.testEnvironment(selectedCompanyId, adapterType, {
+            adapterConfig: buildAdapterConfigForTest(),
+          }),
+        );
+      }
+      if (isDirty) {
+        if (!selectedCompanyId) throw new Error("Select a company to test OpenClaw");
+        return normalizeOpenClawConnectionFromEnvironmentResult(
+          await agentsApi.testEnvironment(selectedCompanyId, adapterType, {
+            adapterConfig: buildAdapterConfigForTest(),
+          }),
+        );
+      }
+      return agentsApi.testOpenClawConnection(
+        props.agent.id,
+        undefined,
+        selectedCompanyId ?? undefined,
+      );
+    },
+    onSuccess: () => {
+      if (isCreate || isDirty) return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(props.agent.id) });
+    },
+  });
+  const persistedOpenClawConnection = !isCreate
+    ? readOpenClawConnectionState(props.agent.metadata)
+    : null;
+  const openClawConnectionState = isOpenClawGateway
+    ? (testOpenClawConnection.data ?? persistedOpenClawConnection)
+    : null;
 
   // Current model for display
   const currentModelId = isCreate
@@ -532,8 +654,8 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       <div className={cn(!cards && (isCreate ? "border-t border-border" : "border-b border-border"))}>
         <div className={cn(cards ? "flex items-center justify-between mb-3" : "px-4 py-2 flex items-center justify-between gap-2")}>
           {cards
-            ? <h3 className="text-sm font-medium">Adapter</h3>
-            : <span className="text-xs font-medium text-muted-foreground">Adapter</span>
+            ? <h3 className="text-sm font-medium">{isOpenClawGateway ? "Connect OpenClaw" : "Adapter"}</h3>
+            : <span className="text-xs font-medium text-muted-foreground">{isOpenClawGateway ? "Connect OpenClaw" : "Adapter"}</span>
           }
           {showAdapterTestEnvironmentButton && (
             <Button
@@ -541,10 +663,12 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
               variant="outline"
               size="sm"
               className="h-7 px-2.5 text-xs"
-              onClick={() => testEnvironment.mutate()}
-              disabled={testEnvironment.isPending || !selectedCompanyId}
+              onClick={() => (isOpenClawGateway ? testOpenClawConnection.mutate() : testEnvironment.mutate())}
+              disabled={(isOpenClawGateway ? testOpenClawConnection.isPending : testEnvironment.isPending) || !selectedCompanyId}
             >
-              {testEnvironment.isPending ? "Testing..." : "Test environment"}
+              {isOpenClawGateway
+                ? (testOpenClawConnection.isPending ? "Testing..." : "Test connection")
+                : (testEnvironment.isPending ? "Testing..." : "Test environment")}
             </Button>
           )}
         </div>
@@ -604,7 +728,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             </Field>
           )}
 
-          {testEnvironment.error && (
+          {!isOpenClawGateway && testEnvironment.error && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {testEnvironment.error instanceof Error
                 ? testEnvironment.error.message
@@ -612,8 +736,43 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             </div>
           )}
 
-          {testEnvironment.data && (
+          {!isOpenClawGateway && testEnvironment.data && (
             <AdapterEnvironmentResult result={testEnvironment.data} />
+          )}
+
+          {isOpenClawGateway && testOpenClawConnection.error && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {testOpenClawConnection.error instanceof Error
+                ? testOpenClawConnection.error.message
+                : "Connection test failed"}
+            </div>
+          )}
+
+          {isOpenClawGateway && (
+            <Field label="Connection status">
+              {openClawConnectionState ? (() => {
+                const appearance = openClawConnectionAppearance(openClawConnectionState.status);
+                const Icon = appearance.icon;
+                return (
+                  <div className={cn("rounded-md border px-3 py-2 text-xs", appearance.className)}>
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="font-medium">{appearance.label}</span>
+                      <span className="text-[11px] opacity-80">
+                        {new Date(openClawConnectionState.checkedAt).toLocaleString()}
+                      </span>
+                    </div>
+                    {openClawConnectionState.message ? (
+                      <p className="mt-1 leading-relaxed opacity-90">{openClawConnectionState.message}</p>
+                    ) : null}
+                  </div>
+                );
+              })() : (
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Not configured
+                </div>
+              )}
+            </Field>
           )}
 
           {/* Working directory */}
@@ -662,6 +821,8 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
               </div>
             </>
           )}
+
+          {isOpenClawGateway && <uiAdapter.ConfigFields {...adapterFieldProps} />}
 
           {/* Adapter-specific fields are rendered inside Permissions & Configuration */}
         </div>

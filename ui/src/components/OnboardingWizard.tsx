@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AdapterEnvironmentTestResult } from "@paperclipai/shared";
+import type { AdapterEnvironmentTestResult, OpenClawConnectionStatus } from "@paperclipai/shared";
 import { useLocation, useNavigate, useParams } from "@/lib/router";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
@@ -54,7 +54,9 @@ import {
   Check,
   Loader2,
   ChevronDown,
-  X
+  X,
+  AlertTriangle,
+  CircleSlash
 } from "lucide-react";
 
 
@@ -66,6 +68,39 @@ const DEFAULT_TASK_DESCRIPTION = `You are the CEO. You set the direction for the
 - hire a founding engineer
 - write a hiring plan
 - break the roadmap into concrete tasks and start delegating work`;
+
+function normalizeOpenClawConnectionStatus(
+  result: AdapterEnvironmentTestResult | null,
+): { status: OpenClawConnectionStatus; message: string | null } | null {
+  if (!result) return null;
+  const hasCode = (code: string) => result.checks.some((check) => check.code === code);
+  const status: OpenClawConnectionStatus =
+    hasCode("openclaw_gateway_probe_ok")
+      ? "connected"
+      : hasCode("openclaw_gateway_invalid_token")
+        ? "invalid_token"
+        : hasCode("openclaw_gateway_pairing_required")
+          ? "pairing_required"
+          : hasCode("openclaw_gateway_url_missing") || hasCode("openclaw_gateway_auth_missing")
+            ? "not_configured"
+            : "unreachable";
+  return {
+    status,
+    message:
+      result.checks.find((check) =>
+        [
+          "openclaw_gateway_probe_ok",
+          "openclaw_gateway_invalid_token",
+          "openclaw_gateway_pairing_required",
+          "openclaw_gateway_unreachable",
+          "openclaw_gateway_probe_failed",
+          "openclaw_gateway_probe_error",
+          "openclaw_gateway_url_missing",
+          "openclaw_gateway_auth_missing",
+        ].includes(check.code),
+      )?.message ?? null,
+  };
+}
 
 export function OnboardingWizard() {
   const { onboardingOpen, onboardingOptions, closeOnboarding } = useDialog();
@@ -113,6 +148,7 @@ export function OnboardingWizard() {
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
   const [url, setUrl] = useState("");
+  const [openClawAccessToken, setOpenClawAccessToken] = useState("");
   const [adapterEnvResult, setAdapterEnvResult] =
     useState<AdapterEnvironmentTestResult | null>(null);
   const [adapterEnvError, setAdapterEnvError] = useState<string | null>(null);
@@ -233,7 +269,11 @@ export function OnboardingWizard() {
     if (step !== 2) return;
     setAdapterEnvResult(null);
     setAdapterEnvError(null);
-  }, [step, adapterType, model, command, args, url]);
+  }, [step, adapterType, model, command, args, url, openClawAccessToken]);
+  const openClawConnection = useMemo(
+    () => normalizeOpenClawConnectionStatus(adapterEnvResult),
+    [adapterEnvResult],
+  );
 
   const selectedModel = (adapterModels ?? []).find((m) => m.id === model);
   const hasAnthropicApiKeyOverrideCheck =
@@ -293,6 +333,7 @@ export function OnboardingWizard() {
     setCommand("");
     setArgs("");
     setUrl("");
+    setOpenClawAccessToken("");
     setAdapterEnvResult(null);
     setAdapterEnvError(null);
     setAdapterEnvLoading(false);
@@ -329,6 +370,7 @@ export function OnboardingWizard() {
       command,
       args,
       url,
+      accessToken: openClawAccessToken,
       dangerouslySkipPermissions:
         adapterType === "claude_local" || adapterType === "opencode_local",
       dangerouslyBypassSandbox:
@@ -421,6 +463,16 @@ export function OnboardingWizard() {
     setLoading(true);
     setError(null);
     try {
+      if (adapterType === "openclaw_gateway") {
+        if (!url.trim()) {
+          setError("OpenClaw requires a gateway URL.");
+          return;
+        }
+        if (!openClawAccessToken.trim()) {
+          setError("OpenClaw requires an access token.");
+          return;
+        }
+      }
       if (adapterType === "opencode_local") {
         const selectedModelId = model.trim();
         if (!selectedModelId) {
@@ -454,7 +506,7 @@ export function OnboardingWizard() {
         }
       }
 
-      if (isLocalAdapter) {
+      if (isLocalAdapter || adapterType === "openclaw_gateway") {
         const result = adapterEnvResult ?? (await runAdapterEnvironmentTest());
         if (!result) return;
       }
@@ -1076,21 +1128,110 @@ export function OnboardingWizard() {
                     </div>
                   )}
 
-                  {(adapterType === "http" ||
-                    adapterType === "openclaw_gateway") && (
+                  {adapterType === "openclaw_gateway" && (
+                    <div className="space-y-3 rounded-md border border-border p-3">
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          Gateway URL
+                        </label>
+                        <input
+                          className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                          placeholder="ws://127.0.0.1:18789"
+                          value={url}
+                          onChange={(e) => setUrl(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          Access token
+                        </label>
+                        <input
+                          type="password"
+                          className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                          placeholder="OpenClaw access token"
+                          value={openClawAccessToken}
+                          onChange={(e) => setOpenClawAccessToken(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-medium">Connection status</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Test the token-only OpenClaw gateway before creating this CEO.
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-xs"
+                          disabled={adapterEnvLoading}
+                          onClick={() => void runAdapterEnvironmentTest()}
+                        >
+                          {adapterEnvLoading ? "Testing..." : "Test connection"}
+                        </Button>
+                      </div>
+
+                      {adapterEnvError && (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11px] text-destructive">
+                          {adapterEnvError}
+                        </div>
+                      )}
+
+                      {openClawConnection ? (
+                        <div
+                          className={cn(
+                            "rounded-md border px-3 py-2 text-xs",
+                            openClawConnection.status === "connected"
+                              ? "border-green-300/70 bg-green-50 text-green-700 dark:border-green-500/40 dark:bg-green-500/10 dark:text-green-300"
+                              : openClawConnection.status === "pairing_required"
+                                ? "border-amber-300/70 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                                : openClawConnection.status === "not_configured"
+                                  ? "border-border bg-muted/30 text-muted-foreground"
+                                  : "border-destructive/30 bg-destructive/10 text-destructive",
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            {openClawConnection.status === "connected" ? (
+                              <Check className="h-3.5 w-3.5 shrink-0" />
+                            ) : openClawConnection.status === "pairing_required" ? (
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                            ) : (
+                              <CircleSlash className="h-3.5 w-3.5 shrink-0" />
+                            )}
+                            <span className="font-medium">
+                              {openClawConnection.status === "connected"
+                                ? "Connected"
+                                : openClawConnection.status === "pairing_required"
+                                  ? "Pairing required"
+                                  : openClawConnection.status === "invalid_token"
+                                    ? "Invalid token"
+                                    : openClawConnection.status === "not_configured"
+                                      ? "Not configured"
+                                      : "Gateway unreachable"}
+                            </span>
+                          </div>
+                          {openClawConnection.message ? (
+                            <p className="mt-1 leading-relaxed opacity-90">{openClawConnection.message}</p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                          Not configured
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {adapterType === "http" && (
                     <div>
                       <label className="text-xs text-muted-foreground mb-1 block">
-                        {adapterType === "openclaw_gateway"
-                          ? "Gateway URL"
-                          : "Webhook URL"}
+                        Webhook URL
                       </label>
                       <input
                         className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm font-mono outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
-                        placeholder={
-                          adapterType === "openclaw_gateway"
-                            ? "ws://127.0.0.1:18789"
-                            : "https://..."
-                        }
+                        placeholder="https://..."
                         value={url}
                         onChange={(e) => setUrl(e.target.value)}
                       />

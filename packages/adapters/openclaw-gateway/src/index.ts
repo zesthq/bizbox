@@ -17,9 +17,14 @@ Don't use when:
 
 Core fields:
 - url (string, required): OpenClaw gateway WebSocket URL (ws:// or wss://)
-- headers (object, optional): handshake headers; supports x-openclaw-token / x-openclaw-auth
 - authToken (string, optional): shared gateway token override
+- authTokenRef (secret_ref, optional): Bizbox-managed secret reference for the gateway token
+- headers (object, optional): handshake headers; supports x-openclaw-token / x-openclaw-auth
 - password (string, optional): gateway shared password, if configured
+
+Managed business flow:
+- In the primary Connect OpenClaw flow, operators should only provide Gateway URL and Access token.
+- Bizbox persists the token securely and resolves authTokenRef at runtime. Do not require users to paste raw headers.
 
 Gateway connect identity fields:
 - clientId (string, optional): gateway client id (default gateway-client)
@@ -27,14 +32,14 @@ Gateway connect identity fields:
 - clientVersion (string, optional): client version string
 - role (string, optional): gateway role (default operator)
 - scopes (string[] | comma string, optional): gateway scopes (default ["operator.admin"])
-- disableDeviceAuth (boolean, optional): disable signed device payload in connect params (default false)
+- disableDeviceAuth (boolean, optional): disable signed device payload in connect params (default true unless an existing devicePrivateKeyPem indicates pairing mode)
 
 Request behavior fields:
 - payloadTemplate (object, optional): additional fields merged into gateway agent params
 - workspaceRuntime (object, optional): reserved workspace runtime metadata; workspace runtime services are manually controlled from the workspace UI and are not auto-started by heartbeats
 - timeoutSec (number, optional): adapter timeout in seconds (default 120)
 - waitTimeoutMs (number, optional): agent.wait timeout override (default timeoutSec * 1000)
-- autoPairOnFirstConnect (boolean, optional): on first "pairing required", attempt device.pair.list/device.pair.approve via shared auth, then retry once (default true)
+- autoPairOnFirstConnect (boolean, optional): on first "pairing required", attempt device.pair.list/device.pair.approve via shared auth, then retry once (default true when device auth is enabled)
 - paperclipApiUrl (string, optional): absolute Paperclip base URL advertised in wake text
 - claimedApiKeyPath (string, optional): path to the claimed API key JSON file read by the agent at wake time (default ~/.openclaw/workspace/paperclip-claimed-api-key.json)
 
@@ -42,11 +47,10 @@ Session routing fields:
 - sessionKeyStrategy (string, optional): issue (default), fixed, or run
 - sessionKey (string, optional): fixed session key when strategy=fixed (default paperclip)
 
-Standard outbound payload additions:
-- paperclip (object): standardized Paperclip context added to every gateway agent request
-- paperclip.workspace (object, optional): resolved execution workspace for this run
-- paperclip.workspaces (array, optional): additional workspace hints Paperclip exposed to the run
-- paperclip.workspaceRuntime (object, optional): reserved workspace runtime metadata when explicitly supplied outside normal heartbeat execution
+Outbound payload behavior:
+- Wake context is included in the structured wake message/text sent to the gateway agent.
+- payloadTemplate fields are merged directly into gateway agent params.
+- Do not rely on a top-level paperclip params object; OpenClaw may reject unknown top-level params.
 
 Standard result metadata supported:
 - meta.runtimeServices (array, optional): normalized adapter-managed runtime service reports
