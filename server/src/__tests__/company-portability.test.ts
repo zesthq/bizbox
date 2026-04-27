@@ -2669,6 +2669,7 @@ describe("company portability", () => {
     expect(secretSvc.create).toHaveBeenCalledWith(
       "company-imported",
       expect.objectContaining({
+        name: expect.stringMatching(/^openclaw-gateway-token-claudecoder-[a-f0-9]{8}$/),
         provider: "local_encrypted",
         value: "gateway-token",
       }),

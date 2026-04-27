@@ -83,7 +83,9 @@ function normalizeOpenClawConnectionStatus(
           ? "pairing_required"
           : hasCode("openclaw_gateway_url_missing") || hasCode("openclaw_gateway_auth_missing")
             ? "not_configured"
-            : "unreachable";
+            : result.status === "pass"
+              ? "connected"
+              : "unreachable";
   return {
     status,
     message:
