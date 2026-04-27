@@ -243,6 +243,12 @@ function openClawConnectionAppearance(status: OpenClawConnectionStatus) {
         className: "border-border bg-muted/40 text-muted-foreground",
         icon: CircleSlash,
       };
+    case "unreachable":
+      return {
+        label: "Unreachable",
+        className: "border-border bg-muted/40 text-muted-foreground",
+        icon: CircleSlash,
+      };
     default:
       return {
         label: "Needs attention",

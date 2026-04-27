@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { execFile } from "node:child_process";
 import path from "node:path";
@@ -2843,6 +2843,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
   async function persistImportedOpenClawAuthToken(
     companyId: string,
     adapterConfig: Record<string, unknown>,
+    agentName: string | null | undefined,
   ): Promise<Record<string, unknown>> {
     const authToken = asString(adapterConfig.authToken)?.trim() || null;
     const token = asString(adapterConfig.token)?.trim() || null;
@@ -2858,7 +2859,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     const secret = await secrets.create(
       companyId,
       {
-        name: `OpenClaw Gateway Token`,
+        name: buildImportedOpenClawSecretName(agentName),
         provider: "local_encrypted",
         value: plainToken,
         description: `OpenClaw gateway access token for imported agent`,
@@ -2876,12 +2877,23 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     };
   }
 
+  function buildImportedOpenClawSecretName(agentName: string | null | undefined) {
+    const slug = (agentName ?? "agent")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "agent";
+    return `openclaw-gateway-token-${slug}-${randomUUID().slice(0, 8)}`;
+  }
+
   async function prepareImportedAgentAdapter(
     companyId: string,
     adapterType: string | null | undefined,
     adapterConfig: Record<string, unknown>,
     desiredSkills: string[],
     mode: ImportMode,
+    agentName?: string | null,
   ) {
     const effectiveAdapterType = assertKnownImportAdapterType(adapterType);
     if (mode === "agent_safe" && IMPORT_FORBIDDEN_ADAPTER_TYPES.has(effectiveAdapterType)) {
@@ -2896,7 +2908,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     delete nextAdapterConfig.instructionsEntryFile;
 
     if (effectiveAdapterType === "openclaw_gateway") {
-      nextAdapterConfig = await persistImportedOpenClawAuthToken(companyId, nextAdapterConfig);
+      nextAdapterConfig = await persistImportedOpenClawAuthToken(companyId, nextAdapterConfig, agentName);
     }
 
     const normalizedAdapterConfig = await secrets.normalizeAdapterConfigForPersistence(
@@ -4266,6 +4278,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           baseAdapterConfig,
           desiredSkills,
           mode,
+          planAgent.plannedName,
         );
         const patch = {
           name: planAgent.plannedName,
