@@ -2868,7 +2868,11 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
 
     return {
       ...sanitized,
-      authTokenRef: { secretId: secret.id },
+      authTokenRef: {
+        type: "secret_ref" as const,
+        secretId: secret.id,
+        version: "latest" as const,
+      },
     };
   }
 
