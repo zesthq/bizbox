@@ -9,6 +9,7 @@ ORG     ?=
 REGION  ?= syd
 VOLUME  ?= paperclip_data
 DB_VOL_GB ?= 10
+DB_MEMORY_MB ?= 2048
 VOL_GB  ?= 10
 
 .PHONY: fly-check-app fly-check-org fly-setup fly-db fly-volume fly-secrets bootstrap deploy admin-invite logs ssh status secrets
@@ -39,7 +40,7 @@ fly-db: fly-check-org
 	@if fly status --app $(DB) >/dev/null 2>&1; then \
 		echo "Fly Postgres app '$(DB)' already exists; skipping database creation."; \
 	else \
-		fly postgres create --name $(DB) --org $(ORG) --region $(REGION) --initial-cluster-size 1 --vm-cpu-kind shared --vm-cpus 1 --vm-memory 1024 --volume-size $(DB_VOL_GB); \
+		fly postgres create --name $(DB) --org $(ORG) --region $(REGION) --initial-cluster-size 1 --vm-cpu-kind shared --vm-cpus 1 --vm-memory $(DB_MEMORY_MB) --volume-size $(DB_VOL_GB); \
 	fi
 	@if fly secrets list --app $(APP) 2>/dev/null | grep -q '^DATABASE_URL'; then \
 		echo "DATABASE_URL is already set on '$(APP)'; skipping Postgres attach."; \

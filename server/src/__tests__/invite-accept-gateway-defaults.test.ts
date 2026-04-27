@@ -116,7 +116,7 @@ describe("normalizeAgentDefaultsForJoin (openclaw_gateway)", () => {
     expect((normalized.normalized?.devicePrivateKeyPem as string).length).toBeGreaterThan(64);
   });
 
-  it("preserves pairing mode for existing configs that already include a device key", () => {
+  it("does not enable pairing mode from a legacy device key alone", () => {
     const normalized = normalizeAgentDefaultsForJoin({
       adapterType: "openclaw_gateway",
       defaultsPayload: {
@@ -133,7 +133,7 @@ describe("normalizeAgentDefaultsForJoin (openclaw_gateway)", () => {
     });
 
     expect(normalized.fatalErrors).toEqual([]);
-    expect(normalized.normalized?.disableDeviceAuth).toBe(false);
+    expect(normalized.normalized?.disableDeviceAuth).toBe(true);
     expect(normalized.normalized?.devicePrivateKeyPem).toContain("BEGIN PRIVATE KEY");
   });
 

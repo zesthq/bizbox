@@ -9,6 +9,66 @@ import * as schema from "./schema/index.js";
 const MIGRATIONS_FOLDER = fileURLToPath(new URL("./migrations", import.meta.url));
 const DRIZZLE_MIGRATIONS_TABLE = "__drizzle_migrations";
 const MIGRATIONS_JOURNAL_JSON = fileURLToPath(new URL("./migrations/meta/_journal.json", import.meta.url));
+const DEFAULT_DB_POOL_MAX = 5;
+const DEFAULT_DB_IDLE_TIMEOUT_SECONDS = 30;
+const DEFAULT_DB_CONNECT_TIMEOUT_SECONDS = 5;
+
+export type CreateDbOptions = {
+  max?: number;
+  idleTimeoutSec?: number;
+  connectTimeoutSec?: number;
+  prepare?: boolean;
+};
+
+type PostgresOptions = NonNullable<Parameters<typeof postgres>[1]>;
+
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return undefined;
+  return parsed;
+}
+
+function parseBoolean(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function firstPositiveIntegerEnv(names: string[]): number | undefined {
+  for (const name of names) {
+    const parsed = parsePositiveInteger(process.env[name]);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
+}
+
+export function resolvePostgresClientOptions(options: CreateDbOptions = {}): PostgresOptions {
+  const resolved: PostgresOptions = {
+    max:
+      options.max ??
+      firstPositiveIntegerEnv(["PAPERCLIP_DB_POOL_MAX", "PAPERCLIP_DB_MAX_CONNECTIONS"]) ??
+      DEFAULT_DB_POOL_MAX,
+    idle_timeout:
+      options.idleTimeoutSec ??
+      firstPositiveIntegerEnv(["PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS", "PGIDLE_TIMEOUT"]) ??
+      DEFAULT_DB_IDLE_TIMEOUT_SECONDS,
+    connect_timeout:
+      options.connectTimeoutSec ??
+      firstPositiveIntegerEnv(["PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS", "PGCONNECT_TIMEOUT"]) ??
+      DEFAULT_DB_CONNECT_TIMEOUT_SECONDS,
+    onnotice: () => {},
+  };
+
+  const prepare = options.prepare ?? parseBoolean(process.env.PAPERCLIP_DB_PREPARE);
+  if (prepare !== undefined) {
+    resolved.prepare = prepare;
+  }
+
+  return resolved;
+}
 
 function createUtilitySql(url: string) {
   return postgres(url, { max: 1, onnotice: () => {} });
@@ -45,8 +105,8 @@ export type MigrationState =
       reason: "no-migration-journal-empty-db" | "no-migration-journal-non-empty-db" | "pending-migrations";
     };
 
-export function createDb(url: string) {
-  const sql = postgres(url);
+export function createDb(url: string, options: CreateDbOptions = {}) {
+  const sql = postgres(url, resolvePostgresClientOptions(options));
   return drizzlePg(sql, { schema });
 }
 

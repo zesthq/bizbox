@@ -412,6 +412,13 @@ pnpm dev
 ## Optional: Use External Postgres
 
 If you set `DATABASE_URL`, the server will use that instead of embedded PostgreSQL.
+The runtime Postgres client defaults to a bounded pool (`PAPERCLIP_DB_POOL_MAX=5`) with idle connections closed after 30 seconds. For small hosted databases, set:
+
+```sh
+PAPERCLIP_DB_POOL_MAX=3
+PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS=30
+PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS=5
+```
 
 ## Automatic DB Backups
 

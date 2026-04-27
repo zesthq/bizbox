@@ -31,8 +31,8 @@ Gateway connect identity fields:
 - clientMode (string, optional): gateway client mode (default backend)
 - clientVersion (string, optional): client version string
 - role (string, optional): gateway role (default operator)
-- scopes (string[] | comma string, optional): gateway scopes (default ["operator.admin"])
-- disableDeviceAuth (boolean, optional): disable signed device payload in connect params (default true unless an existing devicePrivateKeyPem indicates pairing mode)
+- scopes (string[] | comma string, optional): gateway scopes (default ["operator.admin", "operator.write"]; operator.write is always included)
+- disableDeviceAuth (boolean, optional): disable signed device payload in connect params (default true; set false only for explicit pairing mode)
 
 Request behavior fields:
 - payloadTemplate (object, optional): additional fields merged into gateway agent params

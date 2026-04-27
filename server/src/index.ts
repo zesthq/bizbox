@@ -272,7 +272,9 @@ export async function startServer(): Promise<StartedServer> {
     migrationSummary = await ensureMigrations(migrationUrl, "PostgreSQL");
   
     db = createDb(config.databaseUrl);
-    pluginMigrationDb = config.databaseMigrationUrl ? createDb(config.databaseMigrationUrl) : db;
+    pluginMigrationDb = config.databaseMigrationUrl
+      ? createDb(config.databaseMigrationUrl, { max: 1, idleTimeoutSec: 5 })
+      : db;
     logger.info("Using external PostgreSQL via DATABASE_URL/config");
     activeDatabaseConnectionString = config.databaseUrl;
     startupDbInfo = { mode: "external-postgres", connectionString: config.databaseUrl };

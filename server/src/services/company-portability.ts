@@ -622,7 +622,7 @@ const ADAPTER_DEFAULT_RULES_BY_TYPE: Record<string, Array<{ path: string[]; valu
     { path: ["sessionKeyStrategy"], value: "fixed" },
     { path: ["sessionKey"], value: "paperclip" },
     { path: ["role"], value: "operator" },
-    { path: ["scopes"], value: ["operator.admin"] },
+    { path: ["scopes"], value: ["operator.admin", "operator.write"] },
   ],
 };
 
@@ -2844,7 +2844,9 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     companyId: string,
     adapterConfig: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    const plainToken = asNonEmptyString(adapterConfig.authToken) ?? asNonEmptyString(adapterConfig.token);
+    const authToken = asString(adapterConfig.authToken)?.trim() || null;
+    const token = asString(adapterConfig.token)?.trim() || null;
+    const plainToken = authToken || token;
     if (!plainToken) {
       return adapterConfig;
     }

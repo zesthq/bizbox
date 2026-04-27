@@ -729,6 +729,7 @@ Required UX behaviors:
 - Node 20+
 - `DATABASE_URL` optional
 - if unset, auto-use PGlite and push schema
+- external Postgres runtime pool is bounded and configurable with `PAPERCLIP_DB_POOL_MAX`, `PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS`, and `PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS`
 
 ## 15.2 Migrations
 
