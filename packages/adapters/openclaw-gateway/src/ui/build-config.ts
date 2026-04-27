@@ -11,6 +11,6 @@ export function buildOpenClawGatewayConfig(v: CreateConfigValues): Record<string
   ac.waitTimeoutMs = 120000;
   ac.sessionKeyStrategy = "issue";
   ac.role = "operator";
-  ac.scopes = ["operator.admin"];
+  ac.scopes = ["operator.admin", "operator.write"];
   return ac;
 }

@@ -9,11 +9,14 @@ primary_region = "syd"
   HOST = "0.0.0.0"
   NODE_ENV = "production"
   SERVE_UI = "true"
-  BIZBOX_HOME = "/paperclip"
-  BIZBOX_DEPLOYMENT_MODE = "authenticated"
-  BIZBOX_DEPLOYMENT_EXPOSURE = "private"
-  BIZBOX_PUBLIC_URL = "https://bizbox.fly.dev" # Update to match your actual Fly app name or custom domain.
-  BIZBOX_MIGRATION_AUTO_APPLY = "true"
+  PAPERCLIP_HOME = "/paperclip"
+  PAPERCLIP_DEPLOYMENT_MODE = "authenticated"
+  PAPERCLIP_DEPLOYMENT_EXPOSURE = "private"
+  PAPERCLIP_PUBLIC_URL = "https://bizbox.fly.dev" # Update to match your actual Fly app name or custom domain.
+  PAPERCLIP_MIGRATION_AUTO_APPLY = "true"
+  PAPERCLIP_DB_POOL_MAX = "3"
+  PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS = "30"
+  PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS = "5"
   OPENCODE_ALLOW_ALL_MODELS = "true"
 
 [[vm]]

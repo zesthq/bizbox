@@ -192,7 +192,9 @@ function normalizeOpenClawConnectionFromEnvironmentResult(
           ? "pairing_required"
           : hasCode("openclaw_gateway_url_missing") || hasCode("openclaw_gateway_auth_missing")
             ? "not_configured"
-            : "unreachable";
+            : result.status === "pass"
+              ? "connected"
+              : "unreachable";
 
   const message =
     result.checks.find((check) =>

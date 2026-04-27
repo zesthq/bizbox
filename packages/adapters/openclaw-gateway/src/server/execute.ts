@@ -14,7 +14,6 @@ import {
 import crypto, { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import {
-  DEFAULT_SCOPES,
   asRecord,
   headerMapGetIgnoreCase,
   headerMapHasIgnoreCase,
@@ -1111,6 +1110,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   const autoPairOnFirstConnect = parseBoolean(parsedConfig.autoPairOnFirstConnect, true);
   let autoPairAttempted = false;
+  let retryTokenOnlyAfterScopeFailure = false;
   let latestResultPayload: unknown = null;
 
   while (true) {
@@ -1175,7 +1175,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     });
 
     try {
-      deviceIdentity = disableDeviceAuth ? null : resolveDeviceIdentity(parsedConfig);
+      deviceIdentity = disableDeviceAuth || retryTokenOnlyAfterScopeFailure
+        ? null
+        : resolveDeviceIdentity(parsedConfig);
       if (deviceIdentity) {
         await ctx.onLog(
           "stdout",
@@ -1186,6 +1188,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       }
 
       await ctx.onLog("stdout", `[openclaw-gateway] connecting to ${parsedUrl.toString()}\n`);
+      await ctx.onLog(
+        "stdout",
+        `[openclaw-gateway] connect role=${role} scopes=${scopes.join(",")}\n`,
+      );
 
       const hello = await client.connect((nonce) => {
         const signedAtMs = Date.now();
@@ -1364,6 +1370,21 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       const lower = message.toLowerCase();
       const timedOut = lower.includes("timeout");
       const pairingRequired = lower.includes("pairing required");
+      const missingWriteScope = lower.includes("missing scope: operator.write");
+
+      if (
+        missingWriteScope &&
+        deviceIdentity &&
+        !retryTokenOnlyAfterScopeFailure &&
+        (authToken || password)
+      ) {
+        retryTokenOnlyAfterScopeFailure = true;
+        await ctx.onLog(
+          "stdout",
+          "[openclaw-gateway] device auth lacks operator.write; retrying once in token-only mode\n",
+        );
+        continue;
+      }
 
       if (
         pairingRequired &&

@@ -34,7 +34,7 @@ By default the adapter uses a cloud-first token-only connect flow and does not s
 - set `devicePrivateKeyPem` to pin a stable signing key
 - without `devicePrivateKeyPem`, the adapter generates an ephemeral Ed25519 keypair per run when device auth is enabled
 - when `autoPairOnFirstConnect` is enabled (default), the adapter handles one initial `pairing required` by calling `device.pair.list` + `device.pair.approve` over shared auth, then retries once.
-- existing configs that already carry `devicePrivateKeyPem` continue to resolve to pairing mode even if `disableDeviceAuth` is omitted
+- existing configs that already carry `devicePrivateKeyPem` still use token-only mode unless `disableDeviceAuth=false` is explicit
 
 ## Session Strategy
 

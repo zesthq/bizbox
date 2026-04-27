@@ -6,8 +6,8 @@ import { agentApiKeys, agents, companyMemberships, instanceUserRoles } from "@pa
 import { verifyLocalAgentJwt } from "../agent-auth-jwt.js";
 import type { DeploymentMode } from "@paperclipai/shared";
 import type { BetterAuthSessionResult } from "../auth/better-auth.js";
-import { logger } from "./logger.js";
 import { boardAuthService } from "../services/board-auth.js";
+import { internalError } from "../errors.js";
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -41,11 +41,9 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         let session: BetterAuthSessionResult | null = null;
         try {
           session = await opts.resolveSession(req);
-        } catch (err) {
-          logger.warn(
-            { err, method: req.method, url: req.originalUrl },
-            "Failed to resolve auth session from request headers",
-          );
+        } catch {
+          next(internalError("Authentication session lookup failed"));
+          return;
         }
         if (session?.user?.id) {
           const userId = session.user.id;

@@ -104,14 +104,12 @@ DATABASE_URL=postgres://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.
 DATABASE_MIGRATION_URL=postgres://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
 ```
 
-If using connection pooling (port 6543), the `postgres` client must disable prepared statements. Update `packages/db/src/client.ts`:
+The runtime Postgres client uses a bounded pool by default:
 
-```ts
-export function createDb(url: string) {
-  const sql = postgres(url, { prepare: false });
-  return drizzlePg(sql, { schema });
-}
-```
+- `PAPERCLIP_DB_POOL_MAX` caps open runtime connections per app process. Default: `5`.
+- `PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS` closes idle runtime connections. Default: `30`.
+- `PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS` fails unreachable connection attempts quickly. Default: `5`.
+- `PAPERCLIP_DB_PREPARE=false` disables prepared statements for poolers that require it, such as Supavisor transaction/connection pooling.
 
 ### Push the schema
 

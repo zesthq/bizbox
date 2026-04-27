@@ -457,10 +457,6 @@ function resolveOpenClawDisableDeviceAuth(defaults: Record<string, unknown>): {
     }
   }
 
-  if (nonEmptyTrimmedString(defaults.devicePrivateKeyPem)) {
-    return { value: false, explicit: false };
-  }
-
   return { value: true, explicit: false };
 }
 
@@ -1723,7 +1719,7 @@ export function buildInviteOnboardingTextDocument(
           waitTimeoutMs: 120000,
           sessionKeyStrategy: "issue",
           role: "operator",
-          scopes: ["operator.admin"]
+          scopes: ["operator.admin", "operator.write"]
         }
       };
       process.stdout.write(JSON.stringify(body));
@@ -1757,7 +1753,7 @@ export function buildInviteOnboardingTextDocument(
         "waitTimeoutMs": 120000,
         "sessionKeyStrategy": "issue",
         "role": "operator",
-        "scopes": ["operator.admin"]
+        "scopes": ["operator.admin", "operator.write"]
       }
     }
 

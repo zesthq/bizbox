@@ -10,8 +10,8 @@ import {
   asRecord,
   isLoopbackHost,
   nonEmpty,
+  normalizeScopes,
   resolveAuthToken,
-  toStringArray,
   toStringRecord,
 } from "../shared/config.js";
 
@@ -229,7 +229,7 @@ export async function testEnvironment(
   const authToken = resolveAuthToken(config, headers);
   const password = nonEmpty(config.password);
   const role = nonEmpty(config.role) ?? "operator";
-  const scopes = toStringArray(config.scopes);
+  const scopes = normalizeScopes(config.scopes);
 
   if (authToken || password) {
     checks.push({
@@ -253,7 +253,7 @@ export async function testEnvironment(
         headers,
         authToken,
         role,
-        scopes: scopes.length > 0 ? scopes : ["operator.admin"],
+        scopes,
         timeoutMs: 3_000,
       });
 

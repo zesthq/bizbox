@@ -1,4 +1,9 @@
-export const DEFAULT_SCOPES = ["operator.admin"];
+export const REQUIRED_SCOPES = ["operator.write"];
+export const DEFAULT_SCOPES = ["operator.admin", ...REQUIRED_SCOPES];
+
+function uniqueScopes(scopes: string[]): string[] {
+  return Array.from(new Set(scopes.map((scope) => scope.trim()).filter(Boolean)));
+}
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
@@ -41,7 +46,7 @@ export function toStringArray(value: unknown): string[] {
 
 export function normalizeScopes(value: unknown): string[] {
   const parsed = toStringArray(value);
-  return parsed.length > 0 ? parsed : [...DEFAULT_SCOPES];
+  return uniqueScopes([...(parsed.length > 0 ? parsed : DEFAULT_SCOPES), ...REQUIRED_SCOPES]);
 }
 
 function parseBooleanLike(value: unknown): boolean | null {
@@ -58,10 +63,6 @@ export function resolveDisableDeviceAuth(config: Record<string, unknown>): boole
   if (Object.prototype.hasOwnProperty.call(config, "disableDeviceAuth")) {
     const explicit = parseBooleanLike(config.disableDeviceAuth);
     if (explicit !== null) return explicit;
-  }
-
-  if (nonEmpty(config.devicePrivateKeyPem)) {
-    return false;
   }
 
   return true;
