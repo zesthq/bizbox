@@ -83,12 +83,13 @@ function resolveConfig(ctx: AdapterExecutionContext): OttoAgentConfig {
     );
   }
 
+  const timeoutSec = asNumber(raw.timeoutSec, 1800);
   return {
     url,
     apiKey,
     model: asString(raw.model, "").trim() || undefined,
     provider: asString(raw.provider, "").trim() || undefined,
-    timeoutSec: asNumber(raw.timeoutSec, 1800),
+    timeoutSec: timeoutSec > 0 ? timeoutSec : 1800,
     toolsets: asString(raw.toolsets, "").trim() || undefined,
     env:
       typeof raw.env === "object" && raw.env !== null && !Array.isArray(raw.env)
