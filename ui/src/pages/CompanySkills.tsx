@@ -1226,14 +1226,19 @@ export function CompanySkills() {
     mutationFn: (payload: CompanySkillCreateRequest) => companySkillsApi.create(selectedCompanyId!, payload),
     onSuccess: async (skill) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(selectedCompanyId!) });
-      const refreshedSkills = await queryClient.fetchQuery({
-        queryKey: queryKeys.companySkills.list(selectedCompanyId!),
-        queryFn: () => companySkillsApi.list(selectedCompanyId!),
-      });
-      const persistedSkill = refreshedSkills.find((entry) => entry.key === skill.key)
-        ?? refreshedSkills.find((entry) => entry.slug === skill.slug)
-        ?? refreshedSkills.find((entry) => entry.name === skill.name)
-        ?? skill;
+      let persistedSkill = skill;
+      try {
+        const refreshedSkills = await queryClient.fetchQuery({
+          queryKey: queryKeys.companySkills.list(selectedCompanyId!),
+          queryFn: () => companySkillsApi.list(selectedCompanyId!),
+        });
+        persistedSkill = refreshedSkills.find((entry) => skill.key != null && entry.key === skill.key)
+          ?? refreshedSkills.find((entry) => entry.slug === skill.slug)
+          ?? refreshedSkills.find((entry) => entry.name === skill.name)
+          ?? skill;
+      } catch {
+        // Fallback to original skill if refresh fails
+      }
       navigate(skillRoute(persistedSkill.id));
       setCreateOpen(false);
       pushToast({
