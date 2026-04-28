@@ -98,7 +98,8 @@ export async function testEnvironment(
   const hasErrors = checks.some((c) => c.level === "error");
   if (!hasErrors) {
     try {
-      const healthUrl = new URL("/health", url).toString();
+      const baseWithSlash = url.endsWith("/") ? url : url + "/";
+      const healthUrl = new URL("health", baseWithSlash).toString();
       const authHeaders: Record<string, string> = {};
       if (apiKey) authHeaders["Authorization"] = `Bearer ${apiKey}`;
       const res = await fetch(healthUrl, {
