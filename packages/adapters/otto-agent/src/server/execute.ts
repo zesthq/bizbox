@@ -7,7 +7,7 @@ import { asNumber, asString, parseObject } from "@paperclipai/adapter-utils/serv
 
 type OttoAgentConfig = {
   url: string;
-  apiKey?: string;
+  apiKey: string;
   model?: string;
   provider?: string;
   timeoutSec?: number;
@@ -183,10 +183,8 @@ export async function execute(
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "Authorization": `Bearer ${config.apiKey}`,
   };
-  if (config.apiKey) {
-    headers["Authorization"] = `Bearer ${config.apiKey}`;
-  }
 
   const controller = new AbortController();
   const timeoutMs = (config.timeoutSec ?? 1800) * 1000;

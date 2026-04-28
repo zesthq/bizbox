@@ -1235,7 +1235,6 @@ export function CompanySkills() {
         });
         persistedSkill = refreshedSkills.find((entry) => skill.key != null && entry.key === skill.key)
           ?? refreshedSkills.find((entry) => entry.slug === skill.slug)
-          ?? refreshedSkills.find((entry) => entry.name === skill.name)
           ?? skill;
       } catch {
         // Fallback to original skill if refresh fails
