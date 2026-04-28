@@ -31,7 +31,7 @@ Gateway connect identity fields:
 - clientMode (string, optional): gateway client mode (default backend)
 - clientVersion (string, optional): client version string
 - role (string, optional): gateway role (default operator)
-- scopes (string[] | comma string, optional): gateway scopes (default ["operator.admin", "operator.write"]; operator.write is always included)
+- scopes (string[] | comma string, optional): gateway scopes (default ["operator.admin", "operator.write"]; explicit custom scopes are used as provided)
 - disableDeviceAuth (boolean, optional): disable signed device payload in connect params (default true; set false only for explicit pairing mode)
 
 Request behavior fields:
@@ -49,8 +49,8 @@ Session routing fields:
 
 Outbound payload behavior:
 - Wake context is included in the structured wake message/text sent to the gateway agent.
+- Structured Paperclip context is included in the top-level paperclip object sent to the gateway agent.
 - payloadTemplate fields are merged directly into gateway agent params.
-- Do not rely on a top-level paperclip params object; OpenClaw may reject unknown top-level params.
 
 Standard result metadata supported:
 - meta.runtimeServices (array, optional): normalized adapter-managed runtime service reports
