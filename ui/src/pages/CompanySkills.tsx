@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type SVGProps } from "react";
 import { Link, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  CompanySkill,
   CompanyGitHubCredentialAssociation,
   CompanySecret,
   CompanySkillCreateRequest,
@@ -1226,7 +1227,7 @@ export function CompanySkills() {
     mutationFn: (payload: CompanySkillCreateRequest) => companySkillsApi.create(selectedCompanyId!, payload),
     onSuccess: async (skill) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(selectedCompanyId!) });
-      let persistedSkill = skill;
+      let persistedSkill: CompanySkill | CompanySkillListItem = skill;
       try {
         const refreshedSkills = await queryClient.fetchQuery({
           queryKey: queryKeys.companySkills.list(selectedCompanyId!),
