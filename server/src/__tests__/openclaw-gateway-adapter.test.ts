@@ -434,11 +434,9 @@ describe("openclaw gateway adapter execute", () => {
             payloadTemplate: {
               message: "wake now",
               paperclip: {
-                custom: true,
-                runId: "template-run-id",
+                shouldNotSend: true,
               },
             },
-            paperclipApiUrl: "https://paperclip.example",
             waitTimeoutMs: 2000,
           },
           {
@@ -533,42 +531,8 @@ describe("openclaw gateway adapter execute", () => {
       expect(String(payload?.message ?? "")).toContain("First comment");
       expect(String(payload?.message ?? "")).toContain("\"commentIds\":[\"comment-1\",\"comment-2\"]");
       expect(String(payload?.message ?? "")).toContain("\"latestCommentId\":\"comment-2\"");
-      expect(payload?.paperclip).toEqual(
-        expect.objectContaining({
-          custom: true,
-          runId: "run-123",
-          companyId: "company-123",
-          agentId: "agent-123",
-          agentName: "OpenClaw Gateway Agent",
-          taskId: "task-123",
-          issueId: "issue-123",
-          issueIds: ["issue-123"],
-          wakeReason: "issue_assigned",
-          apiUrl: "https://paperclip.example/",
-          workspace: expect.objectContaining({
-            cwd: "/tmp/worktrees/pap-123",
-            strategy: "git_worktree",
-            branchName: "pap-123-test",
-          }),
-          workspaces: [
-            expect.objectContaining({
-              id: "workspace-1",
-              cwd: "/tmp/project",
-            }),
-          ],
-          workspaceRuntime: expect.objectContaining({
-            services: [
-              expect.objectContaining({
-                name: "preview",
-                lifecycle: "ephemeral",
-              }),
-            ],
-          }),
-          wake: expect.objectContaining({
-            reason: "issue_commented",
-          }),
-        }),
-      );
+      // Regression guard for #606/#617/#626: OpenClaw rejects unknown top-level agent params.
+      expect(payload?.paperclip).toBeUndefined();
 
       expect(logs.some((entry) => entry.includes("[openclaw-gateway:event] run=run-123 stream=assistant"))).toBe(true);
     } finally {
@@ -839,8 +803,10 @@ MC4CAQAwBQYDK2VwBCIEIAkVCxwSIYiI1yMZ1EeURcKn8S8VyMW3Wj+zgIKp+AtK
 describe("openclaw gateway ui build config", () => {
   it("documents the current outbound payload contract", () => {
     expect(openClawGateway.type).toBe("openclaw_gateway");
-    expect(openClawGateway.agentConfigurationDoc).toContain("top-level paperclip object");
+    expect(openClawGateway.agentConfigurationDoc).not.toContain("paperclip (object)");
+    expect(openClawGateway.agentConfigurationDoc).not.toContain("paperclip.workspace");
     expect(openClawGateway.agentConfigurationDoc).toContain("Wake context is included in the structured wake message/text");
+    expect(openClawGateway.agentConfigurationDoc).toContain("Do not rely on a top-level paperclip params object");
   });
 
   it("builds the simplified connect config with hidden defaults", () => {
