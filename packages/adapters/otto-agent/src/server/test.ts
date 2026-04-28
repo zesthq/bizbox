@@ -99,8 +99,11 @@ export async function testEnvironment(
   if (!hasErrors) {
     try {
       const healthUrl = new URL("/health", url).toString();
+      const authHeaders: Record<string, string> = {};
+      if (apiKey) authHeaders["Authorization"] = `Bearer ${apiKey}`;
       const res = await fetch(healthUrl, {
         method: "GET",
+        headers: authHeaders,
         signal: AbortSignal.timeout(10_000),
       });
       if (res.ok) {
