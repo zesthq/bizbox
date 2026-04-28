@@ -8,7 +8,10 @@ import type {
   OpenClawConnectionState,
   OpenClawConnectionStatus,
 } from "@paperclipai/shared";
-import { AGENT_DEFAULT_MAX_CONCURRENT_RUNS } from "@paperclipai/shared";
+import {
+  AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
+  normalizeOpenClawConnectionState,
+} from "@paperclipai/shared";
 import type { AdapterModel } from "../api/agents";
 import { agentsApi } from "../api/agents";
 import { secretsApi } from "../api/secrets";
@@ -182,41 +185,7 @@ function readOpenClawConnectionState(metadata: unknown): OpenClawConnectionState
 function normalizeOpenClawConnectionFromEnvironmentResult(
   result: AdapterEnvironmentTestResult,
 ): OpenClawConnectionState {
-  const hasCode = (code: string) => result.checks.some((check) => check.code === code);
-  const status: OpenClawConnectionStatus =
-    hasCode("openclaw_gateway_probe_ok")
-      ? "connected"
-      : hasCode("openclaw_gateway_invalid_token")
-        ? "invalid_token"
-        : hasCode("openclaw_gateway_pairing_required")
-          ? "pairing_required"
-          : hasCode("openclaw_gateway_unreachable") || hasCode("openclaw_gateway_probe_failed") || hasCode("openclaw_gateway_probe_error")
-            ? "unreachable"
-            : hasCode("openclaw_gateway_url_missing") || hasCode("openclaw_gateway_auth_missing")
-              ? "not_configured"
-              : result.status === "pass"
-                ? "connected"
-                : "unreachable";
-
-  const message =
-    result.checks.find((check) =>
-      [
-        "openclaw_gateway_probe_ok",
-        "openclaw_gateway_invalid_token",
-        "openclaw_gateway_pairing_required",
-        "openclaw_gateway_unreachable",
-        "openclaw_gateway_probe_failed",
-        "openclaw_gateway_probe_error",
-        "openclaw_gateway_url_missing",
-        "openclaw_gateway_auth_missing",
-      ].includes(check.code),
-    )?.message ?? null;
-
-  return {
-    status,
-    checkedAt: result.testedAt,
-    message,
-  };
+  return normalizeOpenClawConnectionState(result);
 }
 
 function openClawConnectionAppearance(status: OpenClawConnectionStatus) {
