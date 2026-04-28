@@ -68,13 +68,10 @@ test.describe("Otto Agent Configuration UI", () => {
     ).toBeVisible({ timeout: 10_000 });
 
     // Verify Gateway URL field exists
-    const gatewayInput = page.locator('input').filter({
-      hasText: /(gateway|https:\/\/)/i
-    }).or(
-      page.locator('input[placeholder*="gateway"]')
-    ).or(
-      page.locator('input[placeholder*="https://"]')
-    ).first();
+    const gatewayInput = page
+      .locator('input[placeholder*="gateway"]')
+      .or(page.locator('input[placeholder*="https://"]'))
+      .first();
 
     await expect(gatewayInput).toBeVisible({ timeout: 5_000 });
 
