@@ -81,49 +81,6 @@ export function OttoAgentConfigFields({
         }
         placeholder="Issued by your Otto operator — keep this secret"
       />
-
-      <Field label="Timeout (seconds)">
-        <DraftInput
-          value={
-            isCreate
-              ? String(values!.timeoutSec ?? 1800)
-              : String(eff("adapterConfig", "timeoutSec", config.timeoutSec ?? 1800))
-          }
-          onCommit={(v) => {
-            const n = parseInt(v, 10);
-            isCreate
-              ? set!({ timeoutSec: !isNaN(n) && n > 0 ? n : 1800 })
-              : mark("adapterConfig", "timeoutSec", !isNaN(n) && n > 0 ? n : undefined);
-          }}
-          immediate
-          className={inputClass}
-          placeholder="1800"
-        />
-      </Field>
-
-      {!isCreate && (
-        <>
-          <Field label="Model override">
-            <DraftInput
-              value={eff("adapterConfig", "model", String(config.model ?? ""))}
-              onCommit={(v) => mark("adapterConfig", "model", v || undefined)}
-              immediate
-              className={inputClass}
-              placeholder="e.g. copilot/claude-sonnet-4-5 (leave blank for gateway default)"
-            />
-          </Field>
-
-          <Field label="Toolsets (comma-separated)">
-            <DraftInput
-              value={eff("adapterConfig", "toolsets", String(config.toolsets ?? ""))}
-              onCommit={(v) => mark("adapterConfig", "toolsets", v || undefined)}
-              immediate
-              className={inputClass}
-              placeholder="e.g. web,terminal (leave blank for all)"
-            />
-          </Field>
-        </>
-      )}
     </div>
   );
 }
