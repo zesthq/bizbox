@@ -98,7 +98,7 @@ export async function testEnvironment(
   const hasErrors = checks.some((c) => c.level === "error");
   if (!hasErrors) {
     try {
-      const healthUrl = url.replace(/\/api\/paperclip\/?$/, "/health").replace(/\/$/, "") || url;
+      const healthUrl = new URL("/health", url).toString();
       const res = await fetch(healthUrl, {
         method: "GET",
         signal: AbortSignal.timeout(10_000),

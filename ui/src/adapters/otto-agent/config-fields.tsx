@@ -89,11 +89,12 @@ export function OttoAgentConfigFields({
               ? String(values!.timeoutSec ?? 1800)
               : String(eff("adapterConfig", "timeoutSec", config.timeoutSec ?? 1800))
           }
-          onCommit={(v) =>
+          onCommit={(v) => {
+            const n = parseInt(v, 10);
             isCreate
-              ? set!({ timeoutSec: v ? Number(v) : 1800 })
-              : mark("adapterConfig", "timeoutSec", v ? Number(v) : undefined)
-          }
+              ? set!({ timeoutSec: !isNaN(n) && n > 0 ? n : 1800 })
+              : mark("adapterConfig", "timeoutSec", !isNaN(n) && n > 0 ? n : undefined);
+          }}
           immediate
           className={inputClass}
           placeholder="1800"
