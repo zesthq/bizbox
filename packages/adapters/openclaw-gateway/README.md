@@ -53,6 +53,7 @@ The agent request is built as:
   - `message` (wake text plus optional `payloadTemplate.message`/`payloadTemplate.text` prefix)
   - `idempotencyKey` (Paperclip `runId`)
   - `sessionKey` (resolved strategy)
+  - `paperclip` (structured Paperclip run, issue, workspace, and runtime context)
 - optional additions:
   - all `payloadTemplate` fields merged in
   - `agentId` from config if set and not already in template

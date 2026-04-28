@@ -46,7 +46,7 @@ export function toStringArray(value: unknown): string[] {
 
 export function normalizeScopes(value: unknown): string[] {
   const parsed = toStringArray(value);
-  return uniqueScopes([...(parsed.length > 0 ? parsed : DEFAULT_SCOPES), ...REQUIRED_SCOPES]);
+  return uniqueScopes(parsed.length > 0 ? parsed : DEFAULT_SCOPES);
 }
 
 function parseBooleanLike(value: unknown): boolean | null {
