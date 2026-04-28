@@ -49,8 +49,9 @@ Session routing fields:
 
 Outbound payload behavior:
 - Wake context is included in the structured wake message/text sent to the gateway agent.
-- Structured Paperclip context is included in the top-level paperclip object sent to the gateway agent.
 - payloadTemplate fields are merged directly into gateway agent params.
+- Do not rely on a top-level paperclip params object; OpenClaw may reject unknown top-level params.
+- The adapter strips payloadTemplate.paperclip before sending the agent request. Paperclip context belongs in the wake message, not in agent params.
 
 Standard result metadata supported:
 - meta.runtimeServices (array, optional): normalized adapter-managed runtime service reports

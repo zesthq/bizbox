@@ -53,10 +53,12 @@ The agent request is built as:
   - `message` (wake text plus optional `payloadTemplate.message`/`payloadTemplate.text` prefix)
   - `idempotencyKey` (Paperclip `runId`)
   - `sessionKey` (resolved strategy)
-  - `paperclip` (structured Paperclip run, issue, workspace, and runtime context)
 - optional additions:
   - all `payloadTemplate` fields merged in
   - `agentId` from config if set and not already in template
+
+Top-level `paperclip`, `role`, and `scopes` are not sent in `agent` params because the gateway rejects unknown top-level agent fields.
+If `payloadTemplate.paperclip` is configured, the adapter strips it before sending the `agent` request. Paperclip run context is delivered through the wake message instead.
 
 ## Timeouts
 
