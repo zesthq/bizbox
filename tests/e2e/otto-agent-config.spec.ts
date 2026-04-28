@@ -7,13 +7,11 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
  * adapters (otto_agent) and shows Gateway URL + API Key fields.
  */
 
-const BASE = process.env.PAPERCLIP_E2E_BASE_URL ?? "http://127.0.0.1:3104";
-
 async function createCompany(
   request: APIRequestContext,
   name: string
 ): Promise<{ companyId: string; prefix: string }> {
-  const createRes = await request.post(`${BASE}/api/companies`, {
+  const createRes = await request.post("/api/companies", {
     data: { name },
   });
 
@@ -44,7 +42,7 @@ test.describe("Otto Agent Configuration UI", () => {
 
   test("shows Adapter Configuration section for otto_agent", async ({ page }) => {
     // Navigate to new agent page with company context
-    await page.goto(`${BASE}/agents/new?companyId=${companyId}`);
+    await page.goto(`/agents/new?companyId=${companyId}`);
 
     // Wait for page to load
     await expect(page.locator("h1", { hasText: "New Agent" })).toBeVisible({
@@ -93,7 +91,7 @@ test.describe("Otto Agent Configuration UI", () => {
 
   test("does not show Adapter Configuration for local adapters", async ({ page }) => {
     // Navigate to new agent page
-    await page.goto(`${BASE}/agents/new?companyId=${companyId}`);
+    await page.goto(`/agents/new?companyId=${companyId}`);
 
     await expect(page.locator("h1", { hasText: "New Agent" })).toBeVisible({
       timeout: 10_000,
