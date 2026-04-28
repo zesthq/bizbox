@@ -475,6 +475,7 @@ export {
   getClosedIsolatedExecutionWorkspaceMessage,
   isClosedIsolatedExecutionWorkspace,
 } from "./execution-workspace-guards.js";
+export { normalizeOpenClawConnectionState } from "./openclaw-connection.js";
 
 export {
   instanceGeneralSettingsSchema,

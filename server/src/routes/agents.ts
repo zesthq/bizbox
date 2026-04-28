@@ -13,13 +13,13 @@ import {
   createAgentSchema,
   deriveAgentUrlKey,
   isUuidLike,
+  normalizeOpenClawConnectionState,
   openClawConnectionStatusSchema,
   resetAgentSessionSchema,
   testAdapterEnvironmentSchema,
   testOpenClawConnectionSchema,
   type AgentSkillSnapshot,
   type OpenClawConnectionState,
-  type OpenClawConnectionStatus,
   type OpenClawConnectionTestResult,
   type InstanceSchedulerHeartbeatAgent,
   upsertAgentInstructionsFileSchema,
@@ -611,59 +611,6 @@ export function agentRoutes(db: Db) {
     };
   }
 
-  function normalizeOpenClawConnectionResult(
-    result: {
-      status?: "pass" | "warn" | "fail";
-      testedAt?: string;
-      checks?: Array<{ code?: string; message?: string | null }>;
-    },
-  ): OpenClawConnectionState {
-    const checks = Array.isArray(result.checks) ? result.checks : [];
-    const findCheck = (code: string) => checks.find((check) => check.code === code) ?? null;
-    const knownStatus: OpenClawConnectionStatus | null =
-      findCheck("openclaw_gateway_probe_ok")
-        ? "connected"
-        : findCheck("openclaw_gateway_invalid_token")
-          ? "invalid_token"
-          : findCheck("openclaw_gateway_pairing_required")
-            ? "pairing_required"
-            : findCheck("openclaw_gateway_unreachable") || findCheck("openclaw_gateway_probe_failed") || findCheck("openclaw_gateway_probe_error")
-              ? "unreachable"
-              : findCheck("openclaw_gateway_url_missing") || findCheck("openclaw_gateway_auth_missing")
-                ? "not_configured"
-                : null;
-    if (!knownStatus) {
-      logger.warn(
-        {
-          adapterType: "openclaw_gateway",
-          status: result.status,
-          checkCodes: checks.map((check) => check.code),
-        },
-        "unknown OpenClaw connection test check codes",
-      );
-    }
-    const status: OpenClawConnectionStatus =
-      knownStatus ?? (result.status === "pass" ? "connected" : "unreachable");
-    const message =
-      checks.find((check) =>
-        [
-          "openclaw_gateway_probe_ok",
-          "openclaw_gateway_invalid_token",
-          "openclaw_gateway_pairing_required",
-          "openclaw_gateway_unreachable",
-          "openclaw_gateway_probe_failed",
-          "openclaw_gateway_probe_error",
-          "openclaw_gateway_url_missing",
-          "openclaw_gateway_auth_missing",
-        ].includes(String(check.code ?? "")),
-      )?.message ?? null;
-    return {
-      status,
-      checkedAt: typeof result.testedAt === "string" ? result.testedAt : new Date().toISOString(),
-      message,
-    };
-  }
-
   function preserveInstructionsBundleConfig(
     existingAdapterConfig: Record<string, unknown>,
     nextAdapterConfig: Record<string, unknown>,
@@ -1111,7 +1058,7 @@ export function agentRoutes(db: Db) {
         res.status(404).json({ error: "Agent not found" });
         return;
       }
-      await assertCanUpdateAgent(req, existing);
+      await assertCanReadAgent(req, existing);
       if (existing.adapterType !== "openclaw_gateway") {
         throw unprocessable("OpenClaw connection tests are only supported for openclaw_gateway agents.");
       }
@@ -1140,7 +1087,7 @@ export function agentRoutes(db: Db) {
         adapterType: existing.adapterType,
         config: runtimeAdapterConfig,
       });
-      const connectionState = normalizeOpenClawConnectionResult(environmentResult);
+      const connectionState = normalizeOpenClawConnectionState(environmentResult);
       if (!hasAdapterConfigOverride) {
         const nextMetadata = {
           ...((asRecord(existing.metadata) ?? {}) as Record<string, unknown>),

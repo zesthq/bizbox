@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AdapterEnvironmentTestResult, OpenClawConnectionStatus } from "@paperclipai/shared";
+import {
+  normalizeOpenClawConnectionState,
+  type AdapterEnvironmentTestResult,
+  type OpenClawConnectionStatus,
+} from "@paperclipai/shared";
 import { useLocation, useNavigate, useParams } from "@/lib/router";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
@@ -73,34 +77,10 @@ function normalizeOpenClawConnectionStatus(
   result: AdapterEnvironmentTestResult | null,
 ): { status: OpenClawConnectionStatus; message: string | null } | null {
   if (!result) return null;
-  const hasCode = (code: string) => result.checks.some((check) => check.code === code);
-  const status: OpenClawConnectionStatus =
-    hasCode("openclaw_gateway_probe_ok")
-      ? "connected"
-      : hasCode("openclaw_gateway_invalid_token")
-        ? "invalid_token"
-        : hasCode("openclaw_gateway_pairing_required")
-          ? "pairing_required"
-          : hasCode("openclaw_gateway_url_missing") || hasCode("openclaw_gateway_auth_missing")
-            ? "not_configured"
-            : result.status === "pass"
-              ? "connected"
-              : "unreachable";
+  const connectionState = normalizeOpenClawConnectionState(result);
   return {
-    status,
-    message:
-      result.checks.find((check) =>
-        [
-          "openclaw_gateway_probe_ok",
-          "openclaw_gateway_invalid_token",
-          "openclaw_gateway_pairing_required",
-          "openclaw_gateway_unreachable",
-          "openclaw_gateway_probe_failed",
-          "openclaw_gateway_probe_error",
-          "openclaw_gateway_url_missing",
-          "openclaw_gateway_auth_missing",
-        ].includes(check.code),
-      )?.message ?? null,
+    status: connectionState.status,
+    message: connectionState.message ?? null,
   };
 }
 
