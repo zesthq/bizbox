@@ -190,11 +190,13 @@ function normalizeOpenClawConnectionFromEnvironmentResult(
         ? "invalid_token"
         : hasCode("openclaw_gateway_pairing_required")
           ? "pairing_required"
-          : hasCode("openclaw_gateway_url_missing") || hasCode("openclaw_gateway_auth_missing")
-            ? "not_configured"
-            : result.status === "pass"
-              ? "connected"
-              : "unreachable";
+          : hasCode("openclaw_gateway_unreachable") || hasCode("openclaw_gateway_probe_failed") || hasCode("openclaw_gateway_probe_error")
+            ? "unreachable"
+            : hasCode("openclaw_gateway_url_missing") || hasCode("openclaw_gateway_auth_missing")
+              ? "not_configured"
+              : result.status === "pass"
+                ? "connected"
+                : "unreachable";
 
   const message =
     result.checks.find((check) =>
@@ -470,15 +472,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   });
   const testOpenClawConnection = useMutation({
     mutationFn: async () => {
-      if (isCreate) {
-        if (!selectedCompanyId) throw new Error("Select a company to test OpenClaw");
-        return normalizeOpenClawConnectionFromEnvironmentResult(
-          await agentsApi.testEnvironment(selectedCompanyId, adapterType, {
-            adapterConfig: buildAdapterConfigForTest(),
-          }),
-        );
-      }
-      if (isDirty) {
+      if (isCreate || isDirty) {
         if (!selectedCompanyId) throw new Error("Select a company to test OpenClaw");
         return normalizeOpenClawConnectionFromEnvironmentResult(
           await agentsApi.testEnvironment(selectedCompanyId, adapterType, {
