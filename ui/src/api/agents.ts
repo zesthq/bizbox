@@ -194,7 +194,7 @@ export const agentsApi = {
     ),
   getOpenClawConnectionStatus: (id: string, companyId?: string) =>
     api.get<OpenClawConnectionState | null>(
-      agentPath(id, companyId, "/openclaw-connection-status"),
+      agentPath(id, companyId, "/openclaw/connection-status"),
     ),
   invoke: (id: string, companyId?: string) => api.post<HeartbeatRun>(agentPath(id, companyId, "/heartbeat/invoke"), {}),
   wakeup: (

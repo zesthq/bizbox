@@ -136,7 +136,10 @@ export const openClawConnectionStatusSchema = z.enum([
 ]);
 
 export const testOpenClawConnectionSchema = z.object({
-  adapterConfig: adapterConfigSchema.optional(),
+  adapterConfig: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    adapterConfigSchema.optional(),
+  ),
 });
 
 export type TestOpenClawConnection = z.infer<typeof testOpenClawConnectionSchema>;

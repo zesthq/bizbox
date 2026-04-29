@@ -182,12 +182,6 @@ function readOpenClawConnectionState(metadata: unknown): OpenClawConnectionState
   };
 }
 
-function normalizeOpenClawConnectionFromEnvironmentResult(
-  result: AdapterEnvironmentTestResult,
-): OpenClawConnectionState {
-  return normalizeOpenClawConnectionState(result);
-}
-
 function openClawConnectionAppearance(status: OpenClawConnectionStatus) {
   switch (status) {
     case "connected":
@@ -443,7 +437,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     mutationFn: async () => {
       if (isCreate || isDirty) {
         if (!selectedCompanyId) throw new Error("Select a company to test OpenClaw");
-        return normalizeOpenClawConnectionFromEnvironmentResult(
+        return normalizeOpenClawConnectionState(
           await agentsApi.testEnvironment(selectedCompanyId, adapterType, {
             adapterConfig: buildAdapterConfigForTest(),
           }),

@@ -1065,10 +1065,17 @@ export function agentRoutes(db: Db) {
 
       const adapter = requireServerAdapter(existing.adapterType);
       const existingAdapterConfig = asRecord(existing.adapterConfig) ?? {};
-      const hasAdapterConfigOverride = hasOwn(req.body as object, "adapterConfig");
+      const rawOverride = (req.body as Record<string, unknown>).adapterConfig;
+      const hasAdapterConfigOverride =
+        hasOwn(req.body as object, "adapterConfig") && rawOverride != null;
       const requestedAdapterConfig = hasAdapterConfigOverride
-        ? (asRecord(req.body?.adapterConfig) ?? {})
+        ? (asRecord(rawOverride) ?? {})
         : {};
+      if (hasAdapterConfigOverride && extractOpenClawAuthToken(requestedAdapterConfig)) {
+        throw unprocessable(
+          "OpenClaw connection-test overrides must use adapterConfig.authTokenRef. Use the generic adapter test-environment endpoint for plain-token previews.",
+        );
+      }
       const effectiveAdapterConfig = applyCreateDefaultsByAdapterType(
         existing.adapterType,
         { ...existingAdapterConfig, ...requestedAdapterConfig },
@@ -1122,7 +1129,7 @@ export function agentRoutes(db: Db) {
     },
   );
 
-  router.get("/agents/:id/openclaw-connection-status", async (req, res) => {
+  async function handleGetOpenClawConnectionStatus(req: Request, res: Response) {
     const id = req.params.id as string;
     const agent = await svc.getById(id);
     if (!agent) {
@@ -1135,7 +1142,10 @@ export function agentRoutes(db: Db) {
     }
 
     res.json(getOpenClawConnectionState(agent.metadata));
-  });
+  }
+
+  router.get("/agents/:id/openclaw/connection-status", handleGetOpenClawConnectionStatus);
+  router.get("/agents/:id/openclaw-connection-status", handleGetOpenClawConnectionStatus);
 
   router.get("/agents/:id/skills", async (req, res) => {
     const id = req.params.id as string;
