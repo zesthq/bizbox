@@ -543,6 +543,54 @@ describe("agent routes adapter validation", () => {
 
     const app = await createApp();
     const res = await request(app)
+      .get("/api/agents/11111111-1111-4111-8111-111111111112/openclaw/connection-status")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toEqual({
+      status: "connected",
+      checkedAt: "2026-04-23T12:30:00.000Z",
+      message: "Gateway probe passed.",
+    });
+  });
+
+  it("keeps the flat OpenClaw connection status path as a compatibility alias", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111112",
+      companyId: "company-1",
+      name: "CEO",
+      urlKey: "ceo",
+      role: "ceo",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "openclaw_gateway",
+      adapterConfig: {
+        url: "ws://citro-openclaw.internal:18789",
+        authTokenRef: { type: "secret_ref", secretId: "secret-1", version: "latest" },
+      },
+      runtimeConfig: {},
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: {
+        openclawConnection: {
+          status: "connected",
+          checkedAt: "2026-04-23T12:30:00.000Z",
+          message: "Gateway probe passed.",
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const app = await createApp();
+    const res = await request(app)
       .get("/api/agents/11111111-1111-4111-8111-111111111112/openclaw-connection-status")
       .send({});
 
@@ -554,7 +602,7 @@ describe("agent routes adapter validation", () => {
     });
   });
 
-  it("does not persist OpenClaw connection preview results with adapter config overrides", async () => {
+  it("treats adapterConfig null as no override and persists OpenClaw connection status", async () => {
     const { registerServerAdapter } = await import("../adapters/index.js");
     registerServerAdapter({
       type: "openclaw_gateway",
@@ -617,9 +665,7 @@ describe("agent routes adapter validation", () => {
     const res = await request(app)
       .post("/api/agents/11111111-1111-4111-8111-111111111112/openclaw/connection-test")
       .send({
-        adapterConfig: {
-          authToken: "preview-token",
-        },
+        adapterConfig: null,
       });
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -629,6 +675,61 @@ describe("agent routes adapter validation", () => {
       status: "invalid_token",
       checkedAt: "2026-04-23T13:00:00.000Z",
     });
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111112",
+      expect.objectContaining({
+        metadata: {
+          openclawConnection: {
+            status: "invalid_token",
+            checkedAt: "2026-04-23T13:00:00.000Z",
+            message: "OpenClaw rejected the gateway access token.",
+          },
+        },
+      }),
+    );
+  });
+
+  it("rejects inline OpenClaw auth token overrides on the saved-agent connection-test route", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111112",
+      companyId: "company-1",
+      name: "CEO",
+      urlKey: "ceo",
+      role: "ceo",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "openclaw_gateway",
+      adapterConfig: {
+        url: "ws://citro-openclaw.internal:18789",
+        authTokenRef: { type: "secret_ref", secretId: "secret-1", version: "latest" },
+      },
+      runtimeConfig: {},
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/agents/11111111-1111-4111-8111-111111111112/openclaw/connection-test")
+      .send({
+        adapterConfig: {
+          authToken: "preview-token",
+        },
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("adapterConfig.authTokenRef");
+    expect(res.body.error).toContain("test-environment");
     expect(mockAgentService.update).not.toHaveBeenCalled();
   });
 });

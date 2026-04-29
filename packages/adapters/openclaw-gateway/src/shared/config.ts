@@ -65,6 +65,10 @@ export function resolveDisableDeviceAuth(config: Record<string, unknown>): boole
     if (explicit !== null) return explicit;
   }
 
+  if (nonEmpty(config.devicePrivateKeyPem)) {
+    return false;
+  }
+
   return true;
 }
 

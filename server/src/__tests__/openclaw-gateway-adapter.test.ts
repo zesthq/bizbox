@@ -726,7 +726,7 @@ describe("openclaw gateway adapter execute", () => {
     }
   });
 
-  it("ignores legacy device keys unless pairing mode is explicit", async () => {
+  it("preserves device auth for legacy configs that only carry a device key", async () => {
     const gateway = await createMockGatewayServerWithPairing();
     const logs: string[] = [];
 
@@ -752,8 +752,10 @@ MC4CAQAwBQYDK2VwBCIEIAkVCxwSIYiI1yMZ1EeURcKn8S8VyMW3Wj+zgIKp+AtK
       );
 
       expect(result.exitCode).toBe(0);
-      expect(logs.some((entry) => entry.includes("device auth disabled (token-only mode)"))).toBe(true);
-      expect(logs.some((entry) => entry.includes("device auth enabled"))).toBe(false);
+      expect(logs.some((entry) => entry.includes("device auth enabled"))).toBe(true);
+      expect(logs.some((entry) => entry.includes("pairing required; attempting automatic pairing approval"))).toBe(
+        true,
+      );
     } finally {
       await gateway.close();
     }
