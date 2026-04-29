@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { recordHumanComment } from "../otel.js";
 import type { Db } from "@paperclipai/db";
 import { issueExecutionDecisions } from "@paperclipai/db";
 import {
@@ -2550,6 +2551,11 @@ export function issueRoutes(
       userId: actor.actorType === "user" ? actor.actorId : undefined,
       runId: actor.runId,
     });
+
+    // Emit OTel metric for human-authored comments (board users only).
+    if (actor.actorType === "user") {
+      recordHumanComment({ company_id: currentIssue.companyId, issue_id: currentIssue.id });
+    }
 
     if (actor.runId) {
       await heartbeat.reportRunActivity(actor.runId).catch((err) =>
