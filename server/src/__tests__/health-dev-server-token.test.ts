@@ -25,9 +25,9 @@ afterEach(() => {
 
 describe("GET /health dev-server supervisor access", () => {
   it("exposes dev-server metadata to the supervising dev runner in authenticated mode", async () => {
-    const previousFile = process.env.PAPERCLIP_DEV_SERVER_STATUS_FILE;
-    const previousToken = process.env.PAPERCLIP_DEV_SERVER_STATUS_TOKEN;
-    process.env.PAPERCLIP_DEV_SERVER_STATUS_FILE = createDevServerStatusFile({
+    const previousFile = process.env.BIZBOX_DEV_SERVER_STATUS_FILE;
+    const previousToken = process.env.BIZBOX_DEV_SERVER_STATUS_TOKEN;
+    process.env.BIZBOX_DEV_SERVER_STATUS_FILE = createDevServerStatusFile({
       dirty: true,
       lastChangedAt: "2026-03-20T12:00:00.000Z",
       changedPathCount: 1,
@@ -35,7 +35,7 @@ describe("GET /health dev-server supervisor access", () => {
       pendingMigrations: [],
       lastRestartAt: "2026-03-20T11:30:00.000Z",
     });
-    process.env.PAPERCLIP_DEV_SERVER_STATUS_TOKEN = "dev-runner-token";
+    process.env.BIZBOX_DEV_SERVER_STATUS_TOKEN = "dev-runner-token";
 
     let selectCall = 0;
     const db = {
@@ -114,14 +114,14 @@ describe("GET /health dev-server supervisor access", () => {
       });
     } finally {
       if (previousFile === undefined) {
-        delete process.env.PAPERCLIP_DEV_SERVER_STATUS_FILE;
+        delete process.env.BIZBOX_DEV_SERVER_STATUS_FILE;
       } else {
-        process.env.PAPERCLIP_DEV_SERVER_STATUS_FILE = previousFile;
+        process.env.BIZBOX_DEV_SERVER_STATUS_FILE = previousFile;
       }
       if (previousToken === undefined) {
-        delete process.env.PAPERCLIP_DEV_SERVER_STATUS_TOKEN;
+        delete process.env.BIZBOX_DEV_SERVER_STATUS_TOKEN;
       } else {
-        process.env.PAPERCLIP_DEV_SERVER_STATUS_TOKEN = previousToken;
+        process.env.BIZBOX_DEV_SERVER_STATUS_TOKEN = previousToken;
       }
     }
   });

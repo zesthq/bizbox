@@ -8,17 +8,17 @@ const ORIGINAL_ENV = { ...process.env };
 describe("applyDataDirOverride", () => {
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV };
-    delete process.env.PAPERCLIP_HOME;
-    delete process.env.PAPERCLIP_CONFIG;
-    delete process.env.PAPERCLIP_CONTEXT;
-    delete process.env.PAPERCLIP_INSTANCE_ID;
+    delete process.env.BIZBOX_HOME;
+    delete process.env.BIZBOX_CONFIG;
+    delete process.env.BIZBOX_CONTEXT;
+    delete process.env.BIZBOX_INSTANCE_ID;
   });
 
   afterEach(() => {
     process.env = { ...ORIGINAL_ENV };
   });
 
-  it("sets PAPERCLIP_HOME and isolated default config/context paths", () => {
+  it("sets BIZBOX_HOME and isolated default config/context paths", () => {
     const home = applyDataDirOverride({
       dataDir: "~/paperclip-data",
       config: undefined,
@@ -27,12 +27,12 @@ describe("applyDataDirOverride", () => {
 
     const expectedHome = path.resolve(os.homedir(), "paperclip-data");
     expect(home).toBe(expectedHome);
-    expect(process.env.PAPERCLIP_HOME).toBe(expectedHome);
-    expect(process.env.PAPERCLIP_CONFIG).toBe(
+    expect(process.env.BIZBOX_HOME).toBe(expectedHome);
+    expect(process.env.BIZBOX_CONFIG).toBe(
       path.resolve(expectedHome, "instances", "default", "config.json"),
     );
-    expect(process.env.PAPERCLIP_CONTEXT).toBe(path.resolve(expectedHome, "context.json"));
-    expect(process.env.PAPERCLIP_INSTANCE_ID).toBe("default");
+    expect(process.env.BIZBOX_CONTEXT).toBe(path.resolve(expectedHome, "context.json"));
+    expect(process.env.BIZBOX_INSTANCE_ID).toBe("default");
   });
 
   it("uses the provided instance id when deriving default config path", () => {
@@ -44,15 +44,15 @@ describe("applyDataDirOverride", () => {
     }, { hasConfigOption: true, hasContextOption: true });
 
     expect(home).toBe(path.resolve("/tmp/paperclip-alt"));
-    expect(process.env.PAPERCLIP_INSTANCE_ID).toBe("dev_1");
-    expect(process.env.PAPERCLIP_CONFIG).toBe(
+    expect(process.env.BIZBOX_INSTANCE_ID).toBe("dev_1");
+    expect(process.env.BIZBOX_CONFIG).toBe(
       path.resolve("/tmp/paperclip-alt", "instances", "dev_1", "config.json"),
     );
   });
 
   it("does not override explicit config/context settings", () => {
-    process.env.PAPERCLIP_CONFIG = "/env/config.json";
-    process.env.PAPERCLIP_CONTEXT = "/env/context.json";
+    process.env.BIZBOX_CONFIG = "/env/config.json";
+    process.env.BIZBOX_CONTEXT = "/env/context.json";
 
     applyDataDirOverride({
       dataDir: "/tmp/paperclip-alt",
@@ -60,8 +60,8 @@ describe("applyDataDirOverride", () => {
       context: "/flag/context.json",
     }, { hasConfigOption: true, hasContextOption: true });
 
-    expect(process.env.PAPERCLIP_CONFIG).toBe("/env/config.json");
-    expect(process.env.PAPERCLIP_CONTEXT).toBe("/env/context.json");
+    expect(process.env.BIZBOX_CONFIG).toBe("/env/config.json");
+    expect(process.env.BIZBOX_CONTEXT).toBe("/env/context.json");
   });
 
   it("only applies defaults for options supported by the command", () => {
@@ -72,8 +72,8 @@ describe("applyDataDirOverride", () => {
       { hasConfigOption: false, hasContextOption: false },
     );
 
-    expect(process.env.PAPERCLIP_HOME).toBe(path.resolve("/tmp/paperclip-alt"));
-    expect(process.env.PAPERCLIP_CONFIG).toBeUndefined();
-    expect(process.env.PAPERCLIP_CONTEXT).toBeUndefined();
+    expect(process.env.BIZBOX_HOME).toBe(path.resolve("/tmp/paperclip-alt"));
+    expect(process.env.BIZBOX_CONFIG).toBeUndefined();
+    expect(process.env.BIZBOX_CONTEXT).toBeUndefined();
   });
 });

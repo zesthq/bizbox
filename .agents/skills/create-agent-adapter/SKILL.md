@@ -266,7 +266,7 @@ This is the most important file. It receives an `AdapterExecutionContext` and mu
 **Required behavior:**
 
 1. **Read config** — extract typed values from `ctx.config` using helpers (`asString`, `asNumber`, `asBoolean`, `asStringArray`, `parseObject` from `@paperclipai/adapter-utils/server-utils`)
-2. **Build environment** — call `buildPaperclipEnv(agent)` then layer in `PAPERCLIP_RUN_ID`, context vars (`PAPERCLIP_TASK_ID`, `PAPERCLIP_WAKE_REASON`, `PAPERCLIP_WAKE_COMMENT_ID`, `PAPERCLIP_APPROVAL_ID`, `PAPERCLIP_APPROVAL_STATUS`, `PAPERCLIP_LINKED_ISSUE_IDS`), user env overrides, and auth token
+2. **Build environment** — call `buildPaperclipEnv(agent)` then layer in `BIZBOX_RUN_ID`, context vars (`BIZBOX_TASK_ID`, `BIZBOX_WAKE_REASON`, `BIZBOX_WAKE_COMMENT_ID`, `BIZBOX_APPROVAL_ID`, `BIZBOX_APPROVAL_STATUS`, `BIZBOX_LINKED_ISSUE_IDS`), user env overrides, and auth token
 3. **Resolve session** — check `runtime.sessionParams` / `runtime.sessionId` for an existing session; validate it's compatible (e.g. same cwd); decide whether to resume or start fresh
 4. **Render prompt** — use `renderTemplate(template, data)` with the template variables: `agentId`, `companyId`, `runId`, `company`, `agent`, `run`, `context`
 5. **Call onMeta** — emit adapter invocation metadata before spawning the process
@@ -279,17 +279,17 @@ This is the most important file. It receives an `AdapterExecutionContext` and mu
 
 | Variable | Source |
 |----------|--------|
-| `PAPERCLIP_AGENT_ID` | `agent.id` |
-| `PAPERCLIP_COMPANY_ID` | `agent.companyId` |
-| `PAPERCLIP_API_URL` | Server's own URL |
-| `PAPERCLIP_RUN_ID` | Current run id |
-| `PAPERCLIP_TASK_ID` | `context.taskId` or `context.issueId` |
-| `PAPERCLIP_WAKE_REASON` | `context.wakeReason` |
-| `PAPERCLIP_WAKE_COMMENT_ID` | `context.wakeCommentId` or `context.commentId` |
-| `PAPERCLIP_APPROVAL_ID` | `context.approvalId` |
-| `PAPERCLIP_APPROVAL_STATUS` | `context.approvalStatus` |
-| `PAPERCLIP_LINKED_ISSUE_IDS` | `context.issueIds` (comma-separated) |
-| `PAPERCLIP_API_KEY` | `authToken` (if no explicit key in config) |
+| `BIZBOX_AGENT_ID` | `agent.id` |
+| `BIZBOX_COMPANY_ID` | `agent.companyId` |
+| `BIZBOX_API_URL` | Server's own URL |
+| `BIZBOX_RUN_ID` | Current run id |
+| `BIZBOX_TASK_ID` | `context.taskId` or `context.issueId` |
+| `BIZBOX_WAKE_REASON` | `context.wakeReason` |
+| `BIZBOX_WAKE_COMMENT_ID` | `context.wakeCommentId` or `context.commentId` |
+| `BIZBOX_APPROVAL_ID` | `context.approvalId` |
+| `BIZBOX_APPROVAL_STATUS` | `context.approvalStatus` |
+| `BIZBOX_LINKED_ISSUE_IDS` | `context.issueIds` (comma-separated) |
+| `BIZBOX_API_KEY` | `authToken` (if no explicit key in config) |
 
 #### `server/parse.ts` — Output Parser
 
@@ -524,7 +524,7 @@ Import from `@paperclipai/adapter-utils/server-utils`:
 | `parseObject(val)` | Safe `Record<string, unknown>` extraction |
 | `parseJson(str)` | Safe JSON.parse returning `Record` or null |
 | `renderTemplate(tmpl, data)` | `{{path.to.value}}` template rendering |
-| `buildPaperclipEnv(agent)` | Standard `PAPERCLIP_*` env vars |
+| `buildPaperclipEnv(agent)` | Standard `BIZBOX_*` env vars |
 | `redactEnvForLogs(env)` | Redact sensitive keys for onMeta |
 | `ensureAbsoluteDirectory(cwd)` | Validate cwd exists and is absolute |
 | `ensureCommandResolvable(cmd, cwd, env)` | Validate command is in PATH |
@@ -548,7 +548,7 @@ Import from `@paperclipai/adapter-utils/server-utils`:
 ### Prompt Templates
 - Support `promptTemplate` for every run
 - Use `renderTemplate()` with the standard variable set
-- Default prompt should use `DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE` from `@paperclipai/adapter-utils/server-utils` so local adapters share Paperclip's execution contract: act in the same heartbeat, avoid planning-only exits unless requested, leave durable progress and a next action, use child issues instead of polling, mark blockers with owner/action, and respect governance boundaries.
+- Default prompt should use `DEFAULT_BIZBOX_AGENT_PROMPT_TEMPLATE` from `@paperclipai/adapter-utils/server-utils` so local adapters share Paperclip's execution contract: act in the same heartbeat, avoid planning-only exits unless requested, leave durable progress and a next action, use child issues instead of polling, mark blockers with owner/action, and respect governance boundaries.
 
 ### Error Handling
 - Differentiate timeout vs process error vs parse failure
@@ -583,11 +583,11 @@ async function buildSkillsDir(): Promise<string> {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skills-"));
   const target = path.join(tmp, ".claude", "skills");
   await fs.mkdir(target, { recursive: true });
-  const entries = await fs.readdir(PAPERCLIP_SKILLS_DIR, { withFileTypes: true });
+  const entries = await fs.readdir(BIZBOX_SKILLS_DIR, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isDirectory()) {
       await fs.symlink(
-        path.join(PAPERCLIP_SKILLS_DIR, entry.name),
+        path.join(BIZBOX_SKILLS_DIR, entry.name),
         path.join(target, entry.name),
       );
     }
@@ -645,7 +645,7 @@ The agent process runs LLM-driven code that reads external files, fetches URLs, 
 
 Never put secrets (API keys, tokens) into prompt templates or config fields that flow through the LLM. Instead, inject them as environment variables that the agent's tools can read directly:
 
-- `PAPERCLIP_API_KEY` is injected by the server into the process environment, not the prompt
+- `BIZBOX_API_KEY` is injected by the server into the process environment, not the prompt
 - User-provided secrets in `config.env` are passed as env vars, redacted in `onMeta` logs
 - The `redactEnvForLogs()` helper automatically masks any key matching `/(key|token|secret|password|authorization|cookie)/i`
 

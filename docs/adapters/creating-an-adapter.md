@@ -87,7 +87,7 @@ Key responsibilities:
 | Helper | Source | Purpose |
 |--------|--------|---------|
 | `runChildProcess(cmd, opts)` | `@paperclipai/adapter-utils/server-utils` | Spawn with timeout, grace, streaming |
-| `buildBizboxEnv(agent)` | `@paperclipai/adapter-utils/server-utils` | Inject `PAPERCLIP_*` env vars |
+| `buildBizboxEnv(agent)` | `@paperclipai/adapter-utils/server-utils` | Inject `BIZBOX_*` env vars |
 | `renderTemplate(tpl, data)` | `@paperclipai/adapter-utils/server-utils` | `{{variable}}` substitution |
 | `asString(v)` | `@paperclipai/adapter-utils` | Safe config value extraction |
 | `asNumber(v)` | `@paperclipai/adapter-utils` | Safe number extraction |

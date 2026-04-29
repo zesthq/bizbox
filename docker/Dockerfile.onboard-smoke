@@ -5,8 +5,8 @@ ARG PAPERCLIPAI_VERSION=latest
 ARG HOST_UID=10001
 
 ENV DEBIAN_FRONTEND=noninteractive \
-  PAPERCLIP_HOME=/paperclip \
-  PAPERCLIP_OPEN_ON_LISTEN=false \
+  BIZBOX_HOME=/paperclip \
+  BIZBOX_OPEN_ON_LISTEN=false \
   HOST=0.0.0.0 \
   PORT=3100 \
   HOME=/home/paperclip \
@@ -37,4 +37,4 @@ WORKDIR /home/paperclip/workspace
 EXPOSE 3100
 USER paperclip
 
-CMD ["bash", "-lc", "set -euo pipefail; mkdir -p \"$PAPERCLIP_HOME\"; npx --yes \"paperclipai@${PAPERCLIPAI_VERSION}\" onboard --yes --data-dir \"$PAPERCLIP_HOME\""]
+CMD ["bash", "-lc", "set -euo pipefail; mkdir -p \"$BIZBOX_HOME\"; npx --yes \"paperclipai@${PAPERCLIPAI_VERSION}\" onboard --yes --data-dir \"$BIZBOX_HOME\""]

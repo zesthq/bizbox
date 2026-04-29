@@ -34,7 +34,7 @@ Current CLI behavior:
 - `paperclipai onboard` and `paperclipai configure --section server` set deployment mode in config
 - server onboarding/configure ask for reachability intent and write `server.bind`
 - `paperclipai run --bind <loopback|lan|tailnet>` passes a quickstart bind preset into first-run onboarding when config is missing
-- runtime can override mode with `PAPERCLIP_DEPLOYMENT_MODE`
+- runtime can override mode with `BIZBOX_DEPLOYMENT_MODE`
 - `paperclipai run` and `paperclipai doctor` still do not expose a direct low-level `--mode` flag
 
 Canonical behavior is documented in `doc/DEPLOYMENT-MODES.md`.
@@ -77,8 +77,8 @@ pnpm paperclipai context use default
 To avoid storing secrets in context, set `apiKeyEnvVarName` and keep the key in env:
 
 ```sh
-pnpm paperclipai context set --api-key-env-var-name PAPERCLIP_API_KEY
-export PAPERCLIP_API_KEY=...
+pnpm paperclipai context set --api-key-env-var-name BIZBOX_API_KEY
+export BIZBOX_API_KEY=...
 ```
 
 ## Company Commands
@@ -98,8 +98,8 @@ pnpm paperclipai company delete 5cbe79ee-acb3-4597-896e-7662742593cd --yes --con
 
 Notes:
 
-- Deletion is server-gated by `PAPERCLIP_ENABLE_COMPANY_DELETION`.
-- With agent authentication, company deletion is company-scoped. Use the current company ID/prefix (for example via `--company-id` or `PAPERCLIP_COMPANY_ID`), not another company.
+- Deletion is server-gated by `BIZBOX_ENABLE_COMPANY_DELETION`.
+- With agent authentication, company deletion is company-scoped. Use the current company ID/prefix (for example via `--company-id` or `BIZBOX_COMPANY_ID`), not another company.
 
 ## Issue Commands
 
@@ -125,7 +125,7 @@ pnpm paperclipai agent local-cli <agent-id-or-shortname> --company-id <company-i
 
 - creates a new long-lived agent API key
 - installs missing Bizbox skills into `~/.codex/skills` and `~/.claude/skills`
-- prints `export ...` lines for `PAPERCLIP_API_URL`, `PAPERCLIP_COMPANY_ID`, `PAPERCLIP_AGENT_ID`, and `PAPERCLIP_API_KEY`
+- prints `export ...` lines for `BIZBOX_API_URL`, `BIZBOX_COMPANY_ID`, `BIZBOX_AGENT_ID`, and `BIZBOX_API_KEY`
 
 Example for shortname-based local setup:
 
@@ -180,7 +180,7 @@ Default local instance root is `~/.paperclip/instances/default`:
 Override base home or instance with env vars:
 
 ```sh
-PAPERCLIP_HOME=/custom/home PAPERCLIP_INSTANCE_ID=dev pnpm paperclipai run
+BIZBOX_HOME=/custom/home BIZBOX_INSTANCE_ID=dev pnpm paperclipai run
 ```
 
 ## Storage Configuration

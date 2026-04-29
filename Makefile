@@ -57,11 +57,11 @@ fly-volume:
 fly-secrets:
 	@if fly secrets list --app $(APP) 2>/dev/null | grep -q '^BETTER_AUTH_SECRET'; then \
 		echo "BETTER_AUTH_SECRET is already set on '$(APP)'; preserving existing auth secret."; \
-		fly secrets set PAPERCLIP_PUBLIC_URL="https://$(APP).fly.dev" --app $(APP); \
+		fly secrets set BIZBOX_PUBLIC_URL="https://$(APP).fly.dev" --app $(APP); \
 	else \
 		fly secrets set \
 			BETTER_AUTH_SECRET="$$(openssl rand -hex 32)" \
-			PAPERCLIP_PUBLIC_URL="https://$(APP).fly.dev" \
+			BIZBOX_PUBLIC_URL="https://$(APP).fly.dev" \
 			--app $(APP); \
 	fi
 
