@@ -55,6 +55,14 @@ import {
   agentConfigurationDoc as openclawGatewayAgentConfigurationDoc,
   models as openclawGatewayModels,
 } from "@paperclipai/adapter-openclaw-gateway";
+import {
+  execute as ottoAgentExecute,
+  testEnvironment as ottoAgentTestEnvironment,
+} from "@paperclipai/adapter-otto-agent/server";
+import {
+  agentConfigurationDoc as ottoAgentConfigurationDoc,
+  models as ottoAgentModels,
+} from "@paperclipai/adapter-otto-agent";
 import { listCodexModels } from "./codex-models.js";
 import { listCursorModels } from "./cursor-models.js";
 import {
@@ -197,6 +205,17 @@ const openclawGatewayAdapter: ServerAdapterModule = {
   agentConfigurationDoc: openclawGatewayAgentConfigurationDoc,
 };
 
+const ottoAgentAdapter: ServerAdapterModule = {
+  type: "otto_agent",
+  execute: ottoAgentExecute,
+  testEnvironment: ottoAgentTestEnvironment,
+  models: ottoAgentModels,
+  supportsLocalAgentJwt: false,
+  supportsInstructionsBundle: false,
+  requiresMaterializedRuntimeSkills: false,
+  agentConfigurationDoc: ottoAgentConfigurationDoc,
+};
+
 const openCodeLocalAdapter: ServerAdapterModule = {
   type: "opencode_local",
   execute: openCodeExecute,
@@ -266,6 +285,7 @@ function registerBuiltInAdapters() {
     cursorLocalAdapter,
     geminiLocalAdapter,
     openclawGatewayAdapter,
+    ottoAgentAdapter,
     hermesLocalAdapter,
     processAdapter,
     httpAdapter,

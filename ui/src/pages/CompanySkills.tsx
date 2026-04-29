@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type SVGProps } from "react";
 import { Link, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  CompanySkill,
   CompanyGitHubCredentialAssociation,
   CompanySecret,
   CompanySkillCreateRequest,
@@ -1226,12 +1227,24 @@ export function CompanySkills() {
     mutationFn: (payload: CompanySkillCreateRequest) => companySkillsApi.create(selectedCompanyId!, payload),
     onSuccess: async (skill) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(selectedCompanyId!) });
-      navigate(skillRoute(skill.id));
+      let persistedSkill: CompanySkill | CompanySkillListItem = skill;
+      try {
+        const refreshedSkills = await queryClient.fetchQuery({
+          queryKey: queryKeys.companySkills.list(selectedCompanyId!),
+          queryFn: () => companySkillsApi.list(selectedCompanyId!),
+        });
+        persistedSkill = refreshedSkills.find((entry) => skill.key != null && entry.key === skill.key)
+          ?? refreshedSkills.find((entry) => entry.slug === skill.slug)
+          ?? skill;
+      } catch {
+        // Fallback to original skill if refresh fails
+      }
+      navigate(skillRoute(persistedSkill.id));
       setCreateOpen(false);
       pushToast({
         tone: "success",
         title: "Skill created",
-        body: `${skill.name} is now editable in the Paperclip workspace.`,
+        body: `${persistedSkill.name} is now editable in the Paperclip workspace.`,
       });
     },
     onError: (error) => {
