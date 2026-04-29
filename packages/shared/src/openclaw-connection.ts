@@ -50,7 +50,9 @@ export function normalizeOpenClawConnectionState(
   const match = findPrioritizedOpenClawCheck(result);
 
   return {
-    status: match?.status ?? (result.status === "pass" ? "connected" : "unreachable"),
+    status: match?.status ?? (
+      result.status === "pass" || result.status === "warn" ? "connected" : "unreachable"
+    ),
     checkedAt:
       typeof result.testedAt === "string" ? result.testedAt : new Date().toISOString(),
     message: match?.check.message ?? null,
