@@ -994,7 +994,8 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       )}
 
       {/* ---- Adapter Configuration (Non-local adapters) ---- */}
-      {!isLocal && (
+      {/* OpenClaw gateway renders its own ConfigFields inside the "Connect OpenClaw" section above, so skip the generic block here to avoid duplicate inputs. */}
+      {!isLocal && !isOpenClawGateway && (
         <div className={cn(!cards && "border-b border-border")}>
           {cards
             ? <h3 className="text-sm font-medium mb-3">Adapter Configuration</h3>
