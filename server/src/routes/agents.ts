@@ -1058,7 +1058,7 @@ export function agentRoutes(db: Db) {
         res.status(404).json({ error: "Agent not found" });
         return;
       }
-      await assertCanReadAgent(req, existing);
+      await assertCanUpdateAgent(req, existing);
       if (existing.adapterType !== "openclaw_gateway") {
         throw unprocessable("OpenClaw connection tests are only supported for openclaw_gateway agents.");
       }
