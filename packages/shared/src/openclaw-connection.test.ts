@@ -26,4 +26,24 @@ describe("normalizeOpenClawConnectionState", () => {
       message: "Gateway unreachable",
     });
   });
+
+  it("treats unclassified warn results as connected", () => {
+    const result = normalizeOpenClawConnectionState({
+      status: "warn",
+      testedAt: "2026-04-29T01:00:00.000Z",
+      checks: [
+        {
+          code: "openclaw_gateway_deprecated_config",
+          level: "warn",
+          message: "Deprecated config field in use",
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      status: "connected",
+      checkedAt: "2026-04-29T01:00:00.000Z",
+      message: null,
+    });
+  });
 });

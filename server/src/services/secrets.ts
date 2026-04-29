@@ -385,6 +385,7 @@ export function secretService(db: Db) {
         );
         resolved.authToken = await resolveSecretValue(companyId, binding.secretId, binding.version);
         secretKeys.add("authToken");
+        delete resolved.authTokenRef;
       }
       if (!Object.prototype.hasOwnProperty.call(adapterConfig, "env")) {
         return { config: resolved, secretKeys };
