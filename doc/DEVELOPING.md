@@ -485,6 +485,26 @@ Default behavior:
 - `local_trusted`: enabled
 - `authenticated`: disabled
 
+## Observability (OpenTelemetry)
+
+Bizbox emits metrics via the OpenTelemetry SDK. The SDK is a no-op unless
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set — existing deployments require no
+configuration changes.
+
+### Environment variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | No | unset | Signal-specific OTLP/HTTP endpoint for metrics, e.g. `http://localhost:4318/v1/metrics`. Takes priority over `OTEL_EXPORTER_OTLP_ENDPOINT` when both are set. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | unset (disabled) | Generic OTLP/HTTP base URL, e.g. `http://localhost:4318`. Used as a fallback when `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` is not set. The SDK appends `/v1/metrics` automatically. Setting either this or the signal-specific var above enables the SDK; when neither is set the SDK does not start and no metrics are emitted. |
+| `OTEL_EXPORT_INTERVAL_MS` | No | `60000` | How often (in milliseconds) the SDK flushes metrics to the collector. Lower values (e.g. `10000`) are useful during local testing to get faster feedback. |
+
+### Metrics emitted
+
+| Metric name | Type | Attributes | Description |
+|---|---|---|---|
+| `bizbox.issues.human_comments_total` | Counter | `company_id`, `issue_id` | Incremented each time a board user (human) posts a comment on an issue. A rising value relative to agent comment volume signals human steering / intervention. |
+
 ## CLI Client Operations
 
 Bizbox CLI now includes client-side control-plane commands in addition to setup commands.

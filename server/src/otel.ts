@@ -1,11 +1,16 @@
 /**
  * OpenTelemetry metrics instrumentation for Bizbox.
  *
- * Initialised only when OTEL_EXPORTER_OTLP_ENDPOINT is set so that
- * existing deployments remain zero-config (all calls become no-ops when
- * the SDK is not started).
+ * Initialised only when at least one of the standard OTel endpoint env vars
+ * is set so that existing deployments remain zero-config (all calls become
+ * no-ops via the global no-op MeterProvider when neither is set).
  *
- * ADR: docs/adr/0011-add-opentelemetry-to-bizbox-for-human-reliability-metrics.md
+ * Endpoint resolution follows the OTel specification priority order:
+ *   1. OTEL_EXPORTER_OTLP_METRICS_ENDPOINT  (signal-specific, highest priority)
+ *   2. OTEL_EXPORTER_OTLP_ENDPOINT           (generic fallback)
+ *
+ * The SDK resolves these automatically when no url is passed to the exporter
+ * constructor, so both env vars are honoured without any custom logic here.
  */
 
 import { MeterProvider, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
@@ -33,12 +38,18 @@ let _humanCommentsCounter: Counter | null = null;
  * Start the OTel SDK. Safe to call multiple times — subsequent calls are
  * no-ops. Must be called before the Express app starts handling requests.
  *
- * If OTEL_EXPORTER_OTLP_ENDPOINT is not set the function returns immediately
- * and all metric calls become no-ops via the global no-op MeterProvider.
+ * The SDK is started only when at least one of the following env vars is set:
+ *   - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT (signal-specific, takes priority)
+ *   - OTEL_EXPORTER_OTLP_ENDPOINT         (generic fallback)
+ *
+ * When neither is set the function returns immediately and all metric calls
+ * become no-ops via the global no-op MeterProvider.
  */
 export function initOtel(): void {
-  const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-  if (!endpoint) return;
+  const hasEndpoint =
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim() ||
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
+  if (!hasEndpoint) return;
   if (_meterProvider) return;
 
   const resource = resourceFromAttributes({
@@ -46,9 +57,9 @@ export function initOtel(): void {
     [ATTR_SERVICE_VERSION]: process.env.npm_package_version ?? "unknown",
   });
 
-  const exporter = new OTLPMetricExporter({
-    url: `${endpoint.replace(/\/$/, "")}/v1/metrics`,
-  });
+  // No url passed — the SDK reads OTEL_EXPORTER_OTLP_METRICS_ENDPOINT then
+  // OTEL_EXPORTER_OTLP_ENDPOINT automatically, matching the spec priority.
+  const exporter = new OTLPMetricExporter();
 
   _meterProvider = new MeterProvider({
     resource,
