@@ -49,20 +49,20 @@ export function resolvePostgresClientOptions(options: CreateDbOptions = {}): Pos
   const resolved: PostgresOptions = {
     max:
       options.max ??
-      firstPositiveIntegerEnv(["PAPERCLIP_DB_POOL_MAX", "PAPERCLIP_DB_MAX_CONNECTIONS"]) ??
+      firstPositiveIntegerEnv(["BIZBOX_DB_POOL_MAX", "BIZBOX_DB_MAX_CONNECTIONS"]) ??
       DEFAULT_DB_POOL_MAX,
     idle_timeout:
       options.idleTimeoutSec ??
-      firstPositiveIntegerEnv(["PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS", "PGIDLE_TIMEOUT"]) ??
+      firstPositiveIntegerEnv(["BIZBOX_DB_IDLE_TIMEOUT_SECONDS", "PGIDLE_TIMEOUT"]) ??
       DEFAULT_DB_IDLE_TIMEOUT_SECONDS,
     connect_timeout:
       options.connectTimeoutSec ??
-      firstPositiveIntegerEnv(["PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS", "PGCONNECT_TIMEOUT"]) ??
+      firstPositiveIntegerEnv(["BIZBOX_DB_CONNECT_TIMEOUT_SECONDS", "PGCONNECT_TIMEOUT"]) ??
       DEFAULT_DB_CONNECT_TIMEOUT_SECONDS,
     onnotice: () => {},
   };
 
-  const prepare = options.prepare ?? parseBoolean(process.env.PAPERCLIP_DB_PREPARE);
+  const prepare = options.prepare ?? parseBoolean(process.env.BIZBOX_DB_PREPARE);
   if (prepare !== undefined) {
     resolved.prepare = prepare;
   }

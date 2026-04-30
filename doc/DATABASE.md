@@ -106,10 +106,10 @@ DATABASE_MIGRATION_URL=postgres://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGIO
 
 The runtime Postgres client uses a bounded pool by default:
 
-- `PAPERCLIP_DB_POOL_MAX` caps open runtime connections per app process. Default: `5`.
-- `PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS` closes idle runtime connections. Default: `30`.
-- `PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS` fails unreachable connection attempts quickly. Default: `5`.
-- `PAPERCLIP_DB_PREPARE=false` disables prepared statements for poolers that require it, such as Supavisor transaction/connection pooling.
+- `BIZBOX_DB_POOL_MAX` caps open runtime connections per app process. Default: `5`.
+- `BIZBOX_DB_IDLE_TIMEOUT_SECONDS` closes idle runtime connections. Default: `30`.
+- `BIZBOX_DB_CONNECT_TIMEOUT_SECONDS` fails unreachable connection attempts quickly. Default: `5`.
+- `BIZBOX_DB_PREPARE=false` disables prepared statements for poolers that require it, such as Supavisor transaction/connection pooling.
 
 ### Push the schema
 

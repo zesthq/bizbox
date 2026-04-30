@@ -16,11 +16,11 @@ const cleanups: Array<() => Promise<void>> = [];
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 const DB_OPTION_ENV_KEYS = [
-  "PAPERCLIP_DB_POOL_MAX",
-  "PAPERCLIP_DB_MAX_CONNECTIONS",
-  "PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS",
-  "PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS",
-  "PAPERCLIP_DB_PREPARE",
+  "BIZBOX_DB_POOL_MAX",
+  "BIZBOX_DB_MAX_CONNECTIONS",
+  "BIZBOX_DB_IDLE_TIMEOUT_SECONDS",
+  "BIZBOX_DB_CONNECT_TIMEOUT_SECONDS",
+  "BIZBOX_DB_PREPARE",
   "PGIDLE_TIMEOUT",
   "PGCONNECT_TIMEOUT",
 ];
@@ -72,10 +72,10 @@ describe("resolvePostgresClientOptions", () => {
   });
 
   it("allows pool and timeout overrides from environment", () => {
-    process.env.PAPERCLIP_DB_POOL_MAX = "3";
-    process.env.PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS = "12";
-    process.env.PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS = "7";
-    process.env.PAPERCLIP_DB_PREPARE = "false";
+    process.env.BIZBOX_DB_POOL_MAX = "3";
+    process.env.BIZBOX_DB_IDLE_TIMEOUT_SECONDS = "12";
+    process.env.BIZBOX_DB_CONNECT_TIMEOUT_SECONDS = "7";
+    process.env.BIZBOX_DB_PREPARE = "false";
 
     expect(resolvePostgresClientOptions()).toMatchObject({
       max: 3,
@@ -86,10 +86,10 @@ describe("resolvePostgresClientOptions", () => {
   });
 
   it("lets explicit createDb options override environment values", () => {
-    process.env.PAPERCLIP_DB_POOL_MAX = "3";
-    process.env.PAPERCLIP_DB_IDLE_TIMEOUT_SECONDS = "12";
-    process.env.PAPERCLIP_DB_CONNECT_TIMEOUT_SECONDS = "7";
-    process.env.PAPERCLIP_DB_PREPARE = "false";
+    process.env.BIZBOX_DB_POOL_MAX = "3";
+    process.env.BIZBOX_DB_IDLE_TIMEOUT_SECONDS = "12";
+    process.env.BIZBOX_DB_CONNECT_TIMEOUT_SECONDS = "7";
+    process.env.BIZBOX_DB_PREPARE = "false";
 
     expect(
       resolvePostgresClientOptions({
