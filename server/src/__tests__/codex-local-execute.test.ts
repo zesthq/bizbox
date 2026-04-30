@@ -464,7 +464,7 @@ describe("codex execute", () => {
           fastMode: true,
           model: "gpt-5.4",
           env: {
-            PAPERCLIP_TEST_CAPTURE_PATH: capturePath,
+            BIZBOX_TEST_CAPTURE_PATH: capturePath,
           },
           promptTemplate: "Follow the paperclip heartbeat.",
         },

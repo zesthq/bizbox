@@ -50,9 +50,13 @@ function registerModuleMocks() {
     agentService: () => mockAgentService,
   }));
 
-  vi.doMock("../services/company-skills.js", () => ({
-    companySkillService: () => mockCompanySkillService,
-  }));
+  vi.doMock("../services/company-skills.js", async () => {
+    const actual = await vi.importActual<typeof import("../services/company-skills.js")>("../services/company-skills.js");
+    return {
+      ...actual,
+      companySkillService: () => mockCompanySkillService,
+    };
+  });
 
   vi.doMock("../services/index.js", () => ({
     accessService: () => mockAccessService,

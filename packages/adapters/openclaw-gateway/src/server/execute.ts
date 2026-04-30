@@ -1068,7 +1068,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     idempotencyKey: ctx.runId,
   };
   delete agentParams.text;
-  delete agentParams.paperclip;
+  const paperclipPayload = buildStandardPaperclipPayload(ctx, wakePayload, paperclipEnv, payloadTemplate);
+  agentParams.paperclip = paperclipPayload;
 
   const configuredAgentId = nonEmpty(parsedConfig.agentId);
   if (configuredAgentId && !nonEmpty(agentParams.agentId)) {

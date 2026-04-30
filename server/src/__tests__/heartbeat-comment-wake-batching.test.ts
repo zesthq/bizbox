@@ -523,11 +523,15 @@ describe("heartbeat comment wake batching", () => {
       }, 90_000);
 
       const secondPayload = gateway.getAgentPayloads()[1] ?? {};
+      expect(secondPayload.paperclip).toMatchObject({
+        wake: {
+          commentIds: [comment2.id, comment3.id],
+          latestCommentId: comment3.id,
+        },
+      });
       expect(String(secondPayload.message ?? "")).toContain("Second comment");
       expect(String(secondPayload.message ?? "")).toContain("Third comment");
       expect(String(secondPayload.message ?? "")).not.toContain("First comment");
-      // Regression guard for #606/#617/#626: OpenClaw rejects unknown top-level agent params.
-      expect(secondPayload.paperclip).toBeUndefined();
     } finally {
       gateway.releaseFirstWait();
       await gateway.close();
@@ -837,14 +841,21 @@ describe("heartbeat comment wake batching", () => {
       });
 
       const secondPayload = gateway.getAgentPayloads()[1] ?? {};
-      // Regression guard for #606/#617/#626: OpenClaw rejects unknown top-level agent params.
-      expect(secondPayload.paperclip).toBeUndefined();
+      expect(secondPayload.paperclip).toMatchObject({
+        wake: {
+          reason: "issue_commented",
+          commentIds: [comment2.id],
+          latestCommentId: comment2.id,
+          issue: {
+            id: issueId,
+            identifier: `${issuePrefix}-1`,
+            title: "Reopen after deferred comment",
+            status: "in_progress",
+            priority: "medium",
+          },
+        },
+      });
       expect(String(secondPayload.message ?? "")).toContain("Please handle this follow-up after you finish");
-      expect(String(secondPayload.message ?? "")).toContain('"reason":"issue_commented"');
-      expect(String(secondPayload.message ?? "")).toContain(`"commentIds":["${comment2.id}"]`);
-      expect(String(secondPayload.message ?? "")).toContain(`"latestCommentId":"${comment2.id}"`);
-      expect(String(secondPayload.message ?? "")).toContain(`"id":"${issueId}"`);
-      expect(String(secondPayload.message ?? "")).toContain(`"identifier":"${issuePrefix}-1"`);
     } finally {
       gateway.releaseFirstWait();
       await gateway.close();
@@ -916,8 +927,20 @@ describe("heartbeat comment wake batching", () => {
       expect(firstRun).not.toBeNull();
       await waitFor(() => gateway.getAgentPayloads().length === 1);
       const firstPayload = gateway.getAgentPayloads()[0] ?? {};
-      // Regression guard for #606/#617/#626: OpenClaw rejects unknown top-level agent params.
-      expect(firstPayload.paperclip).toBeUndefined();
+      expect(firstPayload.paperclip).toMatchObject({
+        wake: {
+          reason: "issue_assigned",
+          issue: {
+            id: issueId,
+            identifier: `${issuePrefix}-1`,
+            title: "Require a comment",
+            status: "in_progress",
+            priority: "medium",
+          },
+          checkedOutByHarness: true,
+          commentIds: [],
+        },
+      });
       expect(String(firstPayload.message ?? "")).toContain("## Paperclip Wake Payload");
       expect(String(firstPayload.message ?? "")).toContain("Do not switch to another issue until you have handled this wake.");
       expect(String(firstPayload.message ?? "")).toContain("- checkout: already claimed by the harness for this run");
@@ -925,11 +948,6 @@ describe("heartbeat comment wake batching", () => {
         "The harness already checked out this issue for the current run.",
       );
       expect(String(firstPayload.message ?? "")).toContain(`${issuePrefix}-1 Require a comment`);
-      expect(String(firstPayload.message ?? "")).toContain('"reason":"issue_assigned"');
-      expect(String(firstPayload.message ?? "")).toContain('"checkedOutByHarness":true');
-      expect(String(firstPayload.message ?? "")).toContain('"commentIds":[]');
-      expect(String(firstPayload.message ?? "")).toContain(`"id":"${issueId}"`);
-      expect(String(firstPayload.message ?? "")).toContain(`"identifier":"${issuePrefix}-1"`);
       const checkedOutIssue = await db
         .select({
           status: issues.status,
@@ -1129,15 +1147,6 @@ describe("heartbeat comment wake batching", () => {
       });
 
       expect(gateway.getAgentPayloads()).toHaveLength(1);
-
-      await db.insert(issueComments).values({
-        companyId,
-        issueId,
-        authorAgentId: primaryAgentId,
-        authorUserId: null,
-        createdByRunId: primaryRun!.id,
-        body: "Primary run handled its assigned work.",
-      });
 
       gateway.releaseFirstWait();
 
