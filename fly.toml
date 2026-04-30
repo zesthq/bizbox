@@ -1,4 +1,4 @@
-app = "bizbox-test"
+app = "bizbox"
 primary_region = "syd"
 
 [build]
@@ -14,7 +14,7 @@ SERVE_UI = "true"
 PAPERCLIP_HOME = "/paperclip"
 PAPERCLIP_DEPLOYMENT_MODE = "authenticated"
 PAPERCLIP_DEPLOYMENT_EXPOSURE = "private"
-PAPERCLIP_PUBLIC_URL = "https://bizbox-test.fly.dev"
+PAPERCLIP_PUBLIC_URL = "https://bizbox.fly.dev"
 PAPERCLIP_MIGRATION_AUTO_APPLY = "true"
 OPENCODE_ALLOW_ALL_MODELS = "true"
 
