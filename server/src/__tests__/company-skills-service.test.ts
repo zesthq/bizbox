@@ -189,7 +189,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const commitSha = "fedcba9876543210fedcba9876543210fedcba98";
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -298,7 +298,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const skillId = randomUUID();
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -589,7 +589,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const commitSha = "0123456789abcdef0123456789abcdef01234567";
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -670,7 +670,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const commitSha = "0123456789abcdef0123456789abcdef01234567";
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -755,7 +755,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const commitSha = "0123456789abcdef0123456789abcdef01234567";
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -830,7 +830,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const commitSha = "0123456789abcdef0123456789abcdef01234567";
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -908,7 +908,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const companyId = randomUUID();
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -946,7 +946,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const companyId = randomUUID();
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -1016,7 +1016,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const commitSha = "0123456789abcdef0123456789abcdef01234567";
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,
@@ -1085,7 +1085,7 @@ describeEmbeddedPostgres("companySkillService.list", () => {
     const companyId = randomUUID();
     const secrets = secretService(db);
 
-    vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
+    vi.stubEnv("BIZBOX_SECRETS_MASTER_KEY", "12345678901234567890123456789012");
 
     await db.insert(companies).values({
       id: companyId,

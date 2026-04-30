@@ -18,7 +18,7 @@ function shouldExposeFullHealthDetails(
 }
 
 function hasDevServerStatusToken(providedToken: string | undefined) {
-  const expectedToken = process.env.PAPERCLIP_DEV_SERVER_STATUS_TOKEN?.trim();
+  const expectedToken = process.env.BIZBOX_DEV_SERVER_STATUS_TOKEN?.trim();
   const token = providedToken?.trim();
   if (!expectedToken || !token) return false;
 

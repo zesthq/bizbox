@@ -89,7 +89,7 @@ Show resolved environment configuration:
 pnpm paperclipai env
 ```
 
-This now includes bind-oriented deployment settings such as `PAPERCLIP_BIND` and `PAPERCLIP_BIND_HOST` when configured.
+This now includes bind-oriented deployment settings such as `BIZBOX_BIND` and `BIZBOX_BIND_HOST` when configured.
 
 ## `paperclipai allowed-hostname`
 
@@ -112,7 +112,7 @@ pnpm paperclipai allowed-hostname my-tailscale-host
 Override with:
 
 ```sh
-PAPERCLIP_HOME=/custom/home PAPERCLIP_INSTANCE_ID=dev pnpm paperclipai run
+BIZBOX_HOME=/custom/home BIZBOX_INSTANCE_ID=dev pnpm paperclipai run
 ```
 
 Or pass `--data-dir` directly on any command:

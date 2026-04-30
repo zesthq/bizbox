@@ -38,18 +38,18 @@ describe("dev-runner worktree env bootstrap", () => {
     fs.writeFileSync(
       resolveWorktreeEnvFilePath(root),
       [
-        "PAPERCLIP_HOME=/tmp/paperclip-worktrees",
-        "PAPERCLIP_INSTANCE_ID=feature-worktree",
-        "PAPERCLIP_IN_WORKTREE=true",
-        "PAPERCLIP_WORKTREE_NAME=feature-worktree",
-        "PAPERCLIP_OPTIONAL= # comment-only value",
+        "BIZBOX_HOME=/tmp/paperclip-worktrees",
+        "BIZBOX_INSTANCE_ID=feature-worktree",
+        "BIZBOX_IN_WORKTREE=true",
+        "BIZBOX_WORKTREE_NAME=feature-worktree",
+        "BIZBOX_OPTIONAL= # comment-only value",
         "",
       ].join("\n"),
       "utf8",
     );
 
     const env: NodeJS.ProcessEnv = {
-      PAPERCLIP_INSTANCE_ID: "already-set",
+      BIZBOX_INSTANCE_ID: "already-set",
     };
     const result = bootstrapDevRunnerWorktreeEnv(root, env);
 
@@ -57,10 +57,10 @@ describe("dev-runner worktree env bootstrap", () => {
       envPath: resolveWorktreeEnvFilePath(root),
       missingEnv: false,
     });
-    expect(env.PAPERCLIP_HOME).toBe("/tmp/paperclip-worktrees");
-    expect(env.PAPERCLIP_INSTANCE_ID).toBe("already-set");
-    expect(env.PAPERCLIP_IN_WORKTREE).toBe("true");
-    expect(env.PAPERCLIP_OPTIONAL).toBe("");
+    expect(env.BIZBOX_HOME).toBe("/tmp/paperclip-worktrees");
+    expect(env.BIZBOX_INSTANCE_ID).toBe("already-set");
+    expect(env.BIZBOX_IN_WORKTREE).toBe("true");
+    expect(env.BIZBOX_OPTIONAL).toBe("");
   });
 
   it("reports uninitialized linked worktrees so dev runner can fail fast", () => {

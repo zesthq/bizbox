@@ -15,8 +15,8 @@ const MIN_WINDOW_MS = 60_000;
 const DEFAULT_STATS_FETCH_LIMIT = 250;
 const DEFAULT_STATS_CONCURRENCY = 4;
 const DEFAULT_SEARCH_FIELD = "committer-date";
-const PAPERCLIP_EMAIL = "noreply@paperclip.ing";
-const PAPERCLIP_NAME = "paperclip";
+const BIZBOX_EMAIL = "noreply@paperclip.ing";
+const BIZBOX_NAME = "paperclip";
 
 interface CliOptions {
   cacheFile: string;
@@ -568,7 +568,7 @@ function normalizeContributor(input: {
   if (!displayName && !email && !login) {
     return null;
   }
-  if ((email && email === PAPERCLIP_EMAIL) || (displayName && displayName.toLowerCase() === PAPERCLIP_NAME)) {
+  if ((email && email === BIZBOX_EMAIL) || (displayName && displayName.toLowerCase() === BIZBOX_NAME)) {
     return null;
   }
 

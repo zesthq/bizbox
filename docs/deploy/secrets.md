@@ -41,16 +41,16 @@ pnpm paperclipai doctor
 
 | Variable | Description |
 |----------|-------------|
-| `PAPERCLIP_SECRETS_MASTER_KEY` | 32-byte key as base64, hex, or raw string |
-| `PAPERCLIP_SECRETS_MASTER_KEY_FILE` | Custom key file path |
-| `PAPERCLIP_SECRETS_STRICT_MODE` | Set to `true` to enforce secret refs |
+| `BIZBOX_SECRETS_MASTER_KEY` | 32-byte key as base64, hex, or raw string |
+| `BIZBOX_SECRETS_MASTER_KEY_FILE` | Custom key file path |
+| `BIZBOX_SECRETS_STRICT_MODE` | Set to `true` to enforce secret refs |
 
 ## Strict Mode
 
 When strict mode is enabled, sensitive env keys (matching `*_API_KEY`, `*_TOKEN`, `*_SECRET`) must use secret references instead of inline plain values.
 
 ```sh
-PAPERCLIP_SECRETS_STRICT_MODE=true
+BIZBOX_SECRETS_STRICT_MODE=true
 ```
 
 Recommended for any deployment beyond local trusted.

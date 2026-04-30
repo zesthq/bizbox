@@ -25,15 +25,15 @@ function makeAgent(adapterConfig: Record<string, unknown>): TestAgent {
 }
 
 describe("agent instructions service", () => {
-  const originalPaperclipHome = process.env.PAPERCLIP_HOME;
-  const originalPaperclipInstanceId = process.env.PAPERCLIP_INSTANCE_ID;
+  const originalPaperclipHome = process.env.BIZBOX_HOME;
+  const originalPaperclipInstanceId = process.env.BIZBOX_INSTANCE_ID;
   const cleanupDirs = new Set<string>();
 
   afterEach(async () => {
-    if (originalPaperclipHome === undefined) delete process.env.PAPERCLIP_HOME;
-    else process.env.PAPERCLIP_HOME = originalPaperclipHome;
-    if (originalPaperclipInstanceId === undefined) delete process.env.PAPERCLIP_INSTANCE_ID;
-    else process.env.PAPERCLIP_INSTANCE_ID = originalPaperclipInstanceId;
+    if (originalPaperclipHome === undefined) delete process.env.BIZBOX_HOME;
+    else process.env.BIZBOX_HOME = originalPaperclipHome;
+    if (originalPaperclipInstanceId === undefined) delete process.env.BIZBOX_INSTANCE_ID;
+    else process.env.BIZBOX_INSTANCE_ID = originalPaperclipInstanceId;
 
     await Promise.all([...cleanupDirs].map(async (dir) => {
       await fs.rm(dir, { recursive: true, force: true });
@@ -46,8 +46,8 @@ describe("agent instructions service", () => {
     const externalRoot = await makeTempDir("paperclip-agent-instructions-external-");
     cleanupDirs.add(paperclipHome);
     cleanupDirs.add(externalRoot);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.BIZBOX_HOME = paperclipHome;
+    process.env.BIZBOX_INSTANCE_ID = "test-instance";
 
     await fs.writeFile(path.join(externalRoot, "AGENTS.md"), "# External Agent\n", "utf8");
     await fs.mkdir(path.join(externalRoot, "docs"), { recursive: true });
@@ -96,8 +96,8 @@ describe("agent instructions service", () => {
     const externalRoot = await makeTempDir("paperclip-agent-instructions-new-external-");
     cleanupDirs.add(paperclipHome);
     cleanupDirs.add(externalRoot);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.BIZBOX_HOME = paperclipHome;
+    process.env.BIZBOX_INSTANCE_ID = "test-instance";
 
     await fs.mkdir(managedRoot, { recursive: true });
     await fs.writeFile(path.join(managedRoot, "AGENTS.md"), "# Managed Agent\n", "utf8");
@@ -165,8 +165,8 @@ describe("agent instructions service", () => {
   it("recovers a managed bundle from disk when bundle config metadata is missing", async () => {
     const paperclipHome = await makeTempDir("paperclip-agent-instructions-recover-");
     cleanupDirs.add(paperclipHome);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.BIZBOX_HOME = paperclipHome;
+    process.env.BIZBOX_INSTANCE_ID = "test-instance";
 
     const managedRoot = path.join(
       paperclipHome,
@@ -198,8 +198,8 @@ describe("agent instructions service", () => {
     const staleRoot = await makeTempDir("paperclip-agent-instructions-stale-root-");
     cleanupDirs.add(paperclipHome);
     cleanupDirs.add(staleRoot);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.BIZBOX_HOME = paperclipHome;
+    process.env.BIZBOX_INSTANCE_ID = "test-instance";
 
     const managedRoot = path.join(
       paperclipHome,
@@ -241,8 +241,8 @@ describe("agent instructions service", () => {
     const staleRoot = await makeTempDir("paperclip-agent-instructions-heal-write-stale-");
     cleanupDirs.add(paperclipHome);
     cleanupDirs.add(staleRoot);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.BIZBOX_HOME = paperclipHome;
+    process.env.BIZBOX_INSTANCE_ID = "test-instance";
 
     const managedRoot = path.join(
       paperclipHome,
@@ -281,8 +281,8 @@ describe("agent instructions service", () => {
     const staleRoot = await makeTempDir("paperclip-agent-instructions-heal-delete-stale-");
     cleanupDirs.add(paperclipHome);
     cleanupDirs.add(staleRoot);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.BIZBOX_HOME = paperclipHome;
+    process.env.BIZBOX_INSTANCE_ID = "test-instance";
 
     const managedRoot = path.join(
       paperclipHome,
@@ -323,8 +323,8 @@ describe("agent instructions service", () => {
     const staleRoot = await makeTempDir("paperclip-agent-instructions-partial-root-");
     cleanupDirs.add(paperclipHome);
     cleanupDirs.add(staleRoot);
-    process.env.PAPERCLIP_HOME = paperclipHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+    process.env.BIZBOX_HOME = paperclipHome;
+    process.env.BIZBOX_INSTANCE_ID = "test-instance";
 
     const managedRoot = path.join(
       paperclipHome,
