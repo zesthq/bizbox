@@ -27,12 +27,14 @@ When a token is present and `authorization` header is missing, the adapter deriv
 
 ## Device Auth
 
-By default the adapter sends a signed `device` payload in `connect` params.
+By default the adapter uses a cloud-first token-only connect flow and does not send a signed `device` payload.
 
-- set `disableDeviceAuth=true` to omit device signing
+- `disableDeviceAuth=true` is the standard cloud-first setup
+- set `disableDeviceAuth=false` to enable device signing and pairing
 - set `devicePrivateKeyPem` to pin a stable signing key
-- without `devicePrivateKeyPem`, the adapter generates an ephemeral Ed25519 keypair per run
+- without `devicePrivateKeyPem`, the adapter generates an ephemeral Ed25519 keypair per run when device auth is enabled
 - when `autoPairOnFirstConnect` is enabled (default), the adapter handles one initial `pairing required` by calling `device.pair.list` + `device.pair.approve` over shared auth, then retries once.
+- legacy configs that already carry `devicePrivateKeyPem` continue to use device auth when `disableDeviceAuth` is absent
 
 ## Session Strategy
 
@@ -54,6 +56,9 @@ The agent request is built as:
 - optional additions:
   - all `payloadTemplate` fields merged in
   - `agentId` from config if set and not already in template
+
+Top-level `paperclip`, `role`, and `scopes` are not sent in `agent` params because the gateway rejects unknown top-level agent fields.
+If `payloadTemplate.paperclip` is configured, the adapter strips it before sending the `agent` request. Paperclip run context is delivered through the wake message instead.
 
 ## Timeouts
 

@@ -107,6 +107,8 @@ export {
   wakeAgentSchema,
   resetAgentSessionSchema,
   testAdapterEnvironmentSchema,
+  openClawConnectionStatusSchema,
+  testOpenClawConnectionSchema,
   agentPermissionsSchema,
   updateAgentPermissionsSchema,
   type CreateAgent,
@@ -120,6 +122,7 @@ export {
   type WakeAgent,
   type ResetAgentSession,
   type TestAdapterEnvironment,
+  type TestOpenClawConnection,
   type UpdateAgentPermissions,
 } from "./agent.js";
 

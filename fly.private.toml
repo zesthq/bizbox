@@ -2,26 +2,26 @@ app = "bizbox"
 primary_region = "syd"
 
 [build]
-  dockerfile = "Dockerfile"
+dockerfile = "Dockerfile"
 
 [env]
-  PORT = "3100"
-  HOST = "0.0.0.0"
-  NODE_ENV = "production"
-  SERVE_UI = "true"
-  BIZBOX_HOME = "/paperclip"
-  BIZBOX_DEPLOYMENT_MODE = "authenticated"
-  BIZBOX_DEPLOYMENT_EXPOSURE = "private"
-  BIZBOX_PUBLIC_URL = "https://bizbox.fly.dev" # Update to match your actual Fly app name or custom domain.
-  BIZBOX_MIGRATION_AUTO_APPLY = "true"
-  OPENCODE_ALLOW_ALL_MODELS = "true"
+PORT = "3100"
+HOST = "0.0.0.0"
+NODE_ENV = "production"
+SERVE_UI = "true"
+BIZBOX_HOME = "/paperclip"
+BIZBOX_DEPLOYMENT_MODE = "authenticated"
+BIZBOX_DEPLOYMENT_EXPOSURE = "private"
+BIZBOX_PUBLIC_URL = "https://bizbox.fly.dev" # Update to match your actual Fly app name or custom domain.
+BIZBOX_MIGRATION_AUTO_APPLY = "true"
+OPENCODE_ALLOW_ALL_MODELS = "true"
 
 [[vm]]
-  memory = "2gb"
-  cpu_kind = "shared"
-  cpus = 2
+memory = "2gb"
+cpu_kind = "shared"
+cpus = 2
 
 [[mounts]]
-  source = "paperclip_data"
-  destination = "/paperclip"
-  initial_size = "10gb"
+source = "paperclip_data"
+destination = "/paperclip"
+initial_size = "10gb"

@@ -60,6 +60,7 @@ const assetSvc = {
 };
 
 const secretSvc = {
+  create: vi.fn(),
   normalizeAdapterConfigForPersistence: vi.fn(async (_companyId: string, config: Record<string, unknown>) => config),
   resolveAdapterConfigForRuntime: vi.fn(async (_companyId: string, config: Record<string, unknown>) => ({ config, secretKeys: new Set<string>() })),
 };
@@ -131,6 +132,9 @@ describe("company portability", () => {
       config,
       secretKeys: new Set<string>(),
     }));
+    secretSvc.create.mockResolvedValue({
+      id: "secret-created",
+    });
     companySvc.getById.mockResolvedValue({
       id: "company-1",
       name: "Paperclip",
@@ -517,6 +521,62 @@ describe("company portability", () => {
       agents: ["claudecoder", "cmo"],
       projects: ["alpha", "zulu"],
     });
+  });
+
+  it("exports OpenClaw agents without leaking token material and adds a portable token input", async () => {
+    agentSvc.list.mockResolvedValueOnce([
+      {
+        id: "agent-openclaw",
+        name: "CEO",
+        status: "idle",
+        role: "ceo",
+        title: "CEO",
+        icon: "briefcase",
+        reportsTo: null,
+        capabilities: "Leads the company",
+        adapterType: "openclaw_gateway",
+        adapterConfig: {
+          url: "ws://citro-openclaw.internal:18789",
+          authTokenRef: {
+            type: "secret_ref",
+            secretId: "secret-openclaw",
+            version: "latest",
+          },
+          headers: {
+            "x-openclaw-token": "should-not-export",
+          },
+        },
+        runtimeConfig: {},
+        budgetMonthlyCents: 0,
+        permissions: {
+          canCreateAgents: false,
+        },
+        metadata: null,
+      },
+    ]);
+    agentInstructionsSvc.exportFiles.mockResolvedValueOnce({
+      files: { "AGENTS.md": "You are CEO." },
+      entryFile: "AGENTS.md",
+      warnings: [],
+    });
+
+    const portability = companyPortabilityService({} as any);
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+    });
+
+    const extension = asTextFile(exported.files[".paperclip.yaml"]);
+    expect(extension).toContain('type: "openclaw_gateway"');
+    expect(extension).toContain("OPENCLAW_GATEWAY_TOKEN:");
+    expect(extension).not.toContain("secret-openclaw");
+    expect(extension).not.toContain("should-not-export");
+    expect(extension).not.toContain("authTokenRef:");
+    expect(extension).not.toContain("x-openclaw-token");
   });
 
   it("expands referenced skills when requested", async () => {
@@ -2555,6 +2615,87 @@ describe("company portability", () => {
     }));
     expect(companySvc.create).toHaveBeenCalledWith(expect.objectContaining({
       requireBoardApprovalForNewAgents: true,
+    }));
+  });
+
+  it("persists imported OpenClaw tokens as canonical secret refs", async () => {
+    const portability = companyPortabilityService({} as any);
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+    });
+
+    agentSvc.list.mockResolvedValue([]);
+    agentSvc.create.mockImplementation(async (_companyId: string, input: Record<string, unknown>) => ({
+      id: "agent-created",
+      name: String(input.name),
+      adapterType: input.adapterType,
+      adapterConfig: input.adapterConfig,
+    }));
+
+    await portability.importBundle({
+      source: {
+        type: "inline",
+        rootPath: exported.rootPath,
+        files: exported.files,
+      },
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+      target: {
+        mode: "new_company",
+        newCompanyName: "Imported Paperclip",
+      },
+      agents: ["claudecoder"],
+      collisionStrategy: "rename",
+      adapterOverrides: {
+        claudecoder: {
+          adapterType: "openclaw_gateway",
+          adapterConfig: {
+            url: "ws://openclaw.example",
+            authToken: "gateway-token",
+          },
+        },
+      },
+    }, "user-1");
+
+    expect(secretSvc.create).toHaveBeenCalledWith(
+      "company-imported",
+      expect.objectContaining({
+        name: expect.stringMatching(/^openclaw-gateway-token-claudecoder-[a-f0-9]{8}$/),
+        provider: "local_encrypted",
+        value: "gateway-token",
+      }),
+      { agentId: null, userId: null },
+    );
+    expect(secretSvc.normalizeAdapterConfigForPersistence).toHaveBeenCalledWith(
+      "company-imported",
+      expect.objectContaining({
+        url: "ws://openclaw.example",
+        authTokenRef: {
+          type: "secret_ref",
+          secretId: "secret-created",
+          version: "latest",
+        },
+      }),
+      { strictMode: false },
+    );
+    expect(agentSvc.create).toHaveBeenCalledWith("company-imported", expect.objectContaining({
+      adapterType: "openclaw_gateway",
+      adapterConfig: expect.objectContaining({
+        authTokenRef: {
+          type: "secret_ref",
+          secretId: "secret-created",
+          version: "latest",
+        },
+      }),
     }));
   });
 

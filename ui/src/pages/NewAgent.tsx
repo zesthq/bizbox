@@ -140,6 +140,16 @@ export function NewAgent() {
   function handleSubmit() {
     if (!selectedCompanyId || !name.trim()) return;
     setFormError(null);
+    if (configValues.adapterType === "openclaw_gateway") {
+      if (!configValues.url.trim()) {
+        setFormError("OpenClaw requires a gateway URL.");
+        return;
+      }
+      if (!configValues.accessToken?.trim()) {
+        setFormError("OpenClaw requires an access token.");
+        return;
+      }
+    }
     if (configValues.adapterType === "opencode_local") {
       const selectedModel = configValues.model.trim();
       if (!selectedModel) {

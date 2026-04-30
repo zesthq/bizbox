@@ -240,6 +240,7 @@ Defaults:
 | `ORG` | Required |
 | `REGION` | `syd` |
 | `DB_VOL_GB` | `10` |
+| `DB_MEMORY_MB` | `2048` |
 | `VOLUME` | `paperclip_data` |
 | `VOL_GB` | `10` |
 
@@ -289,6 +290,15 @@ make ssh
 make secrets
 ```
 
+If Fly Postgres logs show `Out of memory: Killed process ... (postgres)` or repeated `backend 'bk_db' has no server available`, scale the database app before debugging application routes:
+
+```bash
+fly scale memory 2048 --app bizbox-db
+fly deploy --app bizbox
+```
+
+Use your actual database app name, for example `bizbox-db-test`.
+
 Required Fly runtime settings:
 
 | Variable | Purpose |
@@ -299,6 +309,9 @@ Required Fly runtime settings:
 | `BIZBOX_DEPLOYMENT_EXPOSURE` | Keep `private` unless you are intentionally configuring a public authenticated deployment. |
 | `BIZBOX_HOME` | Persistent Paperclip data root. In Fly this is mounted at `/paperclip`. |
 | `BIZBOX_MIGRATION_AUTO_APPLY` | Applies pending migrations at startup. Set to `true` for this single-app Fly deployment. |
+| `BIZBOX_DB_POOL_MAX` | Runtime Postgres pool cap per app process. The Fly config defaults to `3` to avoid exhausting small Fly Postgres instances. |
+| `BIZBOX_DB_IDLE_TIMEOUT_SECONDS` | Closes idle runtime Postgres connections after this many seconds. The Fly config defaults to `30`. |
+| `BIZBOX_DB_CONNECT_TIMEOUT_SECONDS` | Fails unreachable Postgres connection attempts quickly. The Fly config defaults to `5`. |
 
 If you change the Fly app name, update both `APP` in [Makefile](Makefile) and `app`/`BIZBOX_PUBLIC_URL` in [fly.toml](fly.toml), then rerun `make fly-secrets`.
 

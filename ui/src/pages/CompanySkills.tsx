@@ -1226,25 +1226,30 @@ export function CompanySkills() {
   const createSkill = useMutation({
     mutationFn: (payload: CompanySkillCreateRequest) => companySkillsApi.create(selectedCompanyId!, payload),
     onSuccess: async (skill) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.companySkills.list(selectedCompanyId!) });
-      let persistedSkill: CompanySkill | CompanySkillListItem = skill;
+      const listQueryKey = queryKeys.companySkills.list(selectedCompanyId!);
+      let createdSkillId = skill.id;
+      let createdSkillName = skill.name;
+
       try {
         const refreshedSkills = await queryClient.fetchQuery({
-          queryKey: queryKeys.companySkills.list(selectedCompanyId!),
+          queryKey: listQueryKey,
           queryFn: () => companySkillsApi.list(selectedCompanyId!),
         });
-        persistedSkill = refreshedSkills.find((entry) => skill.key != null && entry.key === skill.key)
-          ?? refreshedSkills.find((entry) => entry.slug === skill.slug)
-          ?? skill;
+        const refreshedSkill = skill.key != null
+          ? refreshedSkills.find((entry) => entry.key === skill.key)
+          : undefined;
+        createdSkillId = refreshedSkill?.id ?? skill.id;
+        createdSkillName = refreshedSkill?.name ?? skill.name;
       } catch {
-        // Fallback to original skill if refresh fails
+        void queryClient.invalidateQueries({ queryKey: listQueryKey });
       }
-      navigate(skillRoute(persistedSkill.id));
+
+      navigate(skillRoute(createdSkillId));
       setCreateOpen(false);
       pushToast({
         tone: "success",
         title: "Skill created",
-        body: `${persistedSkill.name} is now editable in the Paperclip workspace.`,
+        body: `${createdSkillName} is now editable in the Paperclip workspace.`,
       });
     },
     onError: (error) => {

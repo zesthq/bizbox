@@ -250,6 +250,9 @@ export type {
   AdapterEnvironmentTestStatus,
   AdapterEnvironmentCheck,
   AdapterEnvironmentTestResult,
+  OpenClawConnectionStatus,
+  OpenClawConnectionState,
+  OpenClawConnectionTestResult,
   AssetImage,
   Project,
   ProjectCodebase,
@@ -472,6 +475,7 @@ export {
   getClosedIsolatedExecutionWorkspaceMessage,
   isClosedIsolatedExecutionWorkspace,
 } from "./execution-workspace-guards.js";
+export { normalizeOpenClawConnectionState } from "./openclaw-connection.js";
 
 export {
   instanceGeneralSettingsSchema,
@@ -512,6 +516,8 @@ export {
   wakeAgentSchema,
   resetAgentSessionSchema,
   testAdapterEnvironmentSchema,
+  openClawConnectionStatusSchema,
+  testOpenClawConnectionSchema,
   agentPermissionsSchema,
   updateAgentPermissionsSchema,
   type CreateAgent,
@@ -525,6 +531,7 @@ export {
   type WakeAgent,
   type ResetAgentSession,
   type TestAdapterEnvironment,
+  type TestOpenClawConnection,
   type UpdateAgentPermissions,
   createProjectSchema,
   updateProjectSchema,

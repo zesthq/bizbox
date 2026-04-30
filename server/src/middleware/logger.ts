@@ -4,6 +4,7 @@ import pino from "pino";
 import { pinoHttp } from "pino-http";
 import { readConfigFile } from "../config-file.js";
 import { resolveDefaultLogsDir, resolveHomeAwarePath } from "../home-paths.js";
+import { redactEventPayload } from "../redaction.js";
 import { shouldSilenceHttpSuccessLog } from "./http-log-policy.js";
 
 function resolveServerLogDir(): string {
@@ -26,6 +27,18 @@ const sharedOpts = {
   ignore: "pid,hostname",
   singleLine: true,
 };
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+export function redactHttpLogValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactHttpLogValue);
+  if (isPlainObject(value)) return redactEventPayload(value);
+  return value;
+}
 
 export const logger = pino({
   level: "debug",
@@ -69,21 +82,21 @@ export const httpLogger = pinoHttp({
       if (ctx) {
         return {
           errorContext: ctx.error,
-          reqBody: ctx.reqBody,
-          reqParams: ctx.reqParams,
-          reqQuery: ctx.reqQuery,
+          reqBody: redactHttpLogValue(ctx.reqBody),
+          reqParams: redactHttpLogValue(ctx.reqParams),
+          reqQuery: redactHttpLogValue(ctx.reqQuery),
         };
       }
       const props: Record<string, unknown> = {};
       const { body, params, query } = req as any;
       if (body && typeof body === "object" && Object.keys(body).length > 0) {
-        props.reqBody = body;
+        props.reqBody = redactHttpLogValue(body);
       }
       if (params && typeof params === "object" && Object.keys(params).length > 0) {
-        props.reqParams = params;
+        props.reqParams = redactHttpLogValue(params);
       }
       if (query && typeof query === "object" && Object.keys(query).length > 0) {
-        props.reqQuery = query;
+        props.reqQuery = redactHttpLogValue(query);
       }
       if ((req as any).route?.path) {
         props.routePath = (req as any).route.path;

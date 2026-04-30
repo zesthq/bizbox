@@ -446,6 +446,20 @@ function parseBooleanLike(value: unknown): boolean | null {
   return null;
 }
 
+function resolveOpenClawDisableDeviceAuth(defaults: Record<string, unknown>): {
+  value: boolean;
+  explicit: boolean;
+} {
+  if (Object.prototype.hasOwnProperty.call(defaults, "disableDeviceAuth")) {
+    const explicit = parseBooleanLike(defaults.disableDeviceAuth);
+    if (explicit !== null) {
+      return { value: explicit, explicit: true };
+    }
+  }
+
+  return { value: true, explicit: false };
+}
+
 function generateEd25519PrivateKeyPem(): string {
   const generated = generateKeyPairSync("ed25519");
   return generated.privateKey
@@ -758,10 +772,16 @@ export function normalizeAgentDefaultsForJoin(input: {
     normalized.payloadTemplate = defaults.payloadTemplate;
   }
 
-  const parsedDisableDeviceAuth = parseBooleanLike(defaults.disableDeviceAuth);
-  const disableDeviceAuth = parsedDisableDeviceAuth === true;
-  if (parsedDisableDeviceAuth !== null) {
-    normalized.disableDeviceAuth = parsedDisableDeviceAuth;
+  const resolvedDisableDeviceAuth = resolveOpenClawDisableDeviceAuth(defaults);
+  const disableDeviceAuth = resolvedDisableDeviceAuth.value;
+  normalized.disableDeviceAuth = disableDeviceAuth;
+  if (!resolvedDisableDeviceAuth.explicit && disableDeviceAuth) {
+    diagnostics.push({
+      code: "openclaw_gateway_device_auth_default_disabled",
+      level: "info",
+      message:
+        "Defaulting this OpenClaw gateway join to token-only mode (disableDeviceAuth=true).",
+    });
   }
 
   const configuredDevicePrivateKeyPem = nonEmptyTrimmedString(
@@ -1547,7 +1567,7 @@ function buildInviteOnboardingManifest(
     ),
     onboarding: {
       instructions:
-        "Join as an OpenClaw Gateway agent, save your one-time claim secret, wait for board approval, then claim your API key. Save the claim response token to ~/.openclaw/workspace/paperclip-claimed-api-key.json and load BIZBOX_API_KEY from that file before starting heartbeat loops. You MUST submit adapterType='openclaw_gateway', set agentDefaultsPayload.url to your ws:// or wss:// OpenClaw gateway endpoint, and include agentDefaultsPayload.headers.x-openclaw-token (or legacy x-openclaw-auth).",
+        "Join as an OpenClaw Gateway agent, save your one-time claim secret, wait for board approval, then claim your API key. Save the claim response token to ~/.openclaw/workspace/paperclip-claimed-api-key.json and load BIZBOX_API_KEY from that file before starting heartbeat loops. You MUST submit adapterType='openclaw_gateway', set agentDefaultsPayload.url to your ws:// or wss:// OpenClaw gateway endpoint, include agentDefaultsPayload.headers.x-openclaw-token (or legacy x-openclaw-auth), and use disableDeviceAuth=true for the standard cloud-first token-only setup unless you intentionally need device pairing.",
       inviteMessage: extractInviteMessage(invite),
       recommendedAdapterType: "openclaw_gateway",
       requiredFields: {
@@ -1556,7 +1576,7 @@ function buildInviteOnboardingManifest(
         adapterType: "Use 'openclaw_gateway' for OpenClaw Gateway agents",
         capabilities: "Optional capability summary",
         agentDefaultsPayload:
-          "Adapter config for OpenClaw gateway. MUST include url (ws:// or wss://) and headers.x-openclaw-token (or legacy x-openclaw-auth). Optional fields: paperclipApiUrl, waitTimeoutMs, sessionKeyStrategy, sessionKey, role, scopes, disableDeviceAuth, devicePrivateKeyPem."
+          "Adapter config for OpenClaw gateway. MUST include url (ws:// or wss://) and headers.x-openclaw-token (or legacy x-openclaw-auth). The standard cloud-first setup should set disableDeviceAuth=true. Optional fields: paperclipApiUrl, waitTimeoutMs, sessionKeyStrategy, sessionKey, role, scopes, devicePrivateKeyPem."
       },
       registrationEndpoint: {
         method: "POST",
@@ -1695,10 +1715,11 @@ export function buildInviteOnboardingTextDocument(
           url: "ws://127.0.0.1:18789",
           paperclipApiUrl: "http://host.docker.internal:3100",
           headers: { "x-openclaw-token": token },
+          disableDeviceAuth: true,
           waitTimeoutMs: 120000,
           sessionKeyStrategy: "issue",
           role: "operator",
-          scopes: ["operator.admin"]
+          scopes: ["operator.admin", "operator.write"]
         }
       };
       process.stdout.write(JSON.stringify(body));
@@ -1712,10 +1733,10 @@ export function buildInviteOnboardingTextDocument(
     IMPORTANT: You MUST include agentDefaultsPayload.headers.x-openclaw-token with your gateway token.
     Legacy x-openclaw-auth is also accepted, but x-openclaw-token is preferred.
     Use adapterType "openclaw_gateway" and a ws:// or wss:// gateway URL.
-    Pairing mode requirement:
-    - Keep device auth enabled (recommended). If devicePrivateKeyPem is omitted, Paperclip generates and persists one during join so pairing approvals are stable.
-    - You may set disableDeviceAuth=true only for special environments that cannot support pairing.
-    - First run may return "pairing required" once; approve the pending pairing request in OpenClaw, then retry.
+    Default connection mode:
+    - Use disableDeviceAuth=true for the standard cloud-first token-only setup.
+    - Only omit disableDeviceAuth=true when you intentionally want token + device pairing.
+    - Pairing remains an advanced/manual setup and may require approving a pending pairing request in OpenClaw.
     Do NOT use /v1/responses or /hooks/* in this gateway join flow.
 
     Body (JSON):
@@ -1728,10 +1749,11 @@ export function buildInviteOnboardingTextDocument(
         "url": "wss://your-openclaw-gateway.example",
         "paperclipApiUrl": "https://paperclip-hostname-your-agent-can-reach:3100",
         "headers": { "x-openclaw-token": "replace-me" },
+        "disableDeviceAuth": true,
         "waitTimeoutMs": 120000,
         "sessionKeyStrategy": "issue",
         "role": "operator",
-        "scopes": ["operator.admin"]
+        "scopes": ["operator.admin", "operator.write"]
       }
     }
 

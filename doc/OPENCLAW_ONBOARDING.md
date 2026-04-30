@@ -37,15 +37,15 @@ Security/control note:
 - Confirm gateway URL is `ws://...` or `wss://...`.
 - Confirm gateway token is non-trivial (not empty / not 1-char placeholder).
 - The OpenClaw Gateway adapter UI should not expose `disableDeviceAuth` for normal onboarding.
-- Confirm pairing mode is explicit:
-  - required default: device auth enabled (`adapterConfig.disableDeviceAuth` false/absent) with persisted `adapterConfig.devicePrivateKeyPem`
-  - do not rely on `disableDeviceAuth` for normal onboarding
+- Confirm token-only mode is explicit:
+  - required default: `adapterConfig.disableDeviceAuth=true`
+  - do not rely on device pairing for normal onboarding
 - If you can run API checks with board auth:
 ```bash
 AGENT_ID="<newly-created-agent-id>"
-curl -sS -H "Cookie: $BIZBOX_COOKIE" "http://127.0.0.1:3100/api/agents/$AGENT_ID" | jq '{adapterType,adapterConfig:{url:.adapterConfig.url,tokenLen:(.adapterConfig.headers["x-openclaw-token"] // .adapterConfig.headers["x-openclaw-auth"] // "" | length),disableDeviceAuth:(.adapterConfig.disableDeviceAuth // false),hasDeviceKey:(.adapterConfig.devicePrivateKeyPem // "" | length > 0)}}'
+curl -sS -H "Cookie: $BIZBOX_COOKIE" "http://127.0.0.1:3100/api/agents/$AGENT_ID" | jq '{adapterType,adapterConfig:{url:.adapterConfig.url,tokenLen:(.adapterConfig.headers["x-openclaw-token"] // .adapterConfig.headers["x-openclaw-auth"] // "" | length),disableDeviceAuth:(.adapterConfig.disableDeviceAuth // true),hasDeviceKey:(.adapterConfig.devicePrivateKeyPem // "" | length > 0)}}'
 ```
-- Expected: `adapterType=openclaw_gateway`, `tokenLen >= 16`, `hasDeviceKey=true`, and `disableDeviceAuth=false`.
+- Expected: `adapterType=openclaw_gateway`, `tokenLen >= 16`, and `disableDeviceAuth=true`.
 
 Pairing handshake note:
 - Clean run expectation: first task should succeed without manual pairing commands.
@@ -86,7 +86,7 @@ docker compose -f /tmp/openclaw-docker/docker-compose.yml -f /tmp/openclaw-docke
 
 11. Expected pass criteria.
 - Preflight: `openclaw_gateway` + non-placeholder token (`tokenLen >= 16`).
-- Pairing mode: stable `devicePrivateKeyPem` configured with device auth enabled (default path).
+- Token-only mode: `disableDeviceAuth=true` unless the test intentionally covers pairing.
 - Case A: `done` + marker comment.
 - Case B: `done` + marker comment + main-chat message visible.
 - Case C: original task done and new issue created from `/new` session.

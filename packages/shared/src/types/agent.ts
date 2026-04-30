@@ -112,6 +112,12 @@ export interface AgentConfigRevision {
 
 export type AdapterEnvironmentCheckLevel = "info" | "warn" | "error";
 export type AdapterEnvironmentTestStatus = "pass" | "warn" | "fail";
+export type OpenClawConnectionStatus =
+  | "connected"
+  | "invalid_token"
+  | "pairing_required"
+  | "unreachable"
+  | "not_configured";
 
 export interface AdapterEnvironmentCheck {
   code: string;
@@ -126,4 +132,15 @@ export interface AdapterEnvironmentTestResult {
   status: AdapterEnvironmentTestStatus;
   checks: AdapterEnvironmentCheck[];
   testedAt: string;
+}
+
+export interface OpenClawConnectionState {
+  status: OpenClawConnectionStatus;
+  checkedAt: string;
+  message?: string | null;
+}
+
+export interface OpenClawConnectionTestResult extends OpenClawConnectionState {
+  agentId: string;
+  adapterType: "openclaw_gateway";
 }

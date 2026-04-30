@@ -83,7 +83,7 @@ The work product remains the deliverable/output unit.
 
 ## Important correction
 
-This repo already uses `PAPERCLIP_DEPLOYMENT_MODE` for auth/deployment behavior (`local_trusted | authenticated`).
+This repo already uses `BIZBOX_DEPLOYMENT_MODE` for auth/deployment behavior (`local_trusted | authenticated`).
 
 Do not overload that variable for workspace execution topology.
 
@@ -91,7 +91,7 @@ Do not overload that variable for workspace execution topology.
 
 Add a separate execution-host hint:
 
-- `PAPERCLIP_EXECUTION_TOPOLOGY=local|cloud|hybrid`
+- `BIZBOX_EXECUTION_TOPOLOGY=local|cloud|hybrid`
 
 Default:
 
@@ -857,7 +857,7 @@ Mitigation:
 
 - make `cwd` optional for execution workspaces
 - use `provider_type` and `provider_ref`
-- use `PAPERCLIP_EXECUTION_TOPOLOGY` as a defaulting guardrail
+- use `BIZBOX_EXECUTION_TOPOLOGY` as a defaulting guardrail
 
 ## Risk: turning PRs into a bespoke subsystem too early
 
