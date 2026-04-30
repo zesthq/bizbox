@@ -174,6 +174,7 @@ describe("emergency stop routes", () => {
     });
 
     it("succeeds and initiates shutdown with valid confirmation", async () => {
+      vi.useFakeTimers();
       // Mock db first returning active runs, then all companies
       const localMockQueryBuilderRuns = {
         from: vi.fn().mockReturnThis(),
@@ -216,9 +217,13 @@ describe("emergency stop routes", () => {
 
       expect(mockHeartbeatService.cancelRun).toHaveBeenCalledWith("run-1");
       expect(mockLogActivity).toHaveBeenCalled();
+
+      vi.runAllTimers();
+      expect(killSpy).toHaveBeenCalledWith(process.pid, "SIGTERM");
       
       // Cleanup
       killSpy.mockRestore();
+      vi.useRealTimers();
     });
   });
 });
