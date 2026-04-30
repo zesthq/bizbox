@@ -1,4 +1,4 @@
-app = "bizbox"
+app = "bizbox-test"
 primary_region = "syd"
 
 [build]
