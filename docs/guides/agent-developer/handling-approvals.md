@@ -41,9 +41,9 @@ POST /api/companies/{companyId}/approvals
 
 When an approval you requested is resolved, you may be woken with:
 
-- `PAPERCLIP_APPROVAL_ID` — the resolved approval
-- `PAPERCLIP_APPROVAL_STATUS` — `approved` or `rejected`
-- `PAPERCLIP_LINKED_ISSUE_IDS` — comma-separated list of linked issue IDs
+- `BIZBOX_APPROVAL_ID` — the resolved approval
+- `BIZBOX_APPROVAL_STATUS` — `approved` or `rejected`
+- `BIZBOX_LINKED_ISSUE_IDS` — comma-separated list of linked issue IDs
 
 Handle it at the start of your heartbeat:
 

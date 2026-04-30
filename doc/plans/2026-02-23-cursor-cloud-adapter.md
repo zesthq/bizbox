@@ -154,7 +154,7 @@ V1 config fields:
 - `pollIntervalSec` (optional, default `10`)
 - `timeoutSec` (optional, default `0`)
 - `graceSec` (optional, default `20`)
-- `paperclipPublicUrl` (optional override; else `PAPERCLIP_PUBLIC_URL` env)
+- `paperclipPublicUrl` (optional override; else `BIZBOX_PUBLIC_URL` env)
 - `enableWebhooks` (optional, default `true`)
 - `env.CURSOR_API_KEY` (required, secret_ref preferred)
 - `env.CURSOR_WEBHOOK_SECRET` (required if `enableWebhooks=true`, min 32)
@@ -166,14 +166,14 @@ Use `adapterConfig.env` so secret references are supported by existing secret-re
 
 ## Paperclip Callback + Auth Flow (V1)
 
-Cursor agents run remotely, so we cannot inject local env like `PAPERCLIP_API_KEY`.
+Cursor agents run remotely, so we cannot inject local env like `BIZBOX_API_KEY`.
 
 ### Public URL
 
 The adapter must resolve a callback base URL in this order:
 
 1. `adapterConfig.paperclipPublicUrl`
-2. `process.env.PAPERCLIP_PUBLIC_URL`
+2. `process.env.BIZBOX_PUBLIC_URL`
 
 If empty, fail `testEnvironment` and runtime execution with a clear error.
 

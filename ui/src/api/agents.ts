@@ -10,6 +10,8 @@ import type {
   AgentTaskSession,
   AgentWakeupResponse,
   HeartbeatRun,
+  OpenClawConnectionState,
+  OpenClawConnectionTestResult,
   Approval,
   AgentConfigRevision,
 } from "@paperclipai/shared";
@@ -180,6 +182,19 @@ export const agentsApi = {
     api.post<AdapterEnvironmentTestResult>(
       `/companies/${companyId}/adapters/${type}/test-environment`,
       data,
+    ),
+  testOpenClawConnection: (
+    id: string,
+    data?: { adapterConfig?: Record<string, unknown> },
+    companyId?: string,
+  ) =>
+    api.post<OpenClawConnectionTestResult>(
+      agentPath(id, companyId, "/openclaw/connection-test"),
+      data ?? {},
+    ),
+  getOpenClawConnectionStatus: (id: string, companyId?: string) =>
+    api.get<OpenClawConnectionState | null>(
+      agentPath(id, companyId, "/openclaw/connection-status"),
     ),
   invoke: (id: string, companyId?: string) => api.post<HeartbeatRun>(agentPath(id, companyId, "/heartbeat/invoke"), {}),
   wakeup: (

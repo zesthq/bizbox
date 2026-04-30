@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { execute, testEnvironment } from "@paperclipai/adapter-openclaw-gateway/server";
+import * as openClawGateway from "@paperclipai/adapter-openclaw-gateway";
 import {
   buildOpenClawGatewayConfig,
   parseOpenClawGatewayStdoutLine,
@@ -46,6 +47,7 @@ async function createMockGatewayServer(options?: {
   const wss = new WebSocketServer({ server });
 
   let agentPayload: Record<string, unknown> | null = null;
+  let connectScopes: unknown = null;
 
   wss.on("connection", (socket) => {
     socket.send(
@@ -68,6 +70,7 @@ async function createMockGatewayServer(options?: {
       if (frame.type !== "req") return;
 
       if (frame.method === "connect") {
+        connectScopes = frame.params?.scopes ?? null;
         socket.send(
           JSON.stringify({
             type: "res",
@@ -165,6 +168,7 @@ async function createMockGatewayServer(options?: {
   return {
     url: `ws://127.0.0.1:${address.port}`,
     getAgentPayload: () => agentPayload,
+    getConnectScopes: () => connectScopes,
     close: async () => {
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -172,7 +176,9 @@ async function createMockGatewayServer(options?: {
   };
 }
 
-async function createMockGatewayServerWithPairing() {
+async function createMockGatewayServerWithPairing(options?: {
+  rejectDeviceAgentForMissingWriteScope?: boolean;
+}) {
   const server = createServer();
   const wss = new WebSocketServer({ server });
 
@@ -180,6 +186,7 @@ async function createMockGatewayServerWithPairing() {
   let approved = false;
   let pendingRequestId = "req-1";
   let lastSeenDeviceId: string | null = null;
+  let currentConnectionHasDevice = false;
 
   wss.on("connection", (socket) => {
     socket.send(
@@ -204,11 +211,12 @@ async function createMockGatewayServerWithPairing() {
       if (frame.method === "connect") {
         const device = frame.params?.device as Record<string, unknown> | undefined;
         const deviceId = typeof device?.id === "string" ? device.id : null;
+        currentConnectionHasDevice = Boolean(deviceId);
         if (deviceId) {
           lastSeenDeviceId = deviceId;
         }
 
-        if (deviceId && !approved) {
+        if (deviceId && !approved && !options?.rejectDeviceAgentForMissingWriteScope) {
           socket.send(
             JSON.stringify({
               type: "res",
@@ -304,6 +312,20 @@ async function createMockGatewayServerWithPairing() {
 
       if (frame.method === "agent") {
         agentPayload = frame.params ?? null;
+        if (options?.rejectDeviceAgentForMissingWriteScope && currentConnectionHasDevice) {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: frame.id,
+              ok: false,
+              error: {
+                code: "FORBIDDEN",
+                message: "missing scope: operator.write",
+              },
+            }),
+          );
+          return;
+        }
         const runId =
           typeof frame.params?.idempotencyKey === "string"
             ? frame.params.idempotencyKey
@@ -367,6 +389,7 @@ async function createMockGatewayServerWithPairing() {
   return {
     url: `ws://127.0.0.1:${address.port}`,
     getAgentPayload: () => agentPayload,
+    getLastSeenDeviceId: () => lastSeenDeviceId,
     close: async () => {
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -410,6 +433,9 @@ describe("openclaw gateway adapter execute", () => {
             },
             payloadTemplate: {
               message: "wake now",
+              paperclip: {
+                shouldNotSend: true,
+              },
             },
             waitTimeoutMs: 2000,
           },
@@ -490,9 +516,11 @@ describe("openclaw gateway adapter execute", () => {
       expect(payload).toBeTruthy();
       expect(payload?.idempotencyKey).toBe("run-123");
       expect(payload?.sessionKey).toBe("paperclip:issue:issue-123");
+      expect(payload?.role).toBeUndefined();
+      expect(payload?.scopes).toBeUndefined();
       expect(String(payload?.message ?? "")).toContain("wake now");
-      expect(String(payload?.message ?? "")).toContain("PAPERCLIP_RUN_ID=run-123");
-      expect(String(payload?.message ?? "")).toContain("PAPERCLIP_TASK_ID=task-123");
+      expect(String(payload?.message ?? "")).toContain("BIZBOX_RUN_ID=run-123");
+      expect(String(payload?.message ?? "")).toContain("BIZBOX_TASK_ID=task-123");
       expect(String(payload?.message ?? "")).toContain("## Paperclip Wake Payload");
       expect(String(payload?.message ?? "")).toContain(
         "Treat this wake payload as the highest-priority change for the current heartbeat.",
@@ -502,14 +530,73 @@ describe("openclaw gateway adapter execute", () => {
       );
       expect(String(payload?.message ?? "")).toContain("First comment");
       expect(String(payload?.message ?? "")).toContain("\"commentIds\":[\"comment-1\",\"comment-2\"]");
-      expect(payload?.paperclip).toMatchObject({
-        wake: {
-          latestCommentId: "comment-2",
-          commentIds: ["comment-1", "comment-2"],
-        },
-      });
+      expect(String(payload?.message ?? "")).toContain("\"latestCommentId\":\"comment-2\"");
+      // Regression guard for #606/#617/#626: OpenClaw rejects unknown top-level agent params.
+      expect(payload?.paperclip).toBeUndefined();
 
       expect(logs.some((entry) => entry.includes("[openclaw-gateway:event] run=run-123 stream=assistant"))).toBe(true);
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("uses default gateway scopes when scopes are omitted", async () => {
+    const gateway = await createMockGatewayServer();
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          authToken: "gateway-token",
+          waitTimeoutMs: 2000,
+        }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(gateway.getConnectScopes()).toEqual(["operator.admin", "operator.write"]);
+      expect(gateway.getAgentPayload()?.scopes).toBeUndefined();
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("preserves explicit gateway scopes", async () => {
+    const gateway = await createMockGatewayServer();
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          authToken: "gateway-token",
+          scopes: ["operator.admin"],
+          waitTimeoutMs: 2000,
+        }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(gateway.getConnectScopes()).toEqual(["operator.admin"]);
+      expect(gateway.getAgentPayload()?.scopes).toBeUndefined();
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("preserves custom read-only gateway scopes", async () => {
+    const gateway = await createMockGatewayServer();
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          authToken: "gateway-token",
+          scopes: ["read_only"],
+          waitTimeoutMs: 2000,
+        }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(gateway.getConnectScopes()).toEqual(["read_only"]);
+      expect(gateway.getAgentPayload()?.scopes).toBeUndefined();
     } finally {
       await gateway.close();
     }
@@ -581,6 +668,7 @@ describe("openclaw gateway adapter execute", () => {
             headers: {
               "x-openclaw-token": "gateway-token",
             },
+            disableDeviceAuth: false,
             payloadTemplate: {
               message: "wake now",
             },
@@ -605,10 +693,125 @@ describe("openclaw gateway adapter execute", () => {
       await gateway.close();
     }
   });
+
+  it("defaults missing disableDeviceAuth to token-only mode", async () => {
+    const gateway = await createMockGatewayServerWithPairing();
+    const logs: string[] = [];
+
+    try {
+      const result = await execute(
+        buildContext(
+          {
+            url: gateway.url,
+            headers: {
+              "x-openclaw-token": "gateway-token",
+            },
+            waitTimeoutMs: 2000,
+          },
+          {
+            onLog: async (_stream, chunk) => {
+              logs.push(chunk);
+            },
+          },
+        ),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(logs.some((entry) => entry.includes("device auth disabled (token-only mode)"))).toBe(true);
+      expect(logs.some((entry) => entry.includes("pairing required; attempting automatic pairing approval"))).toBe(
+        false,
+      );
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("preserves device auth for legacy configs that only carry a device key", async () => {
+    const gateway = await createMockGatewayServerWithPairing();
+    const logs: string[] = [];
+
+    try {
+      const result = await execute(
+        buildContext(
+          {
+            url: gateway.url,
+            headers: {
+              "x-openclaw-token": "gateway-token",
+            },
+            devicePrivateKeyPem: `-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIAkVCxwSIYiI1yMZ1EeURcKn8S8VyMW3Wj+zgIKp+AtK
+-----END PRIVATE KEY-----`,
+            waitTimeoutMs: 2000,
+          },
+          {
+            onLog: async (_stream, chunk) => {
+              logs.push(chunk);
+            },
+          },
+        ),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(logs.some((entry) => entry.includes("device auth enabled"))).toBe(true);
+      expect(logs.some((entry) => entry.includes("pairing required; attempting automatic pairing approval"))).toBe(
+        true,
+      );
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("retries token-only when paired device lacks operator.write", async () => {
+    const gateway = await createMockGatewayServerWithPairing({
+      rejectDeviceAgentForMissingWriteScope: true,
+    });
+    const logs: string[] = [];
+
+    try {
+      const result = await execute(
+        buildContext(
+          {
+            url: gateway.url,
+            headers: {
+              "x-openclaw-token": "gateway-token",
+            },
+            disableDeviceAuth: false,
+            waitTimeoutMs: 2000,
+          },
+          {
+            onLog: async (_stream, chunk) => {
+              logs.push(chunk);
+            },
+          },
+        ),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(gateway.getAgentPayload()).toBeTruthy();
+      expect(gateway.getLastSeenDeviceId()).toBeTruthy();
+      expect(logs.some((entry) => entry.includes("device auth enabled"))).toBe(true);
+      expect(
+        logs.some((entry) =>
+          entry.includes("device auth lacks operator.write; retrying once in token-only mode"),
+        ),
+      ).toBe(true);
+      expect(logs.some((entry) => entry.includes("device auth disabled (token-only mode)"))).toBe(true);
+    } finally {
+      await gateway.close();
+    }
+  });
 });
 
 describe("openclaw gateway ui build config", () => {
-  it("parses payload template and runtime services json", () => {
+  it("documents the current outbound payload contract", () => {
+    expect(openClawGateway.type).toBe("openclaw_gateway");
+    expect(openClawGateway.agentConfigurationDoc).not.toContain("paperclip (object)");
+    expect(openClawGateway.agentConfigurationDoc).not.toContain("paperclip.workspace");
+    expect(openClawGateway.agentConfigurationDoc).toContain("Wake context is included in the structured wake message/text");
+    expect(openClawGateway.agentConfigurationDoc).toContain("Do not rely on a top-level paperclip params object");
+  });
+
+  it("builds the simplified connect config with hidden defaults", () => {
     const config = buildOpenClawGatewayConfig({
       adapterType: "openclaw_gateway",
       cwd: "",
@@ -625,18 +828,7 @@ describe("openclaw gateway ui build config", () => {
       envVars: "",
       envBindings: {},
       url: "wss://gateway.example/ws",
-      payloadTemplateJson: JSON.stringify({
-        agentId: "remote-agent-123",
-        metadata: { team: "platform" },
-      }),
-      runtimeServicesJson: JSON.stringify({
-        services: [
-          {
-            name: "preview",
-            lifecycle: "shared",
-          },
-        ],
-      }),
+      accessToken: "gateway-token",
       bootstrapPrompt: "",
       maxTurnsPerRun: 0,
       heartbeatEnabled: true,
@@ -646,20 +838,42 @@ describe("openclaw gateway ui build config", () => {
     expect(config).toEqual(
       expect.objectContaining({
         url: "wss://gateway.example/ws",
-        payloadTemplate: {
-          agentId: "remote-agent-123",
-          metadata: { team: "platform" },
-        },
-        workspaceRuntime: {
-          services: [
-            {
-              name: "preview",
-              lifecycle: "shared",
-            },
-          ],
-        },
+        authToken: "gateway-token",
+        disableDeviceAuth: true,
+        waitTimeoutMs: 120000,
+        sessionKeyStrategy: "issue",
+        role: "operator",
+        scopes: ["operator.admin", "operator.write"],
       }),
     );
+  });
+
+  it("persists pairing mode when explicitly selected", () => {
+    const config = buildOpenClawGatewayConfig({
+      adapterType: "openclaw_gateway",
+      cwd: "",
+      promptTemplate: "",
+      model: "",
+      thinkingEffort: "",
+      chrome: false,
+      dangerouslySkipPermissions: false,
+      search: false,
+      dangerouslyBypassSandbox: false,
+      command: "",
+      args: "",
+      extraArgs: "",
+      envVars: "",
+      envBindings: {},
+      url: "wss://gateway.example/ws",
+      accessToken: "gateway-token",
+      openClawSetupMode: "token_and_device_pairing",
+      bootstrapPrompt: "",
+      maxTurnsPerRun: 0,
+      heartbeatEnabled: true,
+      intervalSec: 300,
+    });
+
+    expect(config.disableDeviceAuth).toBe(false);
   });
 });
 

@@ -17,10 +17,10 @@
   - `exp`
   - optional `jti` (run token id)
 - New config/env settings:
-  - `PAPERCLIP_AGENT_JWT_SECRET`
-  - `PAPERCLIP_AGENT_JWT_TTL_SECONDS` (default: `172800`)
-  - `PAPERCLIP_AGENT_JWT_ISSUER` (default: `paperclip`)
-  - `PAPERCLIP_AGENT_JWT_AUDIENCE` (default: `paperclip-api`)
+  - `BIZBOX_AGENT_JWT_SECRET`
+  - `BIZBOX_AGENT_JWT_TTL_SECONDS` (default: `172800`)
+  - `BIZBOX_AGENT_JWT_ISSUER` (default: `paperclip`)
+  - `BIZBOX_AGENT_JWT_AUDIENCE` (default: `paperclip-api`)
 
 ## 2) Dual authentication path in `actorMiddleware`
 
@@ -48,14 +48,14 @@
    - `packages/adapters/claude-local/src/server/execute.ts`
    - `packages/adapters/codex-local/src/server/execute.ts`
 
-   inject `PAPERCLIP_API_KEY` from context token.
+   inject `BIZBOX_API_KEY` from context token.
 
 - Preserve existing behavior for explicit user-defined env vars in `adapterConfig.env`:
-  - if user already sets `PAPERCLIP_API_KEY`, do not overwrite it.
+  - if user already sets `BIZBOX_API_KEY`, do not overwrite it.
 - Continue injecting:
-  - `PAPERCLIP_AGENT_ID`
-  - `PAPERCLIP_COMPANY_ID`
-  - `PAPERCLIP_API_URL`
+  - `BIZBOX_AGENT_ID`
+  - `BIZBOX_COMPANY_ID`
+  - `BIZBOX_API_URL`
 
 ## 5) Documentation updates
 
@@ -65,7 +65,7 @@
 
 ## 6) P0 acceptance criteria
 
-- Local adapters authenticate without manual `PAPERCLIP_API_KEY` config.
+- Local adapters authenticate without manual `BIZBOX_API_KEY` config.
 - Existing static keys (`agent_api_keys`) still work unchanged.
 - Auth remains company-scoped (`req.actor.companyId` used by existing checks).
 - JWT generation and verification errors are logged as non-leaking structured events.

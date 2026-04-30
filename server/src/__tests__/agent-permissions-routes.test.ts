@@ -305,6 +305,46 @@ describe("agent permission routes", () => {
     expect(res.status).toBe(403);
   });
 
+  it("blocks OpenClaw connection tests for authenticated company members without agent admin permission", async () => {
+    const { registerServerAdapter, unregisterServerAdapter } = await import("../adapters/index.js");
+    registerServerAdapter({
+      type: "openclaw_gateway",
+      execute: async () => ({ exitCode: 0, signal: null, timedOut: false }),
+      testEnvironment: async () => ({
+        adapterType: "openclaw_gateway",
+        status: "pass",
+        testedAt: "2026-04-23T13:30:00.000Z",
+        checks: [],
+      }),
+    });
+    mockAccessService.canUser.mockResolvedValue(false);
+    mockAgentService.getById.mockResolvedValue({
+      ...baseAgent,
+      adapterType: "openclaw_gateway",
+      adapterConfig: {
+        url: "ws://citro-openclaw.internal:18789",
+        authTokenRef: { type: "secret_ref", secretId: "secret-1", version: "latest" },
+      },
+    });
+
+    const app = await createApp({
+      type: "board",
+      userId: "member-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .post(`/api/agents/${agentId}/openclaw/connection-test`)
+      .send({});
+
+    expect(res.status).toBe(403);
+    expect(mockLogActivity).not.toHaveBeenCalled();
+
+    unregisterServerAdapter("openclaw_gateway");
+  });
+
   it("blocks agent-authenticated self-updates that set host-executed workspace commands", async () => {
     const app = await createApp({
       type: "agent",

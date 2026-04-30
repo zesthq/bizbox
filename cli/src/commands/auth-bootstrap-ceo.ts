@@ -32,8 +32,8 @@ function resolveDbUrl(configPath?: string, explicitDbUrl?: string) {
 function resolveBaseUrl(configPath?: string, explicitBaseUrl?: string) {
   if (explicitBaseUrl) return explicitBaseUrl.replace(/\/+$/, "");
   const fromEnv =
-    process.env.PAPERCLIP_PUBLIC_URL ??
-    process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL ??
+    process.env.BIZBOX_PUBLIC_URL ??
+    process.env.BIZBOX_AUTH_PUBLIC_BASE_URL ??
     process.env.BETTER_AUTH_URL ??
     process.env.BETTER_AUTH_BASE_URL;
   if (fromEnv?.trim()) return fromEnv.trim().replace(/\/+$/, "");
@@ -54,7 +54,7 @@ function resolveBaseUrl(configPath?: string, explicitBaseUrl?: string) {
 function resolveDeploymentMode(
   config: ReturnType<typeof readConfig>,
 ): "authenticated" | "local_trusted" | null {
-  const fromEnv = process.env.PAPERCLIP_DEPLOYMENT_MODE?.trim();
+  const fromEnv = process.env.BIZBOX_DEPLOYMENT_MODE?.trim();
   if (fromEnv === "authenticated" || fromEnv === "local_trusted") return fromEnv;
   return config?.server.deploymentMode ?? null;
 }

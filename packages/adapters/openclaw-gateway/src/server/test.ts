@@ -6,76 +6,19 @@ import type {
 import { asString, parseObject } from "@paperclipai/adapter-utils/server-utils";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
+import {
+  asRecord,
+  isLoopbackHost,
+  nonEmpty,
+  normalizeScopes,
+  resolveAuthToken,
+  toStringRecord,
+} from "../shared/config.js";
 
 function summarizeStatus(checks: AdapterEnvironmentCheck[]): AdapterEnvironmentTestResult["status"] {
   if (checks.some((check) => check.level === "error")) return "fail";
   if (checks.some((check) => check.level === "warn")) return "warn";
   return "pass";
-}
-
-function nonEmpty(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
-function isLoopbackHost(hostname: string): boolean {
-  const value = hostname.trim().toLowerCase();
-  return value === "localhost" || value === "127.0.0.1" || value === "::1";
-}
-
-function toStringRecord(value: unknown): Record<string, string> {
-  const parsed = parseObject(value);
-  const out: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(parsed)) {
-    if (typeof entry === "string") out[key] = entry;
-  }
-  return out;
-}
-
-function toStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
-function headerMapGetIgnoreCase(headers: Record<string, string>, key: string): string | null {
-  const match = Object.entries(headers).find(([entryKey]) => entryKey.toLowerCase() === key.toLowerCase());
-  return match ? match[1] : null;
-}
-
-function tokenFromAuthHeader(rawHeader: string | null): string | null {
-  if (!rawHeader) return null;
-  const trimmed = rawHeader.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/^bearer\s+(.+)$/i);
-  return match ? nonEmpty(match[1]) : trimmed;
-}
-
-function resolveAuthToken(config: Record<string, unknown>, headers: Record<string, string>): string | null {
-  const explicit = nonEmpty(config.authToken) ?? nonEmpty(config.token);
-  if (explicit) return explicit;
-
-  const tokenHeader = headerMapGetIgnoreCase(headers, "x-openclaw-token");
-  if (nonEmpty(tokenHeader)) return nonEmpty(tokenHeader);
-
-  const authHeader =
-    headerMapGetIgnoreCase(headers, "x-openclaw-auth") ??
-    headerMapGetIgnoreCase(headers, "authorization");
-  return tokenFromAuthHeader(authHeader);
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
 }
 
 function rawDataToString(data: unknown): string {
@@ -97,7 +40,13 @@ async function probeGateway(input: {
   role: string;
   scopes: string[];
   timeoutMs: number;
-}): Promise<"ok" | "challenge_only" | "failed"> {
+}): Promise<
+  | { kind: "ok" }
+  | { kind: "pairing_required"; requestId: string | null; message: string | null }
+  | { kind: "invalid_token"; code: string | null; message: string | null }
+  | { kind: "unreachable"; message: string | null }
+  | { kind: "failed"; message: string | null }
+> {
   return await new Promise((resolve) => {
     const ws = new WebSocket(input.url, { headers: input.headers, maxPayload: 2 * 1024 * 1024 });
     const timeout = setTimeout(() => {
@@ -106,12 +55,19 @@ async function probeGateway(input: {
       } catch {
         // ignore
       }
-      resolve("failed");
+      resolve({ kind: "unreachable", message: "Timed out while reaching the OpenClaw gateway." });
     }, input.timeoutMs);
 
     let completed = false;
 
-    const finish = (status: "ok" | "challenge_only" | "failed") => {
+    const finish = (
+      status:
+        | { kind: "ok" }
+        | { kind: "pairing_required"; requestId: string | null; message: string | null }
+        | { kind: "invalid_token"; code: string | null; message: string | null }
+        | { kind: "unreachable"; message: string | null }
+        | { kind: "failed"; message: string | null },
+    ) => {
       if (completed) return;
       completed = true;
       clearTimeout(timeout);
@@ -134,7 +90,7 @@ async function probeGateway(input: {
       if (event?.type === "event" && event.event === "connect.challenge") {
         const nonce = nonEmpty(asRecord(event.payload)?.nonce);
         if (!nonce) {
-          finish("failed");
+          finish({ kind: "failed", message: "Gateway challenge response was missing a nonce." });
           return;
         }
 
@@ -170,19 +126,42 @@ async function probeGateway(input: {
 
       if (event?.type === "res") {
         if (event.ok === true) {
-          finish("ok");
+          finish({ kind: "ok" });
         } else {
-          finish("challenge_only");
+          const errorRecord = asRecord(event.error);
+          const errorDetails = asRecord(errorRecord?.details);
+          const errorCode = nonEmpty(errorRecord?.code)?.toUpperCase() ?? null;
+          const detailCode = nonEmpty(errorDetails?.code)?.toUpperCase() ?? null;
+          const message = nonEmpty(errorRecord?.message) ?? null;
+          const requestId = nonEmpty(errorDetails?.requestId);
+          const pairingRequired =
+            errorCode === "NOT_PAIRED" ||
+            errorCode === "PAIRING_REQUIRED" ||
+            detailCode === "PAIRING_REQUIRED" ||
+            (message?.toLowerCase().includes("pairing required") ?? false);
+          if (pairingRequired) {
+            finish({ kind: "pairing_required", requestId, message });
+            return;
+          }
+          finish({ kind: "invalid_token", code: errorCode ?? detailCode, message });
         }
       }
     });
 
-    ws.on("error", () => {
-      finish("failed");
+    ws.on("error", (err) => {
+      const errorCode =
+        typeof (err as NodeJS.ErrnoException).code === "string"
+          ? ((err as NodeJS.ErrnoException).code as string)
+          : "";
+      if (["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ETIMEDOUT", "ECONNRESET"].includes(errorCode)) {
+        finish({ kind: "unreachable", message: err.message });
+        return;
+      }
+      finish({ kind: "failed", message: err.message });
     });
 
     ws.on("close", () => {
-      if (!completed) finish("failed");
+      if (!completed) finish({ kind: "failed", message: "OpenClaw gateway closed the connection." });
     });
   });
 }
@@ -250,7 +229,7 @@ export async function testEnvironment(
   const authToken = resolveAuthToken(config, headers);
   const password = nonEmpty(config.password);
   const role = nonEmpty(config.role) ?? "operator";
-  const scopes = toStringArray(config.scopes);
+  const scopes = normalizeScopes(config.scopes);
 
   if (authToken || password) {
     checks.push({
@@ -274,28 +253,45 @@ export async function testEnvironment(
         headers,
         authToken,
         role,
-        scopes: scopes.length > 0 ? scopes : ["operator.admin"],
+        scopes,
         timeoutMs: 3_000,
       });
 
-      if (probeResult === "ok") {
+      if (probeResult.kind === "ok") {
         checks.push({
           code: "openclaw_gateway_probe_ok",
           level: "info",
           message: "Gateway connect probe succeeded.",
         });
-      } else if (probeResult === "challenge_only") {
+      } else if (probeResult.kind === "pairing_required") {
         checks.push({
-          code: "openclaw_gateway_probe_challenge_only",
+          code: "openclaw_gateway_pairing_required",
           level: "warn",
-          message: "Gateway challenge was received, but connect probe was rejected.",
-          hint: "Check gateway credentials, scopes, role, and device-auth requirements.",
+          message: probeResult.message ?? "Gateway requires device pairing before the connection can be approved.",
+          hint: probeResult.requestId
+            ? `Approve pairing request ${probeResult.requestId} in OpenClaw, then retry.`
+            : "Approve the pending device pairing in OpenClaw, then retry.",
+        });
+      } else if (probeResult.kind === "invalid_token") {
+        checks.push({
+          code: "openclaw_gateway_invalid_token",
+          level: "error",
+          message: probeResult.message ?? "OpenClaw rejected the gateway access token.",
+          hint: "Verify the access token and retry the connection test.",
+          ...(probeResult.code ? { detail: `Gateway code: ${probeResult.code}` } : {}),
+        });
+      } else if (probeResult.kind === "unreachable") {
+        checks.push({
+          code: "openclaw_gateway_unreachable",
+          level: "error",
+          message: probeResult.message ?? "Paperclip could not reach the OpenClaw gateway.",
+          hint: "Check the gateway URL, networking, and private routing, then retry.",
         });
       } else {
         checks.push({
           code: "openclaw_gateway_probe_failed",
-          level: "warn",
-          message: "Gateway probe failed.",
+          level: "error",
+          message: probeResult.message ?? "Gateway probe failed.",
           hint: "Verify network reachability and gateway URL from the Paperclip server host.",
         });
       }

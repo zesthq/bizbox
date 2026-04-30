@@ -410,6 +410,10 @@ export interface CreateConfigValues {
   envVars: string;
   envBindings: Record<string, unknown>;
   url: string;
+  accessToken?: string;
+  openClawSetupMode?: "token_only" | "token_and_device_pairing";
+  apiKey?: string;
+  timeoutSec?: number;
   bootstrapPrompt: string;
   payloadTemplateJson?: string;
   workspaceStrategyType?: string;

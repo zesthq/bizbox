@@ -201,7 +201,7 @@ export async function execute(
 | Helper | Purpose |
 |--------|---------|
 | `runChildProcess(command, opts)` | Spawn a child process with timeout, grace period, and streaming callbacks |
-| `buildBizboxEnv(agent)` | Inject `PAPERCLIP_*` environment variables |
+| `buildBizboxEnv(agent)` | Inject `BIZBOX_*` environment variables |
 | `renderTemplate(template, data)` | `{{variable}}` substitution in prompt templates |
 | `asString(v)`, `asNumber(v)`, `asBoolean(v)` | Safe config value extraction |
 

@@ -127,6 +127,23 @@ export const testAdapterEnvironmentSchema = z.object({
 
 export type TestAdapterEnvironment = z.infer<typeof testAdapterEnvironmentSchema>;
 
+export const openClawConnectionStatusSchema = z.enum([
+  "connected",
+  "invalid_token",
+  "pairing_required",
+  "unreachable",
+  "not_configured",
+]);
+
+export const testOpenClawConnectionSchema = z.object({
+  adapterConfig: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    adapterConfigSchema.optional(),
+  ),
+});
+
+export type TestOpenClawConnection = z.infer<typeof testOpenClawConnectionSchema>;
+
 export const updateAgentPermissionsSchema = z.object({
   canCreateAgents: z.boolean(),
   canAssignTasks: z.boolean(),

@@ -84,5 +84,5 @@ pnpm paperclipai configure --section server
 Runtime override via environment variable:
 
 ```sh
-PAPERCLIP_DEPLOYMENT_MODE=authenticated PAPERCLIP_BIND=lan pnpm paperclipai run
+BIZBOX_DEPLOYMENT_MODE=authenticated BIZBOX_BIND=lan pnpm paperclipai run
 ```

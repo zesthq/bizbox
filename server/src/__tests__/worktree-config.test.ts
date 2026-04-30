@@ -97,22 +97,22 @@ describe("worktree config repair", () => {
       envPath,
       [
         "# Paperclip environment variables",
-        "PAPERCLIP_IN_WORKTREE=true",
-        "PAPERCLIP_WORKTREE_NAME=PAP-884-ai-commits-component",
-        "PAPERCLIP_AGENT_JWT_SECRET=shared-secret",
+        "BIZBOX_IN_WORKTREE=true",
+        "BIZBOX_WORKTREE_NAME=PAP-884-ai-commits-component",
+        "BIZBOX_AGENT_JWT_SECRET=shared-secret",
         "",
       ].join("\n"),
       "utf8",
     );
 
     process.chdir(worktreeRoot);
-    process.env.PAPERCLIP_IN_WORKTREE = "true";
-    process.env.PAPERCLIP_WORKTREE_NAME = "PAP-884-ai-commits-component";
-    process.env.PAPERCLIP_WORKTREES_DIR = isolatedHome;
-    delete process.env.PAPERCLIP_HOME;
-    delete process.env.PAPERCLIP_INSTANCE_ID;
-    delete process.env.PAPERCLIP_CONFIG;
-    delete process.env.PAPERCLIP_CONTEXT;
+    process.env.BIZBOX_IN_WORKTREE = "true";
+    process.env.BIZBOX_WORKTREE_NAME = "PAP-884-ai-commits-component";
+    process.env.BIZBOX_WORKTREES_DIR = isolatedHome;
+    delete process.env.BIZBOX_HOME;
+    delete process.env.BIZBOX_INSTANCE_ID;
+    delete process.env.BIZBOX_CONFIG;
+    delete process.env.BIZBOX_CONTEXT;
 
     const result = maybeRepairLegacyWorktreeConfigAndEnvFiles();
 
@@ -130,13 +130,13 @@ describe("worktree config repair", () => {
     expect(repairedConfig.logging.logDir).toBe(path.join(instanceRoot, "logs"));
     expect(repairedConfig.storage.localDisk.baseDir).toBe(path.join(instanceRoot, "data", "storage"));
     expect(repairedConfig.secrets.localEncrypted.keyFilePath).toBe(path.join(instanceRoot, "secrets", "master.key"));
-    expect(repairedEnv).toContain(`PAPERCLIP_HOME=${JSON.stringify(isolatedHome)}`);
-    expect(repairedEnv).toContain('PAPERCLIP_INSTANCE_ID="pap-884-ai-commits-component"');
-    expect(repairedEnv).toContain(`PAPERCLIP_CONFIG=${JSON.stringify(await fs.realpath(configPath))}`);
-    expect(repairedEnv).toContain(`PAPERCLIP_CONTEXT=${JSON.stringify(path.join(isolatedHome, "context.json"))}`);
-    expect(repairedEnv).toContain('PAPERCLIP_AGENT_JWT_SECRET="shared-secret"');
-    expect(process.env.PAPERCLIP_HOME).toBe(isolatedHome);
-    expect(process.env.PAPERCLIP_INSTANCE_ID).toBe("pap-884-ai-commits-component");
+    expect(repairedEnv).toContain(`BIZBOX_HOME=${JSON.stringify(isolatedHome)}`);
+    expect(repairedEnv).toContain('BIZBOX_INSTANCE_ID="pap-884-ai-commits-component"');
+    expect(repairedEnv).toContain(`BIZBOX_CONFIG=${JSON.stringify(await fs.realpath(configPath))}`);
+    expect(repairedEnv).toContain(`BIZBOX_CONTEXT=${JSON.stringify(path.join(isolatedHome, "context.json"))}`);
+    expect(repairedEnv).toContain('BIZBOX_AGENT_JWT_SECRET="shared-secret"');
+    expect(process.env.BIZBOX_HOME).toBe(isolatedHome);
+    expect(process.env.BIZBOX_INSTANCE_ID).toBe("pap-884-ai-commits-component");
   });
 
   it("avoids sibling worktree ports when repairing legacy configs", async () => {
@@ -156,8 +156,8 @@ describe("worktree config repair", () => {
       envPath,
       [
         "# Paperclip environment variables",
-        "PAPERCLIP_IN_WORKTREE=true",
-        "PAPERCLIP_WORKTREE_NAME=PAP-880-thumbs-capture-for-evals-feature",
+        "BIZBOX_IN_WORKTREE=true",
+        "BIZBOX_WORKTREE_NAME=PAP-880-thumbs-capture-for-evals-feature",
         "",
       ].join("\n"),
       "utf8",
@@ -194,9 +194,9 @@ describe("worktree config repair", () => {
     );
 
     process.chdir(worktreeRoot);
-    process.env.PAPERCLIP_IN_WORKTREE = "true";
-    process.env.PAPERCLIP_WORKTREE_NAME = "PAP-880-thumbs-capture-for-evals-feature";
-    process.env.PAPERCLIP_WORKTREES_DIR = isolatedHome;
+    process.env.BIZBOX_IN_WORKTREE = "true";
+    process.env.BIZBOX_WORKTREE_NAME = "PAP-880-thumbs-capture-for-evals-feature";
+    process.env.BIZBOX_WORKTREES_DIR = isolatedHome;
 
     const result = maybeRepairLegacyWorktreeConfigAndEnvFiles();
     const repairedConfig = JSON.parse(await fs.readFile(configPath, "utf8"));
@@ -275,23 +275,23 @@ describe("worktree config repair", () => {
       envPath,
       [
         "# Paperclip environment variables",
-        `PAPERCLIP_HOME=${JSON.stringify(isolatedHome)}`,
-        `PAPERCLIP_INSTANCE_ID=${JSON.stringify(instanceId)}`,
-        `PAPERCLIP_CONFIG=${JSON.stringify(configPath)}`,
-        `PAPERCLIP_CONTEXT=${JSON.stringify(path.join(isolatedHome, "context.json"))}`,
-        'PAPERCLIP_IN_WORKTREE="true"',
-        'PAPERCLIP_WORKTREE_NAME="PAP-989-multi-user-implementation-using-plan-from-pap-958"',
+        `BIZBOX_HOME=${JSON.stringify(isolatedHome)}`,
+        `BIZBOX_INSTANCE_ID=${JSON.stringify(instanceId)}`,
+        `BIZBOX_CONFIG=${JSON.stringify(configPath)}`,
+        `BIZBOX_CONTEXT=${JSON.stringify(path.join(isolatedHome, "context.json"))}`,
+        'BIZBOX_IN_WORKTREE="true"',
+        'BIZBOX_WORKTREE_NAME="PAP-989-multi-user-implementation-using-plan-from-pap-958"',
         "",
       ].join("\n"),
       "utf8",
     );
 
     process.chdir(worktreeRoot);
-    process.env.PAPERCLIP_IN_WORKTREE = "true";
-    process.env.PAPERCLIP_WORKTREE_NAME = "PAP-989-multi-user-implementation-using-plan-from-pap-958";
-    process.env.PAPERCLIP_HOME = transientHome;
-    process.env.PAPERCLIP_INSTANCE_ID = instanceId;
-    process.env.PAPERCLIP_CONFIG = configPath;
+    process.env.BIZBOX_IN_WORKTREE = "true";
+    process.env.BIZBOX_WORKTREE_NAME = "PAP-989-multi-user-implementation-using-plan-from-pap-958";
+    process.env.BIZBOX_HOME = transientHome;
+    process.env.BIZBOX_INSTANCE_ID = instanceId;
+    process.env.BIZBOX_CONFIG = configPath;
 
     const result = maybeRepairLegacyWorktreeConfigAndEnvFiles();
     const repairedConfig = JSON.parse(await fs.readFile(configPath, "utf8"));
@@ -308,9 +308,9 @@ describe("worktree config repair", () => {
     expect(repairedConfig.secrets.localEncrypted.keyFilePath).toBe(
       path.join(stableInstanceRoot, "secrets", "master.key"),
     );
-    expect(repairedEnv).toContain(`PAPERCLIP_HOME=${JSON.stringify(isolatedHome)}`);
-    expect(repairedEnv).not.toContain(`PAPERCLIP_HOME=${JSON.stringify(transientHome)}`);
-    expect(process.env.PAPERCLIP_HOME).toBe(isolatedHome);
+    expect(repairedEnv).toContain(`BIZBOX_HOME=${JSON.stringify(isolatedHome)}`);
+    expect(repairedEnv).not.toContain(`BIZBOX_HOME=${JSON.stringify(transientHome)}`);
+    expect(process.env.BIZBOX_HOME).toBe(isolatedHome);
   });
 
   it("rebalances duplicate ports for already isolated worktree configs", async () => {
@@ -385,8 +385,8 @@ describe("worktree config repair", () => {
       envPath,
       [
         "# Paperclip environment variables",
-        "PAPERCLIP_IN_WORKTREE=true",
-        "PAPERCLIP_WORKTREE_NAME=PAP-884-ai-commits-component",
+        "BIZBOX_IN_WORKTREE=true",
+        "BIZBOX_WORKTREE_NAME=PAP-884-ai-commits-component",
         "",
       ].join("\n"),
       "utf8",
@@ -423,9 +423,9 @@ describe("worktree config repair", () => {
     );
 
     process.chdir(currentWorktreeRoot);
-    process.env.PAPERCLIP_IN_WORKTREE = "true";
-    process.env.PAPERCLIP_WORKTREE_NAME = "PAP-884-ai-commits-component";
-    process.env.PAPERCLIP_WORKTREES_DIR = isolatedHome;
+    process.env.BIZBOX_IN_WORKTREE = "true";
+    process.env.BIZBOX_WORKTREE_NAME = "PAP-884-ai-commits-component";
+    process.env.BIZBOX_WORKTREES_DIR = isolatedHome;
 
     const result = maybeRepairLegacyWorktreeConfigAndEnvFiles();
     const repairedConfig = JSON.parse(await fs.readFile(configPath, "utf8"));
@@ -499,11 +499,11 @@ describe("worktree config repair", () => {
     );
 
     process.chdir(worktreeRoot);
-    process.env.PAPERCLIP_IN_WORKTREE = "true";
-    process.env.PAPERCLIP_WORKTREE_NAME = "PAP-878-create-a-mine-tab-in-inbox";
-    process.env.PAPERCLIP_HOME = isolatedHome;
-    process.env.PAPERCLIP_INSTANCE_ID = "pap-878-create-a-mine-tab-in-inbox";
-    process.env.PAPERCLIP_CONFIG = configPath;
+    process.env.BIZBOX_IN_WORKTREE = "true";
+    process.env.BIZBOX_WORKTREE_NAME = "PAP-878-create-a-mine-tab-in-inbox";
+    process.env.BIZBOX_HOME = isolatedHome;
+    process.env.BIZBOX_INSTANCE_ID = "pap-878-create-a-mine-tab-in-inbox";
+    process.env.BIZBOX_CONFIG = configPath;
 
     maybePersistWorktreeRuntimePorts({
       serverPort: 3103,

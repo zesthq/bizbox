@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { execFile } from "node:child_process";
 import path from "node:path";
@@ -622,7 +622,7 @@ const ADAPTER_DEFAULT_RULES_BY_TYPE: Record<string, Array<{ path: string[]; valu
     { path: ["sessionKeyStrategy"], value: "fixed" },
     { path: ["sessionKey"], value: "paperclip" },
     { path: ["role"], value: "operator" },
-    { path: ["scopes"], value: ["operator.admin"] },
+    { path: ["scopes"], value: ["operator.admin", "operator.write"] },
   ],
 };
 
@@ -1617,6 +1617,49 @@ function normalizePortableConfig(
   }
 
   return next;
+}
+
+function sanitizePortableOpenClawAdapterConfig(
+  adapterConfig: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...adapterConfig };
+  delete next.authToken;
+  delete next.token;
+  delete next.authTokenRef;
+
+  if (isPlainRecord(next.headers)) {
+    const headers = { ...(next.headers as Record<string, unknown>) };
+    for (const key of Object.keys(headers)) {
+      const normalized = key.toLowerCase();
+      if (
+        normalized === "x-openclaw-token" ||
+        normalized === "x-openclaw-auth" ||
+        normalized === "authorization"
+      ) {
+        delete headers[key];
+      }
+    }
+    if (Object.keys(headers).length > 0) {
+      next.headers = headers;
+    } else {
+      delete next.headers;
+    }
+  }
+
+  return next;
+}
+
+function buildPortableOpenClawTokenInput(agentSlug: string): CompanyPortabilityEnvInput {
+  return {
+    key: "OPENCLAW_GATEWAY_TOKEN",
+    description: "Access token used for the OpenClaw gateway connection.",
+    agentSlug,
+    projectSlug: null,
+    kind: "secret",
+    requirement: "required",
+    defaultValue: null,
+    portability: "portable",
+  };
 }
 
 function isAbsoluteCommand(value: string) {
@@ -2763,7 +2806,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
   const issues = issueService(db);
   const companySkills = companySkillService(db);
   const secrets = secretService(db);
-  const strictSecretsMode = process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true";
+  const strictSecretsMode = process.env.BIZBOX_SECRETS_STRICT_MODE === "true";
 
   function assertKnownImportAdapterType(type: string | null | undefined): string {
     const adapterType = typeof type === "string" ? type.trim() : "";
@@ -2797,24 +2840,77 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     }
   }
 
+  async function persistImportedOpenClawAuthToken(
+    companyId: string,
+    adapterConfig: Record<string, unknown>,
+    agentName: string | null | undefined,
+  ): Promise<Record<string, unknown>> {
+    const authToken = asString(adapterConfig.authToken)?.trim() || null;
+    const token = asString(adapterConfig.token)?.trim() || null;
+    const plainToken = authToken || token;
+    if (!plainToken) {
+      return adapterConfig;
+    }
+
+    const sanitized = { ...adapterConfig };
+    delete sanitized.authToken;
+    delete sanitized.token;
+
+    const secret = await secrets.create(
+      companyId,
+      {
+        name: buildImportedOpenClawSecretName(agentName),
+        provider: "local_encrypted",
+        value: plainToken,
+        description: `OpenClaw gateway access token for imported agent`,
+      },
+      { agentId: null, userId: null },
+    );
+
+    return {
+      ...sanitized,
+      authTokenRef: {
+        type: "secret_ref" as const,
+        secretId: secret.id,
+        version: "latest" as const,
+      },
+    };
+  }
+
+  function buildImportedOpenClawSecretName(agentName: string | null | undefined) {
+    const slug = (agentName ?? "agent")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "agent";
+    return `openclaw-gateway-token-${slug}-${randomUUID().slice(0, 8)}`;
+  }
+
   async function prepareImportedAgentAdapter(
     companyId: string,
     adapterType: string | null | undefined,
     adapterConfig: Record<string, unknown>,
     desiredSkills: string[],
     mode: ImportMode,
+    agentName?: string | null,
   ) {
     const effectiveAdapterType = assertKnownImportAdapterType(adapterType);
     if (mode === "agent_safe" && IMPORT_FORBIDDEN_ADAPTER_TYPES.has(effectiveAdapterType)) {
       throw forbidden(`Adapter type "${effectiveAdapterType}" is not allowed in safe imports`);
     }
-    const nextAdapterConfig = writePaperclipSkillSyncPreference({ ...adapterConfig }, desiredSkills);
+    let nextAdapterConfig = writePaperclipSkillSyncPreference({ ...adapterConfig }, desiredSkills);
     delete nextAdapterConfig.promptTemplate;
     delete nextAdapterConfig.bootstrapPromptTemplate;
     delete nextAdapterConfig.instructionsFilePath;
     delete nextAdapterConfig.instructionsBundleMode;
     delete nextAdapterConfig.instructionsRootPath;
     delete nextAdapterConfig.instructionsEntryFile;
+
+    if (effectiveAdapterType === "openclaw_gateway") {
+      nextAdapterConfig = await persistImportedOpenClawAuthToken(companyId, nextAdapterConfig, agentName);
+    }
+
     const normalizedAdapterConfig = await secrets.normalizeAdapterConfigForPersistence(
       companyId,
       nextAdapterConfig,
@@ -3252,8 +3348,13 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         );
         envInputs.push(...exportedEnvInputs);
         const adapterDefaultRules = ADAPTER_DEFAULT_RULES_BY_TYPE[agent.adapterType] ?? [];
+        const basePortableAdapterConfig = normalizePortableConfig(agent.adapterConfig);
+        const sanitizedPortableAdapterConfig =
+          agent.adapterType === "openclaw_gateway"
+            ? sanitizePortableOpenClawAdapterConfig(basePortableAdapterConfig)
+            : basePortableAdapterConfig;
         const portableAdapterConfig = pruneDefaultLikeValue(
-          normalizePortableConfig(agent.adapterConfig),
+          sanitizedPortableAdapterConfig,
           {
             dropFalseBooleans: true,
             defaultRules: adapterDefaultRules,
@@ -3272,6 +3373,14 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
             .slice(envInputsStart)
             .filter((inputValue) => inputValue.agentSlug === slug),
         );
+        if (
+          agent.adapterType === "openclaw_gateway"
+          && !agentEnvInputs.some((inputValue) => inputValue.key === "OPENCLAW_GATEWAY_TOKEN")
+        ) {
+          const openClawTokenInput = buildPortableOpenClawTokenInput(slug);
+          agentEnvInputs.push(openClawTokenInput);
+          envInputs.push(openClawTokenInput);
+        }
         const reportsToSlug = agent.reportsTo ? (idToSlug.get(agent.reportsTo) ?? null) : null;
         const desiredSkills = readPaperclipSkillSyncPreference(
           (agent.adapterConfig as Record<string, unknown>) ?? {},
@@ -4169,6 +4278,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           baseAdapterConfig,
           desiredSkills,
           mode,
+          planAgent.plannedName,
         );
         const patch = {
           name: planAgent.plannedName,

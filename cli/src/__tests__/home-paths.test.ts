@@ -16,8 +16,8 @@ describe("home path resolution", () => {
   });
 
   it("defaults to ~/.paperclip and default instance", () => {
-    delete process.env.PAPERCLIP_HOME;
-    delete process.env.PAPERCLIP_INSTANCE_ID;
+    delete process.env.BIZBOX_HOME;
+    delete process.env.BIZBOX_INSTANCE_ID;
 
     const paths = describeLocalInstancePaths();
     expect(paths.homeDir).toBe(path.resolve(os.homedir(), ".paperclip"));
@@ -25,8 +25,8 @@ describe("home path resolution", () => {
     expect(paths.configPath).toBe(path.resolve(os.homedir(), ".paperclip", "instances", "default", "config.json"));
   });
 
-  it("supports PAPERCLIP_HOME and explicit instance ids", () => {
-    process.env.PAPERCLIP_HOME = "~/paperclip-home";
+  it("supports BIZBOX_HOME and explicit instance ids", () => {
+    process.env.BIZBOX_HOME = "~/paperclip-home";
 
     const home = resolvePaperclipHomeDir();
     expect(home).toBe(path.resolve(os.homedir(), "paperclip-home"));

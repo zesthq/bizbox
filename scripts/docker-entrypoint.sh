@@ -4,7 +4,7 @@ set -e
 # Capture runtime UID/GID from environment variables, defaulting to 1000
 PUID=${USER_UID:-1000}
 PGID=${USER_GID:-1000}
-PAPERCLIP_DATA_DIR=${PAPERCLIP_HOME:-/paperclip}
+BIZBOX_DATA_DIR=${BIZBOX_HOME:-/paperclip}
 
 # Adjust the node user's UID/GID if they differ from the runtime request
 # and fix volume ownership only when a remap is needed
@@ -23,11 +23,11 @@ if [ "$(id -g node)" -ne "$PGID" ]; then
     changed=1
 fi
 
-mkdir -p "$PAPERCLIP_DATA_DIR"
+mkdir -p "$BIZBOX_DATA_DIR"
 
-if [ "$changed" = "1" ] || ! gosu node test -w "$PAPERCLIP_DATA_DIR"; then
-    echo "Ensuring node owns $PAPERCLIP_DATA_DIR"
-    chown -R node:node "$PAPERCLIP_DATA_DIR"
+if [ "$changed" = "1" ] || ! gosu node test -w "$BIZBOX_DATA_DIR"; then
+    echo "Ensuring node owns $BIZBOX_DATA_DIR"
+    chown -R node:node "$BIZBOX_DATA_DIR"
 fi
 
 exec gosu node "$@"

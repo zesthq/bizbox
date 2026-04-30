@@ -1,18 +1,69 @@
-import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { useState } from "react";
 import type { AdapterConfigFieldsProps } from "../types";
 import {
   Field,
   DraftInput,
   help,
 } from "../../components/agent-config-primitives";
-import {
-  PayloadTemplateJsonField,
-  RuntimeServicesJsonField,
-} from "../runtime-json-fields";
+import { cn } from "../../lib/utils";
 
 const inputClass =
   "w-full rounded-md border border-border px-2.5 py-1.5 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/40";
+
+type OpenClawSetupMode = "token_only" | "token_and_device_pairing";
+
+function parseBooleanLike(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") return true;
+    if (normalized === "false" || normalized === "0") return false;
+  }
+  return null;
+}
+
+function resolveEffectiveSetupMode(input: {
+  disableDeviceAuth: unknown;
+  devicePrivateKeyPem: unknown;
+}): OpenClawSetupMode {
+  const parsedDisableDeviceAuth = parseBooleanLike(input.disableDeviceAuth);
+  if (parsedDisableDeviceAuth !== null) {
+    return parsedDisableDeviceAuth ? "token_only" : "token_and_device_pairing";
+  }
+  if (typeof input.devicePrivateKeyPem === "string" && input.devicePrivateKeyPem.trim().length > 0) {
+    return "token_and_device_pairing";
+  }
+  return "token_only";
+}
+
+function ModeButton({
+  active,
+  title,
+  description,
+  onClick,
+}: {
+  active: boolean;
+  title: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex-1 rounded-md border px-3 py-2 text-left transition-colors",
+        active
+          ? "border-primary bg-primary/10 text-foreground"
+          : "border-border bg-transparent text-muted-foreground hover:bg-accent/30",
+      )}
+    >
+      <div className="text-xs font-medium">{title}</div>
+      <div className="mt-1 text-[11px] leading-relaxed opacity-90">{description}</div>
+    </button>
+  );
+}
 
 function SecretField({
   label,
@@ -49,13 +100,6 @@ function SecretField({
   );
 }
 
-function parseScopes(value: unknown): string {
-  if (Array.isArray(value)) {
-    return value.filter((entry): entry is string => typeof entry === "string").join(", ");
-  }
-  return typeof value === "string" ? value : "";
-}
-
 export function OpenClawGatewayConfigFields({
   isCreate,
   values,
@@ -64,37 +108,23 @@ export function OpenClawGatewayConfigFields({
   eff,
   mark,
 }: AdapterConfigFieldsProps) {
-  const configuredHeaders =
-    config.headers && typeof config.headers === "object" && !Array.isArray(config.headers)
-      ? (config.headers as Record<string, unknown>)
-      : {};
-  const effectiveHeaders =
-    (eff("adapterConfig", "headers", configuredHeaders) as Record<string, unknown>) ?? {};
+  const effectiveGatewayToken = isCreate
+    ? values?.accessToken ?? ""
+    : eff("adapterConfig", "authToken", "");
+  const currentMode: OpenClawSetupMode = isCreate
+    ? values?.openClawSetupMode ?? "token_only"
+    : resolveEffectiveSetupMode({
+        disableDeviceAuth: eff("adapterConfig", "disableDeviceAuth", config.disableDeviceAuth),
+        devicePrivateKeyPem: eff("adapterConfig", "devicePrivateKeyPem", config.devicePrivateKeyPem),
+      });
 
-  const effectiveGatewayToken = typeof effectiveHeaders["x-openclaw-token"] === "string"
-    ? String(effectiveHeaders["x-openclaw-token"])
-    : typeof effectiveHeaders["x-openclaw-auth"] === "string"
-      ? String(effectiveHeaders["x-openclaw-auth"])
-      : "";
-
-  const commitGatewayToken = (rawValue: string) => {
-    const nextValue = rawValue.trim();
-    const nextHeaders: Record<string, unknown> = { ...effectiveHeaders };
-    if (nextValue) {
-      nextHeaders["x-openclaw-token"] = nextValue;
-      delete nextHeaders["x-openclaw-auth"];
-    } else {
-      delete nextHeaders["x-openclaw-token"];
-      delete nextHeaders["x-openclaw-auth"];
+  const setMode = (mode: OpenClawSetupMode) => {
+    if (isCreate) {
+      set!({ openClawSetupMode: mode });
+      return;
     }
-    mark("adapterConfig", "headers", Object.keys(nextHeaders).length > 0 ? nextHeaders : undefined);
+    mark("adapterConfig", "disableDeviceAuth", mode === "token_only");
   };
-
-  const sessionStrategy = eff(
-    "adapterConfig",
-    "sessionKeyStrategy",
-    String(config.sessionKeyStrategy ?? "fixed"),
-  );
 
   return (
     <>
@@ -116,131 +146,44 @@ export function OpenClawGatewayConfigFields({
         />
       </Field>
 
-      <PayloadTemplateJsonField
-        isCreate={isCreate}
-        values={values}
-        set={set}
-        config={config}
-        mark={mark}
-      />
+      <Field label="Setup mode">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <ModeButton
+            active={currentMode === "token_only"}
+            title="Token only (cloud-first)"
+            description="Use the gateway URL and access token only. This is the default business setup."
+            onClick={() => setMode("token_only")}
+          />
+          <ModeButton
+            active={currentMode === "token_and_device_pairing"}
+            title="Token + device pairing"
+            description="Enable signed device auth and pairing for advanced or self-managed environments."
+            onClick={() => setMode("token_and_device_pairing")}
+          />
+        </div>
+      </Field>
 
-      <RuntimeServicesJsonField
-        isCreate={isCreate}
-        values={values}
-        set={set}
-        config={config}
-        mark={mark}
+      <SecretField
+        label="Access token"
+        value={effectiveGatewayToken}
+        onCommit={(v) =>
+          isCreate
+            ? set!({ accessToken: v })
+            : mark("adapterConfig", "authToken", v?.trim() ? v.trim() : undefined)
+        }
+        placeholder={isCreate ? "OpenClaw access token" : "Leave blank to keep the stored token"}
       />
 
       {!isCreate && (
-        <>
-          <Field label="Paperclip API URL override">
-            <DraftInput
-              value={
-                eff(
-                  "adapterConfig",
-                  "paperclipApiUrl",
-                  String(config.paperclipApiUrl ?? ""),
-                )
-              }
-              onCommit={(v) => mark("adapterConfig", "paperclipApiUrl", v || undefined)}
-              immediate
-              className={inputClass}
-              placeholder="https://paperclip.example"
-            />
-          </Field>
-
-          <Field label="Claimed API key path">
-            <DraftInput
-              value={eff("adapterConfig", "claimedApiKeyPath", String(config.claimedApiKeyPath ?? ""))}
-              onCommit={(v) => mark("adapterConfig", "claimedApiKeyPath", v || undefined)}
-              immediate
-              className={inputClass}
-              placeholder="~/.openclaw/workspace/paperclip-claimed-api-key.json"
-            />
-          </Field>
-
-          <Field label="Session strategy">
-            <select
-              value={sessionStrategy}
-              onChange={(e) => mark("adapterConfig", "sessionKeyStrategy", e.target.value)}
-              className={inputClass}
-            >
-              <option value="fixed">Fixed</option>
-              <option value="issue">Per issue</option>
-              <option value="run">Per run</option>
-            </select>
-          </Field>
-
-          {sessionStrategy === "fixed" && (
-            <Field label="Session key">
-              <DraftInput
-                value={eff("adapterConfig", "sessionKey", String(config.sessionKey ?? "paperclip"))}
-                onCommit={(v) => mark("adapterConfig", "sessionKey", v || undefined)}
-                immediate
-                className={inputClass}
-                placeholder="paperclip"
-              />
-            </Field>
-          )}
-
-          <SecretField
-            label="Gateway auth token (x-openclaw-token)"
-            value={effectiveGatewayToken}
-            onCommit={commitGatewayToken}
-            placeholder="OpenClaw gateway token"
-          />
-
-          <Field label="Role">
-            <DraftInput
-              value={eff("adapterConfig", "role", String(config.role ?? "operator"))}
-              onCommit={(v) => mark("adapterConfig", "role", v || undefined)}
-              immediate
-              className={inputClass}
-              placeholder="operator"
-            />
-          </Field>
-
-          <Field label="Scopes (comma-separated)">
-            <DraftInput
-              value={eff("adapterConfig", "scopes", parseScopes(config.scopes ?? ["operator.admin"]))}
-              onCommit={(v) => {
-                const parsed = v
-                  .split(",")
-                  .map((entry) => entry.trim())
-                  .filter(Boolean);
-                mark("adapterConfig", "scopes", parsed.length > 0 ? parsed : undefined);
-              }}
-              immediate
-              className={inputClass}
-              placeholder="operator.admin"
-            />
-          </Field>
-
-          <Field label="Wait timeout (ms)">
-            <DraftInput
-              value={eff("adapterConfig", "waitTimeoutMs", String(config.waitTimeoutMs ?? "120000"))}
-              onCommit={(v) => {
-                const parsed = Number.parseInt(v.trim(), 10);
-                mark(
-                  "adapterConfig",
-                  "waitTimeoutMs",
-                  Number.isFinite(parsed) && parsed > 0 ? parsed : undefined,
-                );
-              }}
-              immediate
-              className={inputClass}
-              placeholder="120000"
-            />
-          </Field>
-
-          <Field label="Device auth">
-            <div className="text-xs text-muted-foreground leading-relaxed">
-              Always enabled for gateway agents. Paperclip persists a device key during onboarding so pairing approvals
-              remain stable across runs.
-            </div>
-          </Field>
-        </>
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <div>Stored securely. Enter a new token only when you want to replace the current one.</div>
+          <div>
+            Effective mode:{" "}
+            <span className="font-medium text-foreground">
+              {currentMode === "token_only" ? "Token only (cloud-first)" : "Token + device pairing"}
+            </span>
+          </div>
+        </div>
       )}
     </>
   );

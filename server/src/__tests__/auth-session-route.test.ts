@@ -1,7 +1,14 @@
 import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
+const mockLoggerWarn = vi.hoisted(() => vi.fn());
+vi.mock("../middleware/logger.js", () => ({
+  logger: {
+    warn: mockLoggerWarn,
+  },
+}));
 import { actorMiddleware } from "../middleware/auth.js";
+import { errorHandler } from "../middleware/error-handler.js";
 
 function createSelectChain(rows: unknown[]) {
   return {
@@ -57,5 +64,35 @@ describe("actorMiddleware authenticated session profile", () => {
       memberships: [],
       isInstanceAdmin: false,
     });
+  });
+
+  it("returns an auth service error when session lookup fails", async () => {
+    const error = new Error("Failed to get session");
+    const app = express();
+    app.use(
+      actorMiddleware(createDb(), {
+        deploymentMode: "authenticated",
+        resolveSession: async () => {
+          throw error;
+        },
+      }),
+    );
+    app.get("/actor", (_req, res) => {
+      res.json({ ok: true });
+    });
+    app.use(errorHandler);
+
+    const res = await request(app).get("/actor");
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "Authentication session lookup failed" });
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      {
+        err: error,
+        method: "GET",
+        url: "/actor",
+      },
+      "Failed to resolve auth session; aborting request",
+    );
   });
 });

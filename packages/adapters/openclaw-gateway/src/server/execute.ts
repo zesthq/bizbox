@@ -13,6 +13,19 @@ import {
 } from "@paperclipai/adapter-utils/server-utils";
 import crypto, { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
+import {
+  asRecord,
+  headerMapGetIgnoreCase,
+  headerMapHasIgnoreCase,
+  isLoopbackHost,
+  nonEmpty,
+  normalizeScopes,
+  resolveDisableDeviceAuth,
+  resolveAuthToken,
+  toAuthorizationHeaderValue,
+  toStringArray,
+  toStringRecord,
+} from "../shared/config.js";
 
 type SessionKeyStrategy = "fixed" | "issue" | "run";
 
@@ -86,7 +99,6 @@ type GatewayClientRequestOptions = {
 };
 
 const PROTOCOL_VERSION = 3;
-const DEFAULT_SCOPES = ["operator.admin"];
 const DEFAULT_CLIENT_ID = "gateway-client";
 const DEFAULT_CLIENT_MODE = "backend";
 const DEFAULT_CLIENT_VERSION = "paperclip";
@@ -96,15 +108,6 @@ const SENSITIVE_LOG_KEY_PATTERN =
   /(^|[_-])(auth|authorization|token|secret|password|api[_-]?key|private[_-]?key)([_-]|$)|^x-openclaw-(auth|token)$/i;
 
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function nonEmpty(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
 
 function parseOptionalPositiveInteger(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -155,52 +158,8 @@ export function resolveSessionKey(input: {
   return prefixSessionKeyForAgent(fallback, input.agentId);
 }
 
-function isLoopbackHost(hostname: string): boolean {
-  const value = hostname.trim().toLowerCase();
-  return value === "localhost" || value === "127.0.0.1" || value === "::1";
-}
-
-function toStringRecord(value: unknown): Record<string, string> {
-  const parsed = parseObject(value);
-  const out: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(parsed)) {
-    if (typeof entry === "string") out[key] = entry;
-  }
-  return out;
-}
-
-function toStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
-function normalizeScopes(value: unknown): string[] {
-  const parsed = toStringArray(value);
-  return parsed.length > 0 ? parsed : [...DEFAULT_SCOPES];
-}
-
 function uniqueScopes(scopes: string[]): string[] {
   return Array.from(new Set(scopes.map((scope) => scope.trim()).filter(Boolean)));
-}
-
-function headerMapGetIgnoreCase(headers: Record<string, string>, key: string): string | null {
-  const match = Object.entries(headers).find(([entryKey]) => entryKey.toLowerCase() === key.toLowerCase());
-  return match ? match[1] : null;
-}
-
-function headerMapHasIgnoreCase(headers: Record<string, string>, key: string): boolean {
-  return Object.keys(headers).some((entryKey) => entryKey.toLowerCase() === key.toLowerCase());
 }
 
 function getGatewayErrorDetails(err: unknown): Record<string, unknown> | null {
@@ -216,33 +175,6 @@ function extractPairingRequestId(err: unknown): string | null {
   const message = err instanceof Error ? err.message : String(err);
   const match = message.match(/requestId\s*[:=]\s*([A-Za-z0-9_-]+)/i);
   return match?.[1] ?? null;
-}
-
-function toAuthorizationHeaderValue(rawToken: string): string {
-  const trimmed = rawToken.trim();
-  if (!trimmed) return trimmed;
-  return /^bearer\s+/i.test(trimmed) ? trimmed : `Bearer ${trimmed}`;
-}
-
-function tokenFromAuthHeader(rawHeader: string | null): string | null {
-  if (!rawHeader) return null;
-  const trimmed = rawHeader.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/^bearer\s+(.+)$/i);
-  return match ? nonEmpty(match[1]) : trimmed;
-}
-
-function resolveAuthToken(config: Record<string, unknown>, headers: Record<string, string>): string | null {
-  const explicit = nonEmpty(config.authToken) ?? nonEmpty(config.token);
-  if (explicit) return explicit;
-
-  const tokenHeader = headerMapGetIgnoreCase(headers, "x-openclaw-token");
-  if (nonEmpty(tokenHeader)) return nonEmpty(tokenHeader);
-
-  const authHeader =
-    headerMapGetIgnoreCase(headers, "x-openclaw-auth") ??
-    headerMapGetIgnoreCase(headers, "authorization");
-  return tokenFromAuthHeader(authHeader);
 }
 
 function isSensitiveLogKey(key: string): boolean {
@@ -340,19 +272,19 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
   const paperclipApiUrlOverride = resolvePaperclipApiUrlOverride(ctx.config.paperclipApiUrl);
   const paperclipEnv: Record<string, string> = {
     ...buildPaperclipEnv(ctx.agent),
-    PAPERCLIP_RUN_ID: ctx.runId,
+    BIZBOX_RUN_ID: ctx.runId,
   };
 
   if (paperclipApiUrlOverride) {
-    paperclipEnv.PAPERCLIP_API_URL = paperclipApiUrlOverride;
+    paperclipEnv.BIZBOX_API_URL = paperclipApiUrlOverride;
   }
-  if (wakePayload.taskId) paperclipEnv.PAPERCLIP_TASK_ID = wakePayload.taskId;
-  if (wakePayload.wakeReason) paperclipEnv.PAPERCLIP_WAKE_REASON = wakePayload.wakeReason;
-  if (wakePayload.wakeCommentId) paperclipEnv.PAPERCLIP_WAKE_COMMENT_ID = wakePayload.wakeCommentId;
-  if (wakePayload.approvalId) paperclipEnv.PAPERCLIP_APPROVAL_ID = wakePayload.approvalId;
-  if (wakePayload.approvalStatus) paperclipEnv.PAPERCLIP_APPROVAL_STATUS = wakePayload.approvalStatus;
+  if (wakePayload.taskId) paperclipEnv.BIZBOX_TASK_ID = wakePayload.taskId;
+  if (wakePayload.wakeReason) paperclipEnv.BIZBOX_WAKE_REASON = wakePayload.wakeReason;
+  if (wakePayload.wakeCommentId) paperclipEnv.BIZBOX_WAKE_COMMENT_ID = wakePayload.wakeCommentId;
+  if (wakePayload.approvalId) paperclipEnv.BIZBOX_APPROVAL_ID = wakePayload.approvalId;
+  if (wakePayload.approvalStatus) paperclipEnv.BIZBOX_APPROVAL_STATUS = wakePayload.approvalStatus;
   if (wakePayload.issueIds.length > 0) {
-    paperclipEnv.PAPERCLIP_LINKED_ISSUE_IDS = wakePayload.issueIds.join(",");
+    paperclipEnv.BIZBOX_LINKED_ISSUE_IDS = wakePayload.issueIds.join(",");
   }
 
   return paperclipEnv;
@@ -365,16 +297,16 @@ function buildWakeText(
 ): string {
   const claimedApiKeyPath = "~/.openclaw/workspace/paperclip-claimed-api-key.json";
   const orderedKeys = [
-    "PAPERCLIP_RUN_ID",
-    "PAPERCLIP_AGENT_ID",
-    "PAPERCLIP_COMPANY_ID",
-    "PAPERCLIP_API_URL",
-    "PAPERCLIP_TASK_ID",
-    "PAPERCLIP_WAKE_REASON",
-    "PAPERCLIP_WAKE_COMMENT_ID",
-    "PAPERCLIP_APPROVAL_ID",
-    "PAPERCLIP_APPROVAL_STATUS",
-    "PAPERCLIP_LINKED_ISSUE_IDS",
+    "BIZBOX_RUN_ID",
+    "BIZBOX_AGENT_ID",
+    "BIZBOX_COMPANY_ID",
+    "BIZBOX_API_URL",
+    "BIZBOX_TASK_ID",
+    "BIZBOX_WAKE_REASON",
+    "BIZBOX_WAKE_COMMENT_ID",
+    "BIZBOX_APPROVAL_ID",
+    "BIZBOX_APPROVAL_STATUS",
+    "BIZBOX_LINKED_ISSUE_IDS",
   ];
 
   const envLines: string[] = [];
@@ -385,7 +317,7 @@ function buildWakeText(
   }
 
   const issueIdHint = payload.taskId ?? payload.issueId ?? "";
-  const apiBaseHint = paperclipEnv.PAPERCLIP_API_URL ?? "<set PAPERCLIP_API_URL>";
+  const apiBaseHint = paperclipEnv.BIZBOX_API_URL ?? "<set BIZBOX_API_URL>";
 
   const lines = [
     "Paperclip wake event for a cloud adapter.",
@@ -394,9 +326,9 @@ function buildWakeText(
     "",
     "Set these values in your run context:",
     ...envLines,
-    `PAPERCLIP_API_KEY=<token from ${claimedApiKeyPath}>`,
+    `BIZBOX_API_KEY=<token from ${claimedApiKeyPath}>`,
     "",
-    `Load PAPERCLIP_API_KEY from ${claimedApiKeyPath} (the token you saved after claim-api-key).`,
+    `Load BIZBOX_API_KEY from ${claimedApiKeyPath} (the token you saved after claim-api-key).`,
     "",
     `api_base=${apiBaseHint}`,
     `task_id=${payload.taskId ?? ""}`,
@@ -408,16 +340,16 @@ function buildWakeText(
     `linked_issue_ids=${payload.issueIds.join(",")}`,
     "",
     "HTTP rules:",
-    "- Use Authorization: Bearer $PAPERCLIP_API_KEY on every API call.",
-    "- Use X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID on every mutating API call.",
+    "- Use Authorization: Bearer $BIZBOX_API_KEY on every API call.",
+    "- Use X-Paperclip-Run-Id: $BIZBOX_RUN_ID on every mutating API call.",
     "- Use only /api endpoints listed below.",
     "- Do NOT call guessed endpoints like /api/cloud-adapter/*, /api/cloud-adapters/*, /api/adapters/cloud/*, or /api/heartbeat.",
     "",
     "Workflow:",
     "1) GET /api/agents/me",
-    `2) Determine issueId: PAPERCLIP_TASK_ID if present, otherwise issue_id (${issueIdHint}).`,
+    `2) Determine issueId: BIZBOX_TASK_ID if present, otherwise issue_id (${issueIdHint}).`,
     "3) If issueId exists:",
-    "   - POST /api/issues/{issueId}/checkout with {\"agentId\":\"$PAPERCLIP_AGENT_ID\",\"expectedStatuses\":[\"todo\",\"backlog\",\"blocked\",\"in_review\"]}",
+    "   - POST /api/issues/{issueId}/checkout with {\"agentId\":\"$BIZBOX_AGENT_ID\",\"expectedStatuses\":[\"todo\",\"backlog\",\"blocked\",\"in_review\"]}",
     "   - GET /api/issues/{issueId}",
     "   - GET /api/issues/{issueId}/comments",
     "   - Execute the issue instructions exactly. If the issue is actionable, take concrete action in this run; do not stop at a plan unless planning was requested.",
@@ -426,7 +358,7 @@ function buildWakeText(
     "   - If instructions require a comment, POST /api/issues/{issueId}/comments with {\"body\":\"...\"}.",
     "   - PATCH /api/issues/{issueId} with {\"status\":\"done\",\"comment\":\"what changed and why\"}.",
     "4) If issueId does not exist:",
-    "   - GET /api/companies/$PAPERCLIP_COMPANY_ID/issues?assigneeAgentId=$PAPERCLIP_AGENT_ID&status=todo,in_progress,in_review,blocked",
+    "   - GET /api/companies/$BIZBOX_COMPANY_ID/issues?assigneeAgentId=$BIZBOX_AGENT_ID&status=todo,in_progress,in_review,blocked",
     "   - Pick in_progress first, then in_review when you were woken by a comment, then todo, then blocked, then execute step 3.",
     "",
     "Useful endpoints for issue work:",
@@ -491,7 +423,7 @@ function buildStandardPaperclipPayload(
     wakeCommentId: wakePayload.wakeCommentId,
     approvalId: wakePayload.approvalId,
     approvalStatus: wakePayload.approvalStatus,
-    apiUrl: paperclipEnv.PAPERCLIP_API_URL ?? null,
+    apiUrl: paperclipEnv.BIZBOX_API_URL ?? null,
   };
   const structuredWake = parseObject(ctx.context.paperclipWake);
   if (Object.keys(structuredWake).length > 0) {
@@ -1076,30 +1008,31 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     };
   }
 
-  const timeoutSec = Math.max(0, Math.floor(asNumber(ctx.config.timeoutSec, 120)));
+  const parsedConfig = parseObject(ctx.config);
+  const timeoutSec = Math.max(0, Math.floor(asNumber(parsedConfig.timeoutSec, 120)));
   const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
   const connectTimeoutMs = timeoutMs > 0 ? Math.min(timeoutMs, 15_000) : 10_000;
-  const waitTimeoutMs = parseOptionalPositiveInteger(ctx.config.waitTimeoutMs) ?? (timeoutMs > 0 ? timeoutMs : 30_000);
+  const waitTimeoutMs = parseOptionalPositiveInteger(parsedConfig.waitTimeoutMs) ?? (timeoutMs > 0 ? timeoutMs : 30_000);
 
-  const payloadTemplate = parseObject(ctx.config.payloadTemplate);
-  const transportHint = nonEmpty(ctx.config.streamTransport) ?? nonEmpty(ctx.config.transport);
+  const payloadTemplate = parseObject(parsedConfig.payloadTemplate);
+  const transportHint = nonEmpty(parsedConfig.streamTransport) ?? nonEmpty(parsedConfig.transport);
 
-  const headers = toStringRecord(ctx.config.headers);
-  const authToken = resolveAuthToken(parseObject(ctx.config), headers);
-  const password = nonEmpty(ctx.config.password);
-  const deviceToken = nonEmpty(ctx.config.deviceToken);
+  const headers = toStringRecord(parsedConfig.headers);
+  const authToken = resolveAuthToken(parsedConfig, headers);
+  const password = nonEmpty(parsedConfig.password);
+  const deviceToken = nonEmpty(parsedConfig.deviceToken);
 
   if (authToken && !headerMapHasIgnoreCase(headers, "authorization")) {
     headers.authorization = toAuthorizationHeaderValue(authToken);
   }
 
-  const clientId = nonEmpty(ctx.config.clientId) ?? DEFAULT_CLIENT_ID;
-  const clientMode = nonEmpty(ctx.config.clientMode) ?? DEFAULT_CLIENT_MODE;
-  const clientVersion = nonEmpty(ctx.config.clientVersion) ?? DEFAULT_CLIENT_VERSION;
-  const role = nonEmpty(ctx.config.role) ?? DEFAULT_ROLE;
-  const scopes = normalizeScopes(ctx.config.scopes);
-  const deviceFamily = nonEmpty(ctx.config.deviceFamily);
-  const disableDeviceAuth = parseBoolean(ctx.config.disableDeviceAuth, false);
+  const clientId = nonEmpty(parsedConfig.clientId) ?? DEFAULT_CLIENT_ID;
+  const clientMode = nonEmpty(parsedConfig.clientMode) ?? DEFAULT_CLIENT_MODE;
+  const clientVersion = nonEmpty(parsedConfig.clientVersion) ?? DEFAULT_CLIENT_VERSION;
+  const role = nonEmpty(parsedConfig.role) ?? DEFAULT_ROLE;
+  const scopes = normalizeScopes(parsedConfig.scopes);
+  const deviceFamily = nonEmpty(parsedConfig.deviceFamily);
+  const disableDeviceAuth = resolveDisableDeviceAuth(parsedConfig);
 
   const wakePayload = buildWakePayload(ctx);
   const paperclipEnv = buildPaperclipEnvForWake(ctx, wakePayload);
@@ -1113,19 +1046,18 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       : structuredWakePrompt,
   );
 
-  const sessionKeyStrategy = normalizeSessionKeyStrategy(ctx.config.sessionKeyStrategy);
-  const configuredSessionKey = nonEmpty(ctx.config.sessionKey);
+  const sessionKeyStrategy = normalizeSessionKeyStrategy(parsedConfig.sessionKeyStrategy);
+  const configuredSessionKey = nonEmpty(parsedConfig.sessionKey);
   const sessionKey = resolveSessionKey({
     strategy: sessionKeyStrategy,
     configuredSessionKey,
-    agentId: nonEmpty(ctx.config.agentId),
+    agentId: nonEmpty(parsedConfig.agentId),
     runId: ctx.runId,
     issueId: wakePayload.issueId,
   });
 
   const templateMessage = nonEmpty(payloadTemplate.message) ?? nonEmpty(payloadTemplate.text);
   const message = templateMessage ? appendWakeText(templateMessage, wakeText) : wakeText;
-  const paperclipPayload = buildStandardPaperclipPayload(ctx, wakePayload, paperclipEnv, payloadTemplate);
 
   const agentParams: Record<string, unknown> = {
     ...payloadTemplate,
@@ -1134,9 +1066,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     idempotencyKey: ctx.runId,
   };
   delete agentParams.text;
-  agentParams.paperclip = paperclipPayload;
+  delete agentParams.paperclip;
 
-  const configuredAgentId = nonEmpty(ctx.config.agentId);
+  const configuredAgentId = nonEmpty(parsedConfig.agentId);
   if (configuredAgentId && !nonEmpty(agentParams.agentId)) {
     agentParams.agentId = configuredAgentId;
   }
@@ -1177,8 +1109,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     );
   }
 
-  const autoPairOnFirstConnect = parseBoolean(ctx.config.autoPairOnFirstConnect, true);
+  const autoPairOnFirstConnect = parseBoolean(parsedConfig.autoPairOnFirstConnect, true);
   let autoPairAttempted = false;
+  let retryTokenOnlyAfterScopeFailure = false;
   let latestResultPayload: unknown = null;
 
   while (true) {
@@ -1243,17 +1176,23 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     });
 
     try {
-      deviceIdentity = disableDeviceAuth ? null : resolveDeviceIdentity(parseObject(ctx.config));
+      deviceIdentity = disableDeviceAuth || retryTokenOnlyAfterScopeFailure
+        ? null
+        : resolveDeviceIdentity(parsedConfig);
       if (deviceIdentity) {
         await ctx.onLog(
           "stdout",
           `[openclaw-gateway] device auth enabled keySource=${deviceIdentity.source} deviceId=${deviceIdentity.deviceId}\n`,
         );
       } else {
-        await ctx.onLog("stdout", "[openclaw-gateway] device auth disabled\n");
+        await ctx.onLog("stdout", "[openclaw-gateway] device auth disabled (token-only mode)\n");
       }
 
       await ctx.onLog("stdout", `[openclaw-gateway] connecting to ${parsedUrl.toString()}\n`);
+      await ctx.onLog(
+        "stdout",
+        `[openclaw-gateway] connect role=${role} scopes=${scopes.join(",")}\n`,
+      );
 
       const hello = await client.connect((nonce) => {
         const signedAtMs = Date.now();
@@ -1432,6 +1371,21 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       const lower = message.toLowerCase();
       const timedOut = lower.includes("timeout");
       const pairingRequired = lower.includes("pairing required");
+      const missingWriteScope = lower.includes("missing scope: operator.write");
+
+      if (
+        missingWriteScope &&
+        deviceIdentity &&
+        !retryTokenOnlyAfterScopeFailure &&
+        (authToken || password)
+      ) {
+        retryTokenOnlyAfterScopeFailure = true;
+        await ctx.onLog(
+          "stdout",
+          "[openclaw-gateway] device auth lacks operator.write; retrying once in token-only mode\n",
+        );
+        continue;
+      }
 
       if (
         pairingRequired &&
