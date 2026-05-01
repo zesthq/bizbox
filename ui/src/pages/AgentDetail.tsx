@@ -8,6 +8,7 @@ import {
   type AgentPermissionUpdate,
 } from "../api/agents";
 import { companySkillsApi } from "../api/companySkills";
+import { AgentRuntimeTab } from "../components/AgentRuntimeTab";
 import { budgetsApi } from "../api/budgets";
 import { heartbeatsApi } from "../api/heartbeats";
 import { instanceSettingsApi } from "../api/instanceSettings";
@@ -227,13 +228,14 @@ function scrollToContainerBottom(container: ScrollContainer, behavior: ScrollBeh
   container.scrollTo({ top: container.scrollHeight, behavior });
 }
 
-type AgentDetailView = "dashboard" | "chat" | "instructions" | "configuration" | "skills" | "runs" | "budget";
+type AgentDetailView = "dashboard" | "chat" | "instructions" | "configuration" | "skills" | "runtime" | "runs" | "budget";
 
 function parseAgentDetailView(value: string | null): AgentDetailView {
   if (value === "chat") return "chat";
   if (value === "instructions" || value === "prompts") return "instructions";
   if (value === "configure" || value === "configuration") return "configuration";
   if (value === "skills") return "skills";
+  if (value === "runtime") return "runtime";
   if (value === "budget") return "budget";
   if (value === "runs") return value;
   return "dashboard";
@@ -752,7 +754,9 @@ export function AgentDetail() {
             ? "configuration"
             : activeView === "skills"
               ? "skills"
-              : activeView === "runs"
+              : activeView === "runtime"
+              ? "runtime"
+            : activeView === "runs"
                 ? "runs"
                 : activeView === "budget"
                   ? "budget"
@@ -1018,6 +1022,7 @@ export function AgentDetail() {
               { value: "chat", label: "Chat" },
               { value: "instructions", label: "Instructions" },
               { value: "skills", label: "Skills" },
+              { value: "runtime", label: "Runtime" },
               { value: "configuration", label: "Configuration" },
               { value: "runs", label: "Runs" },
               { value: "budget", label: "Budget" },
@@ -1142,6 +1147,10 @@ export function AgentDetail() {
           agent={agent}
           companyId={resolvedCompanyId ?? undefined}
         />
+      )}
+
+      {activeView === "runtime" && resolvedCompanyId && (
+        <AgentRuntimeTab agentId={agent.id} companyId={resolvedCompanyId} />
       )}
 
       {activeView === "runs" && (
