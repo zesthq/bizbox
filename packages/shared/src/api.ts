@@ -18,4 +18,24 @@ export const API = {
   joinRequests: `${API_PREFIX}/join-requests`,
   members: `${API_PREFIX}/members`,
   admin: `${API_PREFIX}/admin`,
+  runtimes: `${API_PREFIX}/companies`,
 } as const;
+
+/**
+ * Path helpers for the per-agent runtime broker endpoints.
+ * Mounted under /api/companies/:companyId/runtimes/:agentId/...
+ */
+export const runtimePaths = {
+  base: (companyId: string, agentId: string) =>
+    `${API.companies}/${companyId}/runtimes/${agentId}`,
+  catalog: (companyId: string, agentId: string) =>
+    `${API.companies}/${companyId}/runtimes/${agentId}/catalog`,
+  instances: (companyId: string, agentId: string) =>
+    `${API.companies}/${companyId}/runtimes/${agentId}/instances`,
+  instance: (companyId: string, agentId: string, instanceId: string) =>
+    `${API.companies}/${companyId}/runtimes/${agentId}/instances/${instanceId}`,
+  sync: (companyId: string, agentId: string) =>
+    `${API.companies}/${companyId}/runtimes/${agentId}/sync`,
+  operation: (companyId: string, agentId: string, opId: string) =>
+    `${API.companies}/${companyId}/runtimes/${agentId}/operations/${opId}`,
+};

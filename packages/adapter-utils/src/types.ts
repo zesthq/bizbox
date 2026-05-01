@@ -358,6 +358,202 @@ export interface ServerAdapterModule {
    * rather than reading config.paperclipRuntimeSkills.
    */
   requiresMaterializedRuntimeSkills?: boolean;
+
+  /**
+   * Optional Agent Runtime Broker (OSBAPI-shaped) for cloud/remote adapters.
+   * When omitted (or describeBroker returns reachable=false / capabilities all
+   * false), the adapter is treated as having no broker — all existing
+   * skill/config flows continue to use the legacy listSkills/syncSkills path.
+   */
+  getBroker?: () => AgentRuntimeBroker;
+}
+
+// ---------------------------------------------------------------------------
+// Agent Runtime Broker (OSBAPI-shaped) — for cloud/remote agent runtimes
+// ---------------------------------------------------------------------------
+
+/**
+ * Top-level kinds of resources a runtime host can expose. The taxonomy splits
+ * the original "agent_runtime" into runtime_host (the remote process itself,
+ * registered/bound only) and agent_identity (a logical agent inside a host,
+ * provisionable). agent_bundle is the unit of governance for skills, prompts,
+ * MCP refs, model defaults and sub-agent profiles shipped together.
+ */
+export type AgentRuntimeKind =
+  | "runtime_host"
+  | "agent_identity"
+  | "agent_bundle"
+  | "mcp_server"
+  | "config_profile"
+  | "secret_bundle";
+
+/**
+ * Subtype of content that may be packaged inside an agent_bundle. Each
+ * is reported per-content in actualState — not separately PUT-able.
+ */
+export type AgentBundleContentKind =
+  | "skill"
+  | "prompt"
+  | "mcp_ref"
+  | "model_default"
+  | "subagent_profile";
+
+export interface AgentRuntimeCatalogPlan {
+  /** Plan identifier, e.g. "skills_only", "ceo", "engineer". */
+  id: string;
+  label: string;
+  description?: string | null;
+  /**
+   * JSON Schema describing the desired_config payload accepted by the host
+   * for this kind+plan. Reuses the same shape adapters publish for
+   * config-schema. Null means the host accepts free-form config.
+   */
+  configSchema?: Record<string, unknown> | null;
+  meta?: Record<string, unknown> | null;
+}
+
+export interface AgentRuntimeCatalogKind {
+  kind: AgentRuntimeKind;
+  /** Whether the broker can PUT instances of this kind. */
+  provisionable: boolean;
+  plans: AgentRuntimeCatalogPlan[];
+  /**
+   * For agent_bundle: which content subtypes the host can introspect and
+   * report on. Honest UI uses this to disable forms the host won't accept.
+   */
+  supportedContents?: AgentBundleContentKind[];
+}
+
+export interface AgentRuntimeCatalogCapabilities {
+  supportsAsync: boolean;
+  supportsBindings: boolean;
+  supportsAgentProvisioning: boolean;
+  supportsBundleProvisioning: boolean;
+  supportsConfigProfile: boolean;
+  supportsMcpServer: boolean;
+  supportsSecretBundle: boolean;
+  /** When true, governed PUT/DELETE require an approval gate before push. */
+  requiresApproval?: boolean;
+}
+
+export interface AgentRuntimeCatalog {
+  /** The adapter type providing this broker (e.g. "openclaw_gateway"). */
+  hostKind: string;
+  /** Optional remote host build/version label. */
+  hostVersion?: string | null;
+  kinds: AgentRuntimeCatalogKind[];
+  capabilities: AgentRuntimeCatalogCapabilities;
+  fetchedAt: string;
+}
+
+export interface AgentRuntimeBrokerDescriptor {
+  hostKind: string;
+  /** True when the broker reached the remote and has a usable catalog. */
+  reachable: boolean;
+  /** Subset of capabilities resolved at describe time (no full catalog). */
+  capabilities: AgentRuntimeCatalogCapabilities;
+  catalog?: AgentRuntimeCatalog | null;
+  /** Reason text when reachable=false. */
+  reason?: string | null;
+}
+
+export type BrokerOperationState = "in_progress" | "succeeded" | "failed";
+
+export interface BrokerOperation {
+  id: string;
+  state: BrokerOperationState;
+  description?: string | null;
+  /** Suggested polling interval for in_progress ops. */
+  pollAfterMs?: number | null;
+  /** Result payload on success. Never contains raw secret values. */
+  result?: Record<string, unknown> | null;
+  error?: { code?: string | null; message: string } | null;
+}
+
+export interface RuntimeInstanceContentEntry {
+  kind: AgentBundleContentKind;
+  key: string;
+  state: "pending" | "installed" | "failed" | "removed";
+  detail?: string | null;
+}
+
+export type RuntimeInstanceActualStatus =
+  | "absent"
+  | "pending"
+  | "ready"
+  | "failed";
+
+export interface RuntimeInstanceState {
+  instanceId: string;
+  kind: AgentRuntimeKind;
+  plan: string | null;
+  actualStatus: RuntimeInstanceActualStatus;
+  contents?: RuntimeInstanceContentEntry[] | null;
+  detail?: string | null;
+  observedAt: string;
+}
+
+export interface BrokerSecretRef {
+  /** Logical key the remote uses to resolve, e.g. "anthropicApiKey". */
+  key: string;
+  /**
+   * Bizbox secret ref (id/locator). Brokers MUST NOT echo raw values; the
+   * remote either fetches at use-time via a binding credential, or stores it
+   * by id only.
+   */
+  ref: string;
+}
+
+export interface BrokerCallContext {
+  companyId: string;
+  /** Bizbox agent record acting as the runtime host (or runtime client). */
+  hostAgentId: string;
+  /** Adapter type, e.g. "openclaw_gateway". */
+  hostAdapterType: string;
+  /**
+   * Resolved adapter config (with secret references already materialized
+   * into runtime values) — passed straight through to the broker so it can
+   * dial the remote. Brokers must not log this verbatim.
+   */
+  hostAdapterConfig: Record<string, unknown>;
+  /** Idempotency key supplied by the control plane. */
+  idempotencyKey?: string;
+  onLog?: (level: "info" | "warn" | "error", msg: string) => void;
+}
+
+export interface ProvisionInstanceInput {
+  instanceId: string;
+  kind: AgentRuntimeKind;
+  plan: string | null;
+  desiredConfig: Record<string, unknown>;
+  secretRefs?: BrokerSecretRef[];
+}
+
+export interface ProvisionInstanceResult {
+  operation: BrokerOperation;
+  state?: RuntimeInstanceState | null;
+}
+
+export interface AgentRuntimeBroker {
+  /** Capability discovery; safe to call without side effects. */
+  describeBroker(ctx: BrokerCallContext): Promise<AgentRuntimeBrokerDescriptor>;
+  getCatalog(ctx: BrokerCallContext): Promise<AgentRuntimeCatalog>;
+  listInstances(
+    ctx: BrokerCallContext,
+    opts?: { kind?: AgentRuntimeKind },
+  ): Promise<RuntimeInstanceState[]>;
+  putInstance(
+    ctx: BrokerCallContext,
+    input: ProvisionInstanceInput,
+  ): Promise<ProvisionInstanceResult>;
+  deleteInstance(
+    ctx: BrokerCallContext,
+    input: { instanceId: string; kind: AgentRuntimeKind },
+  ): Promise<ProvisionInstanceResult>;
+  getOperation(
+    ctx: BrokerCallContext,
+    opId: string,
+  ): Promise<BrokerOperation>;
 }
 
 // ---------------------------------------------------------------------------

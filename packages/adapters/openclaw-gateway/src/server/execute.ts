@@ -81,7 +81,7 @@ type PendingRequest = {
   timer: ReturnType<typeof setTimeout> | null;
 };
 
-type GatewayResponseError = Error & {
+export type GatewayResponseError = Error & {
   gatewayCode?: string;
   gatewayDetails?: Record<string, unknown>;
 };
@@ -99,10 +99,17 @@ type GatewayClientRequestOptions = {
 };
 
 const PROTOCOL_VERSION = 3;
+export { PROTOCOL_VERSION as OPENCLAW_GATEWAY_PROTOCOL_VERSION };
 const DEFAULT_CLIENT_ID = "gateway-client";
 const DEFAULT_CLIENT_MODE = "backend";
 const DEFAULT_CLIENT_VERSION = "paperclip";
 const DEFAULT_ROLE = "operator";
+export {
+  DEFAULT_CLIENT_ID as OPENCLAW_GATEWAY_DEFAULT_CLIENT_ID,
+  DEFAULT_CLIENT_MODE as OPENCLAW_GATEWAY_DEFAULT_CLIENT_MODE,
+  DEFAULT_CLIENT_VERSION as OPENCLAW_GATEWAY_DEFAULT_CLIENT_VERSION,
+  DEFAULT_ROLE as OPENCLAW_GATEWAY_DEFAULT_ROLE,
+};
 
 const SENSITIVE_LOG_KEY_PATTERN =
   /(^|[_-])(auth|authorization|token|secret|password|api[_-]?key|private[_-]?key)([_-]|$)|^x-openclaw-(auth|token)$/i;
@@ -501,13 +508,13 @@ function base64UrlEncode(buf: Buffer): string {
   return buf.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 }
 
-function signDevicePayload(privateKeyPem: string, payload: string): string {
+export function signDevicePayload(privateKeyPem: string, payload: string): string {
   const key = crypto.createPrivateKey(privateKeyPem);
   const sig = crypto.sign(null, Buffer.from(payload, "utf8"), key);
   return base64UrlEncode(sig);
 }
 
-function buildDeviceAuthPayloadV3(params: {
+export function buildDeviceAuthPayloadV3(params: {
   deviceId: string;
   clientId: string;
   clientMode: string;
@@ -538,7 +545,7 @@ function buildDeviceAuthPayloadV3(params: {
   ].join("|");
 }
 
-function resolveDeviceIdentity(config: Record<string, unknown>): GatewayDeviceIdentity {
+export function resolveDeviceIdentity(config: Record<string, unknown>): GatewayDeviceIdentity {
   const configuredPrivateKey = nonEmpty(config.devicePrivateKeyPem);
   if (configuredPrivateKey) {
     const privateKey = crypto.createPrivateKey(configuredPrivateKey);
@@ -575,7 +582,7 @@ function isEventFrame(value: unknown): value is GatewayEventFrame {
   return Boolean(record && record.type === "event" && typeof record.event === "string");
 }
 
-class GatewayWsClient {
+export class GatewayWsClient {
   private ws: WebSocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private challengePromise: Promise<string>;
