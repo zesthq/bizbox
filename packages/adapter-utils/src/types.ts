@@ -398,6 +398,27 @@ export type AgentBundleContentKind =
   | "model_default"
   | "subagent_profile";
 
+const AGENT_BUNDLE_CONTENT_KIND_SET = new Set<AgentBundleContentKind>([
+  "skill",
+  "prompt",
+  "mcp_ref",
+  "model_default",
+  "subagent_profile",
+]);
+
+/**
+ * Type guard for {@link AgentBundleContentKind}. Use from broker
+ * implementations to validate untrusted strings coming over the wire.
+ */
+export function isAgentBundleContentKind(
+  value: unknown,
+): value is AgentBundleContentKind {
+  return (
+    typeof value === "string"
+    && AGENT_BUNDLE_CONTENT_KIND_SET.has(value as AgentBundleContentKind)
+  );
+}
+
 export interface AgentRuntimeCatalogPlan {
   /** Plan identifier, e.g. "skills_only", "ceo", "engineer". */
   id: string;

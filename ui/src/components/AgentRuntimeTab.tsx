@@ -297,14 +297,16 @@ function CatalogPlansList({
     mutationFn: ({
       kind,
       plan,
+      hireAgent,
     }: {
       kind: AgentRuntimeKind;
       plan: string | null;
+      hireAgent?: boolean;
     }) =>
       agentRuntimeApi.createInstance(companyId, agentId, {
         kind,
         plan,
-        desiredConfig: {},
+        desiredConfig: hireAgent ? { hireAgent: true } : {},
       }),
     onSuccess: () => {
       setError(null);
@@ -357,6 +359,21 @@ function CatalogPlansList({
                   onClick={() => create.mutate({ kind: kind.kind, plan: null })}
                 >
                   + default
+                </Button>
+              )}
+              {kind.kind === "agent_identity" && (
+                <Button
+                  size="sm"
+                  disabled={create.isPending}
+                  onClick={() =>
+                    create.mutate({
+                      kind: kind.kind,
+                      plan: kind.plans[0]?.id ?? null,
+                      hireAgent: true,
+                    })
+                  }
+                >
+                  Hire on this host
                 </Button>
               )}
             </div>

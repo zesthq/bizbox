@@ -10,6 +10,7 @@ import type {
   ProvisionInstanceResult,
   RuntimeInstanceState,
 } from "@paperclipai/adapter-utils";
+import { isAgentBundleContentKind } from "@paperclipai/adapter-utils";
 import { parseObject } from "@paperclipai/adapter-utils/server-utils";
 import {
   asRecord,
@@ -252,14 +253,7 @@ function parseCatalog(raw: unknown): AgentRuntimeCatalog {
                 : null,
           })),
         supportedContents: Array.isArray(entry.supportedContents)
-          ? entry.supportedContents.filter(
-              (s): s is "skill" | "prompt" | "mcp_ref" | "model_default" | "subagent_profile" =>
-                s === "skill"
-                || s === "prompt"
-                || s === "mcp_ref"
-                || s === "model_default"
-                || s === "subagent_profile",
-            )
+          ? entry.supportedContents.filter(isAgentBundleContentKind)
           : undefined,
       };
     })
@@ -297,9 +291,7 @@ function parseInstanceState(raw: unknown): RuntimeInstanceState | null {
           .map((c) => {
             const ck = nonEmpty(c.kind);
             const ckSafe: import("@paperclipai/adapter-utils").AgentBundleContentKind =
-              ck === "skill" || ck === "prompt" || ck === "mcp_ref" || ck === "model_default" || ck === "subagent_profile"
-                ? ck
-                : "skill";
+              isAgentBundleContentKind(ck) ? ck : "skill";
             const cs = nonEmpty(c.state);
             const csSafe: "pending" | "installed" | "failed" | "removed" =
               cs === "pending" || cs === "installed" || cs === "failed" || cs === "removed"

@@ -59,6 +59,7 @@ import {
 import {
   execute as ottoAgentExecute,
   testEnvironment as ottoAgentTestEnvironment,
+  ottoAgentBroker,
 } from "@paperclipai/adapter-otto-agent/server";
 import {
   agentConfigurationDoc as ottoAgentConfigurationDoc,
@@ -216,6 +217,7 @@ const ottoAgentAdapter: ServerAdapterModule = {
   supportsInstructionsBundle: false,
   requiresMaterializedRuntimeSkills: false,
   agentConfigurationDoc: ottoAgentConfigurationDoc,
+  getBroker: () => ottoAgentBroker,
 };
 
 const openCodeLocalAdapter: ServerAdapterModule = {

@@ -27,8 +27,10 @@ import type {
   RuntimeInstanceDTO,
 } from "@paperclipai/shared";
 import { findActiveServerAdapter } from "../adapters/registry.js";
+import { deduplicateAgentName } from "./agents.js";
 import { secretService } from "./secrets.js";
 import { logActivity } from "./activity-log.js";
+import { validateAgainstJsonSchema } from "./plugin-config-validator.js";
 import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
 
 const MAX_CATALOG_AGE_MS = 5 * 60_000; // 5 minutes
@@ -351,7 +353,11 @@ export function agentRuntimeService(db: Db) {
     secretRefs?: Array<{ key: string; ref: string }>;
     actor: BrokerActorRef;
     idempotencyKey?: string;
-  }): Promise<{ instance: RuntimeInstanceDTO; operation: BrokerOperationDTO }> {
+  }): Promise<{
+    instance: RuntimeInstanceDTO;
+    operation: BrokerOperationDTO;
+    hiredAgentId?: string | null;
+  }> {
     const host = await resolveHostAgent(db, args.companyId, args.hostAgentId);
     if (host.paused) {
       throw conflict("Company or agent is paused; broker push is blocked");
@@ -367,6 +373,42 @@ export function agentRuntimeService(db: Db) {
 
     const instanceId = args.instanceId ?? randomUUID();
     const desiredConfig = args.desiredConfig ?? {};
+
+    // Step 3: validate desiredConfig against the matching catalog plan's
+    // configSchema (when one is published). We use the cached snapshot to
+    // avoid a second remote round-trip; if the host has never published a
+    // catalog (e.g. fallback adapter) the validation is skipped.
+    const cachedSnapshot = dbHost.catalogSnapshot as
+      | { kinds?: Array<Record<string, unknown>> }
+      | null;
+    if (cachedSnapshot && Array.isArray(cachedSnapshot.kinds)) {
+      const kindEntry = cachedSnapshot.kinds.find(
+        (entry) => (entry as { kind?: string }).kind === args.kind,
+      );
+      const plansArray = Array.isArray((kindEntry as { plans?: unknown })?.plans)
+        ? ((kindEntry as { plans: unknown[] }).plans as Array<
+            Record<string, unknown>
+          >)
+        : [];
+      const planEntry = args.plan
+        ? plansArray.find((p) => p.id === args.plan)
+        : plansArray.length === 1
+          ? plansArray[0]
+          : undefined;
+      const schema = planEntry?.configSchema as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      if (schema && typeof schema === "object") {
+        const result = validateAgainstJsonSchema(desiredConfig, schema);
+        if (!result.valid) {
+          throw unprocessable(
+            `desiredConfig does not match plan '${args.plan ?? "default"}' schema`,
+            result.errors,
+          );
+        }
+      }
+    }
 
     // Find or create the desired-state row.
     const existing = await db
@@ -490,6 +532,86 @@ export function agentRuntimeService(db: Db) {
       .where(eq(runtimeInstances.id, instanceId))
       .returning();
 
+    // Step 4 — "Hire on this host". When an agent_identity instance is
+    // successfully provisioned and the operator opted into hiring, create a
+    // Bizbox `agents` row whose adapter points back at this host so the new
+    // identity can be invoked through the existing run pipeline. The
+    // operation is idempotent: if a binding already exists for this instance
+    // we skip the second hire.
+    let hiredAgentId: string | null = null;
+    if (
+      args.kind === "agent_identity"
+      && result.operation.state === "succeeded"
+      && (desiredConfig as Record<string, unknown>).hireAgent === true
+    ) {
+      const existingBinding = await db
+        .select()
+        .from(runtimeBindings)
+        .where(
+          and(
+            eq(runtimeBindings.instanceId, instanceId),
+            eq(runtimeBindings.boundEntityKind, "agent"),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+      if (existingBinding) {
+        hiredAgentId = existingBinding.boundEntityId;
+      } else {
+        const desiredName =
+          typeof (desiredConfig as Record<string, unknown>).name === "string"
+            ? ((desiredConfig as Record<string, unknown>).name as string)
+            : `${host.adapterType}-agent`;
+        const desiredRole =
+          typeof (desiredConfig as Record<string, unknown>).role === "string"
+            ? ((desiredConfig as Record<string, unknown>).role as string)
+            : "general";
+        // We must avoid duplicate names within the company.
+        const existingAgents = await db
+          .select({
+            id: agents.id,
+            name: agents.name,
+            status: agents.status,
+          })
+          .from(agents)
+          .where(eq(agents.companyId, host.companyId));
+        const uniqueName = deduplicateAgentName(desiredName, existingAgents);
+
+        const [createdAgent] = await db
+          .insert(agents)
+          .values({
+            companyId: host.companyId,
+            name: uniqueName,
+            role: desiredRole,
+            adapterType: host.adapterType,
+            // Inherit the host's adapter config so the new agent can dial
+            // the same runtime. The runtime instance id is recorded in
+            // metadata so future reconciles can find the host.
+            adapterConfig: host.adapterConfig,
+            metadata: {
+              hiredFromRuntimeInstance: instanceId,
+              hiredFromHostAgent: host.agentId,
+            },
+            status: "active",
+          })
+          .returning();
+        hiredAgentId = createdAgent.id;
+
+        await db.insert(runtimeBindings).values({
+          companyId: host.companyId,
+          instanceId,
+          boundEntityKind: "agent",
+          boundEntityId: createdAgent.id,
+          credentialsRef:
+            typeof (
+              result.state as unknown as Record<string, unknown> | null
+            )?.credentialsRef === "string"
+              ? ((result.state as unknown as Record<string, unknown>)
+                  .credentialsRef as string)
+              : null,
+        });
+      }
+    }
+
     await logActivity(db, {
       companyId: host.companyId,
       actorType: args.actor.actorType,
@@ -509,6 +631,7 @@ export function agentRuntimeService(db: Db) {
         operationId: opRow.id,
         // Secret refs are summarized (keys only) — never echo raw values.
         secretRefKeys: args.secretRefs?.map((r) => r.key) ?? null,
+        ...(hiredAgentId ? { hiredAgentId } : {}),
         ...(pushError ? { error: pushError.message } : {}),
       },
     });
@@ -516,6 +639,7 @@ export function agentRuntimeService(db: Db) {
     return {
       instance: toInstanceDTO(finalRow, result.state ?? null),
       operation: toOperationDTO(opRow),
+      hiredAgentId,
     };
   }
 
