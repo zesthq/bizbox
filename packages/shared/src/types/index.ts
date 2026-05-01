@@ -330,3 +330,26 @@ export {
   BUILDER_MESSAGE_ROLES,
   BUILDER_PROPOSAL_STATUSES,
 } from "./builder.js";
+export {
+  AGENT_RUNTIME_KINDS,
+  AGENT_BUNDLE_CONTENT_KINDS,
+  RUNTIME_INSTANCE_ACTUAL_STATUSES,
+  RUNTIME_INSTANCE_STATUSES,
+  BROKER_OPERATION_STATES,
+} from "./agent-runtime.js";
+export type {
+  AgentRuntimeKind,
+  AgentBundleContentKind,
+  RuntimeInstanceActualStatus,
+  RuntimeInstanceStatus,
+  BrokerOperationState,
+  AgentRuntimeCatalogPlanDTO,
+  AgentRuntimeCatalogKindDTO,
+  AgentRuntimeCatalogCapabilitiesDTO,
+  AgentRuntimeCatalogDTO,
+  BrokerDescriptorDTO,
+  RuntimeInstanceContentDTO,
+  RuntimeInstanceDTO,
+  BrokerOperationDTO,
+  PutRuntimeInstanceRequest,
+} from "./agent-runtime.js";

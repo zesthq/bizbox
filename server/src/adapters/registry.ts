@@ -50,6 +50,7 @@ import {
 import {
   execute as openclawGatewayExecute,
   testEnvironment as openclawGatewayTestEnvironment,
+  openclawGatewayBroker,
 } from "@paperclipai/adapter-openclaw-gateway/server";
 import {
   agentConfigurationDoc as openclawGatewayAgentConfigurationDoc,
@@ -203,6 +204,7 @@ const openclawGatewayAdapter: ServerAdapterModule = {
   supportsInstructionsBundle: false,
   requiresMaterializedRuntimeSkills: false,
   agentConfigurationDoc: openclawGatewayAgentConfigurationDoc,
+  getBroker: () => openclawGatewayBroker,
 };
 
 const ottoAgentAdapter: ServerAdapterModule = {

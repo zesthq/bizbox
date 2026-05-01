@@ -78,3 +78,8 @@ export {
   builderProposals,
   builderProviderSettings,
 } from "./builder.js";
+export { runtimeHosts } from "./runtime_hosts.js";
+export { runtimeOperations } from "./runtime_operations.js";
+export { runtimeInstances } from "./runtime_instances.js";
+export { runtimeBindings } from "./runtime_bindings.js";
+export { runtimeSecretRefs } from "./runtime_secret_refs.js";

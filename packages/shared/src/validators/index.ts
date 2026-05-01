@@ -395,3 +395,11 @@ export {
   type ApplyBuilderProposal,
   type RejectBuilderProposal,
 } from "./builder.js";
+export {
+  agentRuntimeKindSchema,
+  agentBundleContentKindSchema,
+  putRuntimeInstanceSchema,
+  listRuntimeInstancesQuerySchema,
+  type PutRuntimeInstance,
+  type ListRuntimeInstancesQuery,
+} from "./agent-runtime.js";
