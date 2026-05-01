@@ -32,6 +32,23 @@ export type {
   StdoutLineParser,
   CLIAdapterModule,
   CreateConfigValues,
+  AgentRuntimeKind,
+  AgentBundleContentKind,
+  AgentRuntimeCatalogPlan,
+  AgentRuntimeCatalogKind,
+  AgentRuntimeCatalogCapabilities,
+  AgentRuntimeCatalog,
+  AgentRuntimeBrokerDescriptor,
+  BrokerOperationState,
+  BrokerOperation,
+  RuntimeInstanceContentEntry,
+  RuntimeInstanceActualStatus,
+  RuntimeInstanceState,
+  BrokerSecretRef,
+  BrokerCallContext,
+  ProvisionInstanceInput,
+  ProvisionInstanceResult,
+  AgentRuntimeBroker,
 } from "./types.js";
 export type {
   SessionCompactionPolicy,
@@ -54,3 +71,8 @@ export {
   redactTranscriptEntryPaths,
 } from "./log-redaction.js";
 export { inferOpenAiCompatibleBiller } from "./billing.js";
+export { isAgentBundleContentKind } from "./types.js";
+export {
+  createHttpAgentRuntimeBroker,
+  type HttpAgentRuntimeBrokerOptions,
+} from "./http-agent-runtime-broker.js";

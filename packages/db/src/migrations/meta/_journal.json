@@ -428,6 +428,13 @@
       "when": 1776787200000,
       "tag": "0060_private_skill_import_github_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1777607235013,
+      "tag": "0061_runtime_broker",
+      "breakpoints": true
     }
   ]
 }

@@ -65,3 +65,8 @@ export { pluginDatabaseNamespaces, pluginMigrations } from "./plugin_database.js
 export { pluginJobs, pluginJobRuns } from "./plugin_jobs.js";
 export { pluginWebhookDeliveries } from "./plugin_webhooks.js";
 export { pluginLogs } from "./plugin_logs.js";
+export { runtimeHosts } from "./runtime_hosts.js";
+export { runtimeOperations } from "./runtime_operations.js";
+export { runtimeInstances } from "./runtime_instances.js";
+export { runtimeBindings } from "./runtime_bindings.js";
+export { runtimeSecretRefs } from "./runtime_secret_refs.js";

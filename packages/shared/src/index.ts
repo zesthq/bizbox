@@ -441,6 +441,39 @@ export type {
 } from "./types/index.js";
 
 export {
+  AGENT_RUNTIME_KINDS,
+  AGENT_BUNDLE_CONTENT_KINDS,
+  RUNTIME_INSTANCE_ACTUAL_STATUSES,
+  RUNTIME_INSTANCE_STATUSES,
+  BROKER_OPERATION_STATES,
+} from "./types/index.js";
+export type {
+  AgentRuntimeKind,
+  AgentBundleContentKind,
+  RuntimeInstanceActualStatus,
+  RuntimeInstanceStatus,
+  BrokerOperationState,
+  AgentRuntimeCatalogPlanDTO,
+  AgentRuntimeCatalogKindDTO,
+  AgentRuntimeCatalogCapabilitiesDTO,
+  AgentRuntimeCatalogDTO,
+  BrokerDescriptorDTO,
+  RuntimeInstanceContentDTO,
+  RuntimeInstanceDTO,
+  BrokerOperationDTO,
+  PutRuntimeInstanceRequest,
+} from "./types/index.js";
+
+export {
+  agentRuntimeKindSchema,
+  agentBundleContentKindSchema,
+  putRuntimeInstanceSchema,
+  listRuntimeInstancesQuerySchema,
+  type PutRuntimeInstance,
+  type ListRuntimeInstancesQuery,
+} from "./validators/index.js";
+
+export {
   sidebarOrderPreferenceSchema,
   upsertSidebarOrderPreferenceSchema,
   type UpsertSidebarOrderPreference,
@@ -746,7 +779,7 @@ export {
   type ListPluginState,
 } from "./validators/index.js";
 
-export { API_PREFIX, API } from "./api.js";
+export { API_PREFIX, API, runtimePaths } from "./api.js";
 export { normalizeAgentUrlKey, deriveAgentUrlKey, isUuidLike } from "./agent-url-key.js";
 export { deriveProjectUrlKey, normalizeProjectUrlKey, hasNonAsciiContent } from "./project-url-key.js";
 export {
