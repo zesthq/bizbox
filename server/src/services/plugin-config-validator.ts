@@ -21,10 +21,11 @@ export interface ConfigValidationResult {
  * Validate a config object against a JSON Schema.
  *
  * @param configJson - The configuration values to validate.
- * @param schema - The JSON Schema from the plugin manifest's `instanceConfigSchema`.
+ * @param schema - The JSON Schema (e.g. plugin manifest's `instanceConfigSchema`
+ *   or an Agent Runtime catalog plan's `configSchema`).
  * @returns Validation result with structured field errors on failure.
  */
-export function validateInstanceConfig(
+export function validateAgainstJsonSchema(
   configJson: Record<string, unknown>,
   schema: JsonSchema,
 ): ConfigValidationResult {
@@ -52,3 +53,6 @@ export function validateInstanceConfig(
 
   return { valid: false, errors };
 }
+
+/** Backwards-compatible alias used by the plugin config code path. */
+export const validateInstanceConfig = validateAgainstJsonSchema;

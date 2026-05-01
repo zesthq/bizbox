@@ -71,3 +71,8 @@ export {
   redactTranscriptEntryPaths,
 } from "./log-redaction.js";
 export { inferOpenAiCompatibleBiller } from "./billing.js";
+export { isAgentBundleContentKind } from "./types.js";
+export {
+  createHttpAgentRuntimeBroker,
+  type HttpAgentRuntimeBrokerOptions,
+} from "./http-agent-runtime-broker.js";
