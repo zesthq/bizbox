@@ -531,8 +531,13 @@ describe("openclaw gateway adapter execute", () => {
       expect(String(payload?.message ?? "")).toContain("First comment");
       expect(String(payload?.message ?? "")).toContain("\"commentIds\":[\"comment-1\",\"comment-2\"]");
       expect(String(payload?.message ?? "")).toContain("\"latestCommentId\":\"comment-2\"");
-      // Regression guard for #606/#617/#626: OpenClaw rejects unknown top-level agent params.
-      expect(payload?.paperclip).toBeUndefined();
+      // paperclip structured payload is now forwarded to the gateway agent.
+      expect(payload?.paperclip).toMatchObject({
+        runId: "run-123",
+        taskId: "task-123",
+        issueId: "issue-123",
+        wakeReason: "issue_assigned",
+      });
 
       expect(logs.some((entry) => entry.includes("[openclaw-gateway:event] run=run-123 stream=assistant"))).toBe(true);
     } finally {
