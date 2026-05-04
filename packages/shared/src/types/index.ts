@@ -296,3 +296,25 @@ export type {
   PluginDatabaseNamespaceMode,
   PluginDatabaseNamespaceStatus,
 } from "./plugin.js";
+export type {
+  BuilderSessionState,
+  BuilderMessageRole,
+  BuilderProviderType,
+  BuilderProposalStatus,
+  BuilderToolCall,
+  BuilderToolResult,
+  BuilderMessageContent,
+  BuilderMessage,
+  BuilderSession,
+  BuilderSessionDetail,
+  BuilderProviderSettings,
+  BuilderToolDescriptor,
+  BuilderToolCatalog,
+  BuilderProposal,
+} from "./builder.js";
+export {
+  BUILDER_SESSION_STATES,
+  BUILDER_MESSAGE_ROLES,
+  BUILDER_PROVIDER_TYPES,
+  BUILDER_PROPOSAL_STATUSES,
+} from "./builder.js";
