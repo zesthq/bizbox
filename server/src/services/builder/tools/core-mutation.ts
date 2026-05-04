@@ -437,10 +437,11 @@ const hireAgent: BuilderTool = defineMutationTool({
     )})`;
   },
   async apply(_payload, _ctx) {
-    // The approvalService handles the actual hire when the board approves
-    // the linked approval row. The Builder UI just marks the proposal applied
-    // once the operator clicks "Apply" here, which means "yes, please send
-    // this through the standard Approvals queue".
+    // No-op applier: the actual hire is performed by `approvalService.approve`
+    // when the linked `hire_agent` approval row is approved through the
+    // standard Approvals UI (see services/approvals.ts). The Builder
+    // proposal is marked applied here purely to record that the operator
+    // sent the request forward; the side effect happens elsewhere.
     return {
       summary: "Hire request sent to Approvals queue",
       entityType: "approval",
@@ -597,9 +598,10 @@ const grantAccess: BuilderTool = defineMutationTool({
     return `Grant ${String(payload.role)} access to user ${String(payload.userId)}`;
   },
   async apply(_payload, _ctx) {
-    // The grant is performed by the access service when the linked approval
-    // is approved; here we only log an audit entry confirming the operator
-    // sent the proposal forward.
+    // No-op applier: the actual access grant is performed by
+    // `approvalService.approve` when the linked `grant_access` approval row
+    // is approved through the standard Approvals UI. The Builder proposal
+    // records that the operator sent the request forward.
     return {
       summary: "Access grant request sent to Approvals queue",
       entityType: "approval",

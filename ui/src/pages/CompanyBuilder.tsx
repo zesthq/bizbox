@@ -16,14 +16,16 @@ import type {
 } from "@paperclipai/shared";
 
 /**
- * Company AI Builder — Phase 0 page.
+ * Company AI Builder page.
  *
- * Minimal three-pane layout:
+ * Three-pane layout:
  *
- *   [ session list ] [ chat transcript ] [ settings panel ]
+ *   [ session list ] [ chat transcript + inline proposal actions ] [ settings panel ]
  *
- * Phase 0 only ships read-only tools, so there's no proposal/diff UI yet —
- * those land in Phase 1.
+ * Mutation tools (create_routine, hire_agent, …) produce a `builder_proposal`
+ * which surfaces inline next to the originating tool result with Apply /
+ * Reject buttons. Governed primitives also create a row in the Approvals
+ * queue (handled by the existing Approvals UI).
  */
 
 const QUERY_KEY = ["builder"] as const;

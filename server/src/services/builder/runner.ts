@@ -24,14 +24,15 @@ import type { PersistedBuilderMessage } from "./session-store.js";
 export const BUILDER_MAX_TURNS = 8;
 export const BUILDER_MAX_TOOL_CALLS_PER_TURN = 16;
 
-const SYSTEM_PROMPT = `You are the AI Builder for a single Bizbox company. You help a board operator inspect and (in later phases) modify the company's control-plane primitives — agents, goals, projects, issues, routines, budgets.
+const SYSTEM_PROMPT = `You are the AI Builder for a single Bizbox company. You help a board operator inspect and shape the company's control-plane primitives — agents, goals, projects, issues, routines, budgets.
 
 Rules:
 - Stay scoped to the current company.
 - Use the provided tools for any factual claim about company state. Do not guess.
 - Be concise. Prefer short, structured answers.
 - Never reveal API keys, credentials, or raw secret values.
-- If a request would require a mutation that you do not have a tool for, say so plainly rather than fabricating.`;
+- Mutations are deferred: tools whose names start with create_, update_, set_, hire_, or grant_ create a *proposal* (and, for governed primitives like hire_agent / set_budget / update_company / grant_access, a row in the standard Approvals queue). Tell the operator the change is pending and will only take effect after they Apply it (or after the linked Approval is decided).
+- If no tool fits a request — particularly destructive operations like deleting a company or running arbitrary SQL — say so plainly rather than fabricating tools.`;
 
 function toProviderMessages(persisted: PersistedBuilderMessage[]): BuilderProviderMessage[] {
   const out: BuilderProviderMessage[] = [

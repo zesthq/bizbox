@@ -105,6 +105,18 @@ export interface PluginToolDeclaration {
    * default agent-only behaviour.
    */
   surfaces?: PluginToolSurface[];
+  /**
+   * Hint that this tool performs side effects on Bizbox state (or external
+   * state the operator is responsible for). Used by the Builder UI to badge
+   * the tool as "approval-gated" so operators know to scrutinise it.
+   *
+   * In v1 plugin tools cannot create native `builder_proposals` — they are
+   * dispatched directly into the plugin worker. Plugins that need governed
+   * mutations should expose them on the agent surface where the existing
+   * Approvals flow can mediate, and only put pure compute / read-only
+   * helpers on the `"builder"` surface.
+   */
+  requiresApproval?: boolean;
 }
 
 /**

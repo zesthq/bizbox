@@ -17,6 +17,15 @@ import type {
  * The bridge is intentionally read-through: it queries the dispatcher every
  * time the catalog is requested so a plugin install / uninstall is reflected
  * immediately without restart.
+ *
+ * Security note: plugin tools are dispatched directly into the plugin worker
+ * — they do **not** go through the `builder_proposals` lifecycle, because
+ * the host doesn't know the semantic shape of arbitrary plugin actions.
+ * Plugin authors that need governed, board-approved mutations should expose
+ * those tools on the **agent** surface and rely on the existing Approvals
+ * flow there. The `requiresApproval` field in the manifest is propagated to
+ * the Builder UI so operators can see which tools self-declare as
+ * side-effecting and scrutinise them before invoking.
  */
 
 let _dispatcher: PluginToolDispatcher | null = null;
@@ -39,7 +48,7 @@ export function getPluginBuilderTools(_db: Db): BuilderTool[] {
       name: tool.name,
       description: tool.description,
       parametersSchema: tool.parametersSchema,
-      requiresApproval: false,
+      requiresApproval: tool.requiresApproval,
       capability: `plugin.${tool.pluginId}`,
       source: `plugin.${tool.pluginId}`,
       async run(params: Record<string, unknown>, ctx: BuilderToolRunContext): Promise<BuilderToolRunResult> {

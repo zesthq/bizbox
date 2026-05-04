@@ -72,6 +72,12 @@ export interface RegisteredTool {
    * that include `"builder"` are bridged into the Builder tool registry.
    */
   surfaces: string[];
+  /**
+   * Whether the tool performs side effects worth surfacing as
+   * approval-gated in the Builder UI. v1 plugin tools cannot create
+   * native `builder_proposals`; this flag is informational.
+   */
+  requiresApproval: boolean;
 }
 
 /**
@@ -271,6 +277,7 @@ export function createPluginToolRegistry(
       description: decl.description,
       parametersSchema: decl.parametersSchema,
       surfaces: decl.surfaces && decl.surfaces.length > 0 ? [...decl.surfaces] : ["agent"],
+      requiresApproval: decl.requiresApproval ?? false,
     };
 
     byNamespace.set(namespacedName, entry);
