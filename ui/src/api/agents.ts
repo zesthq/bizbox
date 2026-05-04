@@ -63,7 +63,7 @@ export interface AgentHireResponse {
 }
 
 export interface AgentThreadMessagesResponse {
-  thread: AgentThread;
+  thread: AgentThread | null;
   messages: AgentThreadMessage[];
 }
 

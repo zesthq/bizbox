@@ -53,7 +53,7 @@ export const AgentChatTab = memo(function AgentChatTab({
     refetchInterval: 3000,
   });
 
-  const threadId = threadResult?.thread.id ?? null;
+  const threadId = threadResult?.thread?.id ?? null;
 
   const { data: companyLiveRuns } = useQuery({
     queryKey: [...queryKeys.heartbeats(companyId, agentId), "live"] as const,

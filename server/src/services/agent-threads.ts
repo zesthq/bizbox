@@ -225,11 +225,20 @@ export function agentThreadService(db: Db) {
     }) => {
       const now = input.now ?? new Date();
       return db.transaction(async (tx) => {
-        const thread = await ensureActiveThreadTx(tx, {
-          companyId: input.companyId,
-          agentId: input.agentId,
-          now,
-        });
+        // Plain read: do not create/archive threads on read-receipt
+        const [thread] = await tx
+          .select()
+          .from(agentThreads)
+          .where(
+            and(
+              eq(agentThreads.companyId, input.companyId),
+              eq(agentThreads.agentId, input.agentId),
+              eq(agentThreads.status, "active"),
+            ),
+          )
+          .orderBy(desc(agentThreads.createdAt), desc(agentThreads.id))
+          .limit(1);
+        if (!thread) return null;
         const [readState] = await tx
           .insert(agentThreadReads)
           .values({
