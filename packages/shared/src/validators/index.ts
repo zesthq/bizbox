@@ -378,7 +378,11 @@ export {
   createBuilderSessionSchema,
   sendBuilderMessageSchema,
   updateBuilderProviderSettingsSchema,
+  applyBuilderProposalSchema,
+  rejectBuilderProposalSchema,
   type CreateBuilderSession,
   type SendBuilderMessage,
   type UpdateBuilderProviderSettings,
+  type ApplyBuilderProposal,
+  type RejectBuilderProposal,
 } from "./builder.js";
