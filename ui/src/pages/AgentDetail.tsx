@@ -39,6 +39,7 @@ import { Identity } from "../components/Identity";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { RunButton, PauseResumeButton } from "../components/AgentActionButtons";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
+import { AgentChatTab } from "../components/AgentChatTab";
 import { PackageFileTree, buildFileTree } from "../components/PackageFileTree";
 import { ScrollToBottom } from "../components/ScrollToBottom";
 import { formatCents, formatDate, relativeTime, formatTokens, visibleRunCostUsd } from "../lib/utils";
@@ -226,9 +227,10 @@ function scrollToContainerBottom(container: ScrollContainer, behavior: ScrollBeh
   container.scrollTo({ top: container.scrollHeight, behavior });
 }
 
-type AgentDetailView = "dashboard" | "instructions" | "configuration" | "skills" | "runs" | "budget";
+type AgentDetailView = "dashboard" | "chat" | "instructions" | "configuration" | "skills" | "runs" | "budget";
 
 function parseAgentDetailView(value: string | null): AgentDetailView {
+  if (value === "chat") return "chat";
   if (value === "instructions" || value === "prompts") return "instructions";
   if (value === "configure" || value === "configuration") return "configuration";
   if (value === "skills") return "skills";
@@ -741,17 +743,19 @@ export function AgentDetail() {
       return;
     }
     const canonicalTab =
-      activeView === "instructions"
-        ? "instructions"
-        : activeView === "configuration"
-          ? "configuration"
-          : activeView === "skills"
-            ? "skills"
-            : activeView === "runs"
-              ? "runs"
-              : activeView === "budget"
-                ? "budget"
-              : "dashboard";
+      activeView === "chat"
+        ? "chat"
+        : activeView === "instructions"
+          ? "instructions"
+          : activeView === "configuration"
+            ? "configuration"
+            : activeView === "skills"
+              ? "skills"
+              : activeView === "runs"
+                ? "runs"
+                : activeView === "budget"
+                  ? "budget"
+                : "dashboard";
     if (routeAgentRef !== canonicalAgentRef || urlTab !== canonicalTab) {
       navigate(`/agents/${canonicalAgentRef}/${canonicalTab}`, { replace: true });
       return;
@@ -1010,6 +1014,7 @@ export function AgentDetail() {
           <PageTabBar
             items={[
               { value: "dashboard", label: "Dashboard" },
+              { value: "chat", label: "Chat" },
               { value: "instructions", label: "Instructions" },
               { value: "skills", label: "Skills" },
               { value: "configuration", label: "Configuration" },
@@ -1096,6 +1101,14 @@ export function AgentDetail() {
           runtimeState={runtimeState}
           agentId={agent.id}
           agentRouteId={canonicalAgentRef}
+        />
+      )}
+
+      {activeView === "chat" && resolvedCompanyId && (
+        <AgentChatTab
+          agentId={agent.id}
+          companyId={resolvedCompanyId}
+          runs={heartbeats ?? []}
         />
       )}
 
@@ -2921,6 +2934,137 @@ function RunListItem({ run, isSelected, agentId }: { run: HeartbeatRun; isSelect
         </div>
       )}
     </Link>
+  );
+}
+
+/* ---- Agent Chat Tab ---- */
+
+function AgentChatTab({
+  agentId,
+  companyId,
+  runs,
+}: {
+  agentId: string;
+  companyId: string;
+  runs: HeartbeatRun[];
+}) {
+  const sorted = useMemo(
+    () =>
+      [...runs].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      ),
+    [runs],
+  );
+  const latestRun = sorted[0] ?? null;
+
+  if (!latestRun) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No runs yet. Start a heartbeat to see the chat transcript here.
+      </p>
+    );
+  }
+
+  return <AgentChatRunView key={latestRun.id} run={latestRun} />;
+}
+
+function AgentChatRunView({ run: initialRun }: { run: HeartbeatRun }) {
+  const { data: hydratedRun } = useQuery({
+    queryKey: queryKeys.runDetail(initialRun.id),
+    queryFn: () => heartbeatsApi.get(initialRun.id),
+    enabled: Boolean(initialRun.id),
+  });
+  const run = hydratedRun ?? initialRun;
+  const isLive = run.status === "running" || run.status === "queued";
+
+  // Fetch events
+  const { data: events = [] } = useQuery({
+    queryKey: [...queryKeys.runDetail(run.id), "events"],
+    queryFn: () => heartbeatsApi.events(run.id, 0, 200),
+    refetchInterval: isLive ? 3000 : false,
+  });
+
+  // Fetch log content
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const [logLoading, setLogLoading] = useState(true);
+
+  useEffect(() => {
+    if (!run.logRef && !isLive) {
+      setLogLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const fetchLog = async () => {
+      try {
+        const result = await heartbeatsApi.log(run.id, 0, 256_000);
+        if (!cancelled) {
+          setLogLines(result.content.split("\n"));
+          setLogLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setLogLines([]);
+          setLogLoading(false);
+        }
+      }
+    };
+    fetchLog();
+    if (isLive) {
+      const interval = setInterval(fetchLog, 3000);
+      return () => { cancelled = true; clearInterval(interval); };
+    }
+    return () => { cancelled = true; };
+  }, [run.id, run.logRef, isLive]);
+
+  const censorUsernameInLogs = useQuery({
+    queryKey: queryKeys.instance.generalSettings,
+    queryFn: () => instanceSettingsApi.getGeneral(),
+  }).data?.censorUsernameInLogs === true;
+
+  const [parserTick, setParserTick] = useState(0);
+  const adapterType = (run as unknown as Record<string, unknown>).adapterType as string | undefined;
+  const adapter = getUIAdapter(adapterType ?? "unknown");
+
+  useEffect(() => {
+    return onAdapterChange(() => setParserTick((t) => t + 1));
+  }, []);
+
+  const transcript = useMemo(
+    () => buildTranscript(logLines, adapter, { censorUsernameInLogs }),
+    [adapter, censorUsernameInLogs, logLines, parserTick],
+  );
+
+  if (logLoading) {
+    return <p className="text-xs text-muted-foreground">Loading chat transcript...</p>;
+  }
+
+  if (transcript.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {isLive ? "Waiting for output..." : "No transcript output for the latest run."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {isLive && (
+        <div className="flex items-center gap-1 text-xs text-cyan-400">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400" />
+          </span>
+          Live
+        </div>
+      )}
+      <div className="rounded-2xl border border-border/70 bg-background/40 p-3 sm:p-4">
+        <RunTranscriptView
+          entries={transcript}
+          mode="nice"
+          emptyMessage="No transcript output."
+        />
+      </div>
+    </div>
   );
 }
 
