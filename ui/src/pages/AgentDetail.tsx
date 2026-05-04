@@ -635,7 +635,8 @@ export function AgentDetail() {
   const activeView = urlRunId ? "runs" as AgentDetailView : parseAgentDetailView(urlTab ?? null);
   const needsDashboardData = activeView === "dashboard";
   const needsRunData = activeView === "runs" || Boolean(urlRunId);
-  const shouldLoadHeartbeats = needsDashboardData || needsRunData;
+  const needsChatData = activeView === "chat";
+  const shouldLoadHeartbeats = needsDashboardData || needsRunData || needsChatData;
   const [configDirty, setConfigDirty] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const saveConfigActionRef = useRef<(() => void) | null>(null);
