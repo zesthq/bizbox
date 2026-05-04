@@ -153,11 +153,17 @@ export const AgentChatTab = memo(function AgentChatTab({
         queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(companyId, agentId) }),
       ]);
 
-      await agentsApi.markThreadRead(
-        agentId,
-        { lastReadMessageId: result.message.id },
-        companyId,
-      );
+      // Mark as read (non-critical, don't fail the send if this errors)
+      try {
+        await agentsApi.markThreadRead(
+          agentId,
+          { lastReadMessageId: result.message.id },
+          companyId,
+        );
+      } catch (readError) {
+        console.error("Failed to mark thread as read:", readError);
+        // Continue - message was sent successfully
+      }
     } catch (error) {
       // On error, remove optimistic message
       setOptimisticMessages((prev) => prev.filter((m) => m.clientId !== optimisticId));

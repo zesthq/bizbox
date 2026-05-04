@@ -37,6 +37,7 @@ const mockAgentService = vi.hoisted(() => ({
 }));
 
 const mockAgentThreadService = vi.hoisted(() => ({
+  getActiveThread: vi.fn(),
   ensureActiveThread: vi.fn(),
   listMessages: vi.fn(),
   markRead: vi.fn(),
@@ -170,6 +171,16 @@ describe("agent thread routes", () => {
         updatedAt: new Date("2026-05-04T09:00:00.000Z"),
       },
     });
+    mockAgentThreadService.getActiveThread.mockResolvedValue({
+      id: "thread-1",
+      companyId,
+      agentId,
+      status: "active",
+      archivedAt: null,
+      lastActivityAt: new Date("2026-05-04T09:00:00.000Z"),
+      createdAt: new Date("2026-05-04T09:00:00.000Z"),
+      updatedAt: new Date("2026-05-04T09:00:00.000Z"),
+    });
     mockAgentThreadService.ensureActiveThread.mockResolvedValue({
       id: "thread-1",
       companyId,
@@ -237,7 +248,7 @@ describe("agent thread routes", () => {
     const res = await request(app).get(`/api/agents/${agentId}/thread`);
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(mockAgentThreadService.ensureActiveThread).toHaveBeenCalledWith({
+    expect(mockAgentThreadService.getActiveThread).toHaveBeenCalledWith({
       companyId,
       agentId,
     });

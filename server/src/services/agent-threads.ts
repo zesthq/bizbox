@@ -58,6 +58,23 @@ export function agentThreadService(db: Db) {
   }
 
   return {
+    getActiveThread: async (input: { companyId: string; agentId: string }) => {
+      // Pure read: returns current active thread without creating/archiving
+      const [thread] = await db
+        .select()
+        .from(agentThreads)
+        .where(
+          and(
+            eq(agentThreads.companyId, input.companyId),
+            eq(agentThreads.agentId, input.agentId),
+            eq(agentThreads.status, "active"),
+          ),
+        )
+        .orderBy(desc(agentThreads.createdAt), desc(agentThreads.id))
+        .limit(1);
+      return thread ?? null;
+    },
+
     ensureActiveThread: async (input: { companyId: string; agentId: string; now?: Date }) => {
       const now = input.now ?? new Date();
       return db.transaction((tx) => ensureActiveThreadTx(tx, {
@@ -166,13 +183,25 @@ export function agentThreadService(db: Db) {
     },
 
     listMessages: async (input: { companyId: string; agentId: string; now?: Date }) => {
-      const now = input.now ?? new Date();
       return db.transaction(async (tx) => {
-        const thread = await ensureActiveThreadTx(tx, {
-          companyId: input.companyId,
-          agentId: input.agentId,
-          now,
-        });
+        // Pure read: fetch current active thread without creating/archiving
+        const [thread] = await tx
+          .select()
+          .from(agentThreads)
+          .where(
+            and(
+              eq(agentThreads.companyId, input.companyId),
+              eq(agentThreads.agentId, input.agentId),
+              eq(agentThreads.status, "active"),
+            ),
+          )
+          .orderBy(desc(agentThreads.createdAt), desc(agentThreads.id))
+          .limit(1);
+
+        if (!thread) {
+          return { thread: null, messages: [] };
+        }
+
         const messages = await tx
           .select()
           .from(agentThreadMessages)

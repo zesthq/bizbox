@@ -2708,7 +2708,7 @@ export function agentRoutes(db: Db) {
       return;
     }
     assertCompanyAccess(req, agent.companyId);
-    const thread = await agentThreadsSvc.ensureActiveThread({
+    const thread = await agentThreadsSvc.getActiveThread({
       companyId: agent.companyId,
       agentId: agent.id,
     });
