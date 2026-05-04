@@ -83,10 +83,14 @@ export async function runBuilderTurn(opts: {
   companyId: string;
   actor: BuilderActor;
   signal?: AbortSignal;
+  /** Optional injected store (test-only). Defaults to the real Drizzle-backed store. */
+  store?: ReturnType<typeof builderSessionStore>;
+  /** Optional injected tool catalog (test-only). Defaults to the registry. */
+  toolCatalog?: ReturnType<typeof getBuilderToolCatalog>;
 }) {
   const { db, provider, providerConfig, sessionId, companyId, actor, signal } = opts;
-  const store = builderSessionStore(db);
-  const catalog = getBuilderToolCatalog(db);
+  const store = opts.store ?? builderSessionStore(db);
+  const catalog = opts.toolCatalog ?? getBuilderToolCatalog(db);
 
   const providerTools = Array.from(catalog.values()).map((tool) => ({
     name: tool.name,
