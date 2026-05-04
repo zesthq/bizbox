@@ -372,3 +372,13 @@ export {
   type SetPluginState,
   type ListPluginState,
 } from "./plugin.js";
+
+export {
+  builderProviderTypeSchema,
+  createBuilderSessionSchema,
+  sendBuilderMessageSchema,
+  updateBuilderProviderSettingsSchema,
+  type CreateBuilderSession,
+  type SendBuilderMessage,
+  type UpdateBuilderProviderSettings,
+} from "./builder.js";
