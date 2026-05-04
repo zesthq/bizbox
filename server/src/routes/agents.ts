@@ -8,6 +8,8 @@ import {
   agentSkillSyncSchema,
   agentMineInboxQuerySchema,
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
+  markAgentThreadReadSchema,
+  postAgentThreadMessageSchema,
   createAgentKeySchema,
   createAgentHireSchema,
   createAgentSchema,
@@ -52,6 +54,7 @@ import {
   syncInstructionsBundleConfigFromFilePath,
   workspaceOperationService,
 } from "../services/index.js";
+import { agentThreadService } from "../services/agent-threads.js";
 import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
 import { assertBoard, assertCompanyAccess, assertInstanceAdmin, getActorInfo } from "./authz.js";
 import {
@@ -137,6 +140,7 @@ export function agentRoutes(db: Db) {
   const approvalsSvc = approvalService(db);
   const budgets = budgetService(db);
   const heartbeat = heartbeatService(db);
+  const agentThreadsSvc = agentThreadService(db);
   const issueApprovalsSvc = issueApprovalService(db);
   const secretsSvc = secretService(db);
   const instructions = agentInstructionsService();
@@ -2634,6 +2638,117 @@ export function agentRoutes(db: Db) {
     });
 
     res.status(202).json(run);
+  });
+
+  router.post("/agents/:id/thread/messages", validate(postAgentThreadMessageSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+    assertCompanyAccess(req, agent.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Only company humans can post agent thread messages" });
+      return;
+    }
+
+    const result = await agentThreadsSvc.postUserMessage({
+      companyId: agent.companyId,
+      agentId: agent.id,
+      authorUserId: req.actor.userId ?? "board",
+      body: req.body.body,
+    });
+
+    const actor = getActorInfo(req);
+    await heartbeat.wakeup(agent.id, {
+      source: "on_demand",
+      triggerDetail: "manual",
+      reason: "agent_thread_message",
+      requestedByActorType: actor.actorType,
+      requestedByActorId: actor.actorId,
+      payload: {
+        agentThreadId: result.thread.id,
+        agentThreadMessageId: result.message.id,
+        agentThreadMessageBody: result.message.body,
+      },
+      contextSnapshot: {
+        wakeReason: "agent_thread_message",
+        agentThreadId: result.thread.id,
+        agentThreadMessageId: result.message.id,
+        agentThreadMessageBody: result.message.body,
+        taskKey: `agent-thread:${result.thread.id}`,
+        forceFreshSession: false,
+      },
+    });
+
+    await logActivity(db, {
+      companyId: agent.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "agent_thread.message_created",
+      entityType: "agent_thread",
+      entityId: result.thread.id,
+      details: {
+        agentId: agent.id,
+        messageId: result.message.id,
+      },
+    });
+
+    res.status(201).json(result);
+  });
+
+  router.get("/agents/:id/thread", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+    assertCompanyAccess(req, agent.companyId);
+    const thread = await agentThreadsSvc.getActiveThread({
+      companyId: agent.companyId,
+      agentId: agent.id,
+    });
+    res.json(thread);
+  });
+
+  router.get("/agents/:id/thread/messages", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+    assertCompanyAccess(req, agent.companyId);
+    const result = await agentThreadsSvc.listMessages({
+      companyId: agent.companyId,
+      agentId: agent.id,
+    });
+    res.json(result);
+  });
+
+  router.post("/agents/:id/thread/read", validate(markAgentThreadReadSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+    assertCompanyAccess(req, agent.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Only company humans can update agent thread read state" });
+      return;
+    }
+    const result = await agentThreadsSvc.markRead({
+      companyId: agent.companyId,
+      agentId: agent.id,
+      userId: req.actor.userId ?? "board",
+      lastReadMessageId: req.body.lastReadMessageId ?? null,
+    });
+    res.json(result);
   });
 
   router.post("/agents/:id/heartbeat/invoke", async (req, res) => {
