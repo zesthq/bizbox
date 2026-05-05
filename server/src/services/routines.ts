@@ -1644,7 +1644,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           completedAt: new Date(),
         });
       }
-      if (issue.status === "blocked" || issue.status === "cancelled") {
+      if (issue.status === "cancelled") {
         return finalizeRun(issue.originRunId, {
           status: "failed",
           failureReason: `Execution issue moved to ${issue.status}`,

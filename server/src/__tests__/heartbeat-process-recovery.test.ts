@@ -18,6 +18,8 @@ import {
   issueDocuments,
   issueRelations,
   issues,
+  routines,
+  routineRuns,
 } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -64,6 +66,7 @@ vi.mock("../adapters/index.ts", async () => {
 });
 
 import { heartbeatService } from "../services/heartbeat.ts";
+import { issueService } from "../services/issues.ts";
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
@@ -309,6 +312,8 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     await db.delete(documentRevisions);
     await db.delete(documents);
     await db.delete(issueRelations);
+    await db.delete(routineRuns);
+    await db.delete(routines);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await db.delete(issueComments);
       await db.delete(issueDocuments);
@@ -445,6 +450,9 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     runStatus: "failed" | "timed_out" | "cancelled" | "succeeded";
     retryReason?: "assignment_recovery" | "issue_continuation_needed" | null;
     assignToUser?: boolean;
+    originKind?: "routine_execution";
+    originId?: string;
+    originRunId?: string;
   }) {
     const companyId = randomUUID();
     const agentId = randomUUID();
@@ -521,6 +529,9 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       assigneeUserId: input.assignToUser ? "user-1" : null,
       checkoutRunId: input.status === "in_progress" ? runId : null,
       executionRunId: null,
+      originKind: input.originKind ?? "manual",
+      originId: input.originId ?? null,
+      originRunId: input.originRunId ?? null,
       issueNumber: 1,
       identifier: `${issuePrefix}-1`,
       startedAt: input.status === "in_progress" ? now : null,
@@ -1241,6 +1252,223 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     if (retryRun) {
       await waitForRunToSettle(heartbeat, retryRun.id);
     }
+  });
+
+  it("skips routine_execution todo issues in generic stranded-work reconciliation", async () => {
+    const routineId = randomUUID();
+    const routineRunId = randomUUID();
+    const { agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "todo",
+      runStatus: "failed",
+      originKind: "routine_execution",
+      originId: routineId,
+      originRunId: routineRunId,
+    });
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(result.dispatchRequeued).toBe(0);
+    expect(result.continuationRequeued).toBe(0);
+    expect(result.escalated).toBe(0);
+    expect(result.skippedRoutineExecutions).toBe(1);
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.status).toBe("todo");
+
+    const wakeups = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakeups).toHaveLength(1);
+
+    const runs = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId));
+    expect(runs).toHaveLength(1);
+  });
+
+  it("skips routine_execution in-progress issues in generic stranded-work reconciliation", async () => {
+    const routineId = randomUUID();
+    const routineRunId = randomUUID();
+    const { agentId, issueId, runId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "failed",
+      originKind: "routine_execution",
+      originId: routineId,
+      originRunId: routineRunId,
+    });
+    const heartbeat = heartbeatService(db);
+
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(result.dispatchRequeued).toBe(0);
+    expect(result.continuationRequeued).toBe(0);
+    expect(result.escalated).toBe(0);
+    expect(result.skippedRoutineExecutions).toBe(1);
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.status).toBe("in_progress");
+
+    const wakeups = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakeups).toHaveLength(1);
+
+    const runs = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId));
+    expect(runs).toHaveLength(1);
+  });
+
+  it("keeps blocked routine execution parked until blocker resolution wakes it", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const routineId = randomUUID();
+    const routineRunId = randomUUID();
+    const blockerId = randomUUID();
+    const parentIssueId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+    const now = new Date("2026-03-19T00:00:00.000Z");
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(routines).values({
+      id: routineId,
+      companyId,
+      projectId: null,
+      goalId: null,
+      parentIssueId: null,
+      title: "Routine parent waits on child",
+      description: "Wait until the blocker is resolved",
+      assigneeAgentId: agentId,
+      priority: "high",
+      status: "active",
+      concurrencyPolicy: "coalesce_if_active",
+      catchUpPolicy: "skip_missed",
+      variables: [],
+    });
+    await db.insert(issues).values([
+      {
+        id: blockerId,
+        companyId,
+        title: "Finish child task",
+        status: "todo",
+        priority: "high",
+        assigneeAgentId: agentId,
+        issueNumber: 1,
+        identifier: `${issuePrefix}-1`,
+      },
+      {
+        id: parentIssueId,
+        companyId,
+        title: "Routine parent waits on child",
+        status: "blocked",
+        priority: "high",
+        assigneeAgentId: agentId,
+        originKind: "routine_execution",
+        originId: routineId,
+        originRunId: routineRunId,
+        issueNumber: 2,
+        identifier: `${issuePrefix}-2`,
+        startedAt: now,
+      },
+    ]);
+    await db.insert(issueRelations).values({
+      companyId,
+      issueId: blockerId,
+      relatedIssueId: parentIssueId,
+      type: "blocks",
+      createdByAgentId: agentId,
+    });
+    await db.insert(routineRuns).values({
+      id: routineRunId,
+      companyId,
+      routineId,
+      triggerId: null,
+      source: "manual",
+      status: "issue_created",
+      triggeredAt: now,
+      linkedIssueId: parentIssueId,
+    });
+
+    const routineSvc = issueService(db);
+    const heartbeat = heartbeatService(db);
+
+    const reconcileBefore = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(reconcileBefore.dispatchRequeued).toBe(0);
+    expect(reconcileBefore.continuationRequeued).toBe(0);
+    expect(reconcileBefore.skippedRoutineExecutions).toBe(0);
+
+    const runBefore = await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.id, routineRunId))
+      .then((rows) => rows[0] ?? null);
+    expect(runBefore?.status).toBe("issue_created");
+    expect(runBefore?.completedAt).toBeNull();
+
+    const wakeupsBefore = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakeupsBefore).toHaveLength(0);
+
+    await db.update(issues).set({ status: "done", updatedAt: new Date("2026-03-19T00:10:00.000Z") }).where(eq(issues.id, blockerId));
+
+    const dependents = await routineSvc.listWakeableBlockedDependents(blockerId);
+    expect(dependents).toEqual([
+      expect.objectContaining({
+        id: parentIssueId,
+        assigneeAgentId: agentId,
+        blockerIssueIds: [blockerId],
+      }),
+    ]);
+
+    const wake = await heartbeat.wakeup(agentId, {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "issue_blockers_resolved",
+      payload: {
+        issueId: parentIssueId,
+        resolvedBlockerIssueId: blockerId,
+        blockerIssueIds: [blockerId],
+      },
+      contextSnapshot: {
+        issueId: parentIssueId,
+        taskId: parentIssueId,
+        wakeReason: "issue_blockers_resolved",
+        source: "issue.blockers_resolved",
+        resolvedBlockerIssueId: blockerId,
+        blockerIssueIds: [blockerId],
+      },
+    });
+    expect(wake).not.toBeNull();
+    if (wake?.id) {
+      await waitForRunToSettle(heartbeat, wake.id);
+    }
+
+    const wakeupsAfter = await db
+      .select({
+        reason: agentWakeupRequests.reason,
+        payload: agentWakeupRequests.payload,
+      })
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakeupsAfter).toHaveLength(1);
+    expect(wakeupsAfter[0]?.reason).toBe("issue_blockers_resolved");
+
+    const runAfter = await db
+      .select()
+      .from(routineRuns)
+      .where(eq(routineRuns.id, routineRunId))
+      .then((rows) => rows[0] ?? null);
+    expect(runAfter?.status).toBe("issue_created");
+    expect(runAfter?.completedAt).toBeNull();
   });
 
   it("does not reconcile user-assigned work through the agent stranded-work recovery path", async () => {

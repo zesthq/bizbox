@@ -150,6 +150,10 @@ Blocked issues should stay idle while blockers remain unresolved. Paperclip shou
 
 If a parent is truly waiting on a child, model that with blockers. Do not rely on the parent/child relationship alone.
 
+For `routine_execution` issues, this blocked state is also a healthy parked wait state. Moving a routine execution issue to `blocked` must not fail its linked `routine_runs` row. The linked routine run stays open in `issue_created` until the execution issue reaches a terminal outcome such as `done` or `cancelled`.
+
+Blocked routine execution issues should resume only from normal dependency wake semantics. When all blockers resolve, `issue_blockers_resolved` is the expected automatic wake path. Generic stranded-assigned-work reconciliation does not manage blocked routine execution issues and must not enqueue assignment-recovery or continuation-recovery retries for them.
+
 ## 7. Consistent Execution Path Rules
 
 For agent-assigned, non-terminal, actionable issues, Bizbox should not leave work in a state where nobody is working it and nothing will wake it.
@@ -213,6 +217,8 @@ Recovery rule:
 - if that continuation wake also finishes and the issue is still stranded, Bizbox moves the issue to `blocked` and posts a visible comment
 
 This is an active-work continuity recovery.
+
+Routine execution issues are excluded from this generic continuation recovery path. Their resume behavior comes from routine execution state and blocker wakeups, not from stranded `in_progress` reconciliation.
 
 ## 9. Startup and Periodic Reconciliation
 

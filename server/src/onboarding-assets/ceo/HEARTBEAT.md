@@ -41,7 +41,7 @@ Status quick guide:
 - `todo`: ready to execute, but not yet checked out.
 - `in_progress`: actively owned work. Agents should reach this by checkout, not by manually flipping status.
 - `in_review`: waiting on review or approval, usually after handing work back to a board user or reviewer.
-- `blocked`: cannot move until something specific changes. Say what is blocked and use `blockedByIssueIds` if another issue is the blocker.
+- `blocked`: cannot move until something specific changes. Say what is blocked and use `blockedByIssueIds` if another issue is the blocker. For `routine_execution` parent issues, this is a healthy parked wait state and the routine run should stay open until dependency wakeup resumes the work or the issue is cancelled.
 - `done`: finished.
 - `cancelled`: intentionally dropped.
 

@@ -4237,11 +4237,18 @@ export function heartbeatService(db: Db) {
       continuationRequeued: 0,
       orphanBlockersAssigned: 0,
       escalated: 0,
+      skippedRoutineExecutions: 0,
       skipped: 0,
       issueIds: [] as string[],
     };
 
     for (const issue of candidates) {
+      if (issue.originKind === "routine_execution") {
+        result.skippedRoutineExecutions += 1;
+        result.skipped += 1;
+        continue;
+      }
+
       const agentId = issue.assigneeAgentId;
       if (!agentId) {
         result.skipped += 1;

@@ -124,6 +124,7 @@ vi.mock("../services/index.js", () => ({
       dispatchRequeued: 0,
       continuationRequeued: 0,
       escalated: 0,
+      skippedRoutineExecutions: 0,
       skipped: 0,
       issueIds: [],
     })),
