@@ -3797,6 +3797,7 @@ export function heartbeatService(db: Db) {
 
     for (const [index, artifact] of input.artifacts.entries()) {
       if (!artifact.sourcePath.trim()) continue;
+      try {
 
       const stored = await storage.putFile({
         companyId: input.run.companyId,
@@ -3914,6 +3915,12 @@ export function heartbeatService(db: Db) {
           entityId: issueId,
           details: { workProductId: created.id, type: created.type, provider: created.provider },
         });
+      }
+      } catch (err) {
+        logger.warn(
+          { err, sourcePath: artifact.sourcePath, runId: input.run.id },
+          "failed to persist artifact — skipping and continuing with remaining artifacts",
+        );
       }
     }
   }

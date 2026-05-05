@@ -89,11 +89,7 @@ export function parseIssueArtifactWorkProductMetadata(
   const contentType = readString(metadata.contentType);
   const byteSize = readNumber(metadata.byteSize);
   const originalFilename =
-    typeof metadata.originalFilename === "string"
-      ? metadata.originalFilename
-      : metadata.originalFilename === null
-        ? null
-        : null;
+    typeof metadata.originalFilename === "string" ? metadata.originalFilename : null;
 
   if (!attachmentId || !contentPath || !sourcePath || !contentType || byteSize === null) {
     return null;

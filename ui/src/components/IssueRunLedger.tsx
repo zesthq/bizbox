@@ -328,6 +328,19 @@ export function IssueRunLedgerContent({
   workProducts,
 }: IssueRunLedgerContentProps) {
   const ledgerRuns = useMemo(() => mergeRuns(runs, liveRuns, activeRun), [activeRun, liveRuns, runs]);
+  const artifactsByRunId = useMemo(() => {
+    const map = new Map<string, RunArtifactSummary[]>();
+    for (const product of workProducts) {
+      if (!product.createdByRunId) continue;
+      const metadata = parseIssueArtifactWorkProductMetadata(product);
+      if (!metadata) continue;
+      const entry: RunArtifactSummary = { id: product.id, title: product.title, contentPath: metadata.contentPath };
+      const existing = map.get(product.createdByRunId);
+      if (existing) existing.push(entry);
+      else map.set(product.createdByRunId, [entry]);
+    }
+    return map;
+  }, [workProducts]);
   const latestRun = ledgerRuns[0] ?? null;
   const children = childIssueSummary(childIssues);
 
@@ -400,7 +413,7 @@ export function IssueRunLedgerContent({
             const exhausted = hasExhaustedContinuation(run);
             const continuation = continuationLabel(run);
             const retryState = describeRunRetryState(run);
-            const artifacts = artifactSummariesForRun(run.runId, workProducts);
+            const artifacts = artifactsByRunId.get(run.runId) ?? [];
             return (
               <article key={run.runId} className="space-y-2 px-3 py-3">
                 <div className="flex flex-wrap items-center gap-2">
