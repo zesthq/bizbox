@@ -103,6 +103,7 @@ export function workProductService(db: Db) {
               title: data.title,
               url: data.url,
               status: data.status,
+              reviewState: data.reviewState ?? "none",
               summary: data.summary ?? null,
               metadata: data.metadata,
               isPrimary: data.isPrimary,
