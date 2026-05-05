@@ -1374,10 +1374,10 @@ export function issueRoutes(
     }
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
     const artifactValidationIssues = getIssueArtifactWorkProductValidationIssues({
-      type: req.body.type ?? existing.type,
-      url: req.body.url ?? existing.url,
-      metadata: req.body.metadata ?? existing.metadata,
-      createdByRunId: req.body.createdByRunId ?? existing.createdByRunId,
+      type: "type" in req.body ? req.body.type : existing.type,
+      url: "url" in req.body ? req.body.url : existing.url,
+      metadata: "metadata" in req.body ? req.body.metadata : existing.metadata,
+      createdByRunId: "createdByRunId" in req.body ? req.body.createdByRunId : existing.createdByRunId,
     });
     if (artifactValidationIssues.length > 0) {
       res.status(422).json({

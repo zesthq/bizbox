@@ -106,20 +106,5 @@ export function parseIssueArtifactWorkProductMetadata(
   const metadata = asRecord(product.metadata);
   if (!isIssueArtifactWorkProductMetadata(metadata)) return null;
 
-  const attachmentId = readString(metadata.attachmentId);
-  const contentPath = readString(metadata.contentPath);
-  const sourcePath = readString(metadata.sourcePath);
-  const contentType = readString(metadata.contentType);
-  const byteSize = readNumber(metadata.byteSize);
-  const originalFilename =
-    typeof metadata.originalFilename === "string" ? metadata.originalFilename : null;
-
-  return {
-    attachmentId: attachmentId!,
-    contentPath: contentPath!,
-    sourcePath: sourcePath!,
-    contentType: contentType!,
-    byteSize: byteSize!,
-    originalFilename,
-  };
+  return metadata as IssueArtifactWorkProductMetadata;
 }
