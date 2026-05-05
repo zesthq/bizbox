@@ -49,7 +49,7 @@ export const issueArtifactWorkProductMetadataSchema = z.object({
   sourcePath: z.string().trim().min(1),
   contentType: z.string().trim().min(1),
   byteSize: z.number().int().positive(),
-  originalFilename: z.string().trim().min(1).nullable().optional(),
+  originalFilename: z.string().trim().min(1).nullable().optional().transform((v) => v ?? null),
 }).strict().superRefine((value, ctx) => {
   const expectedPath = buildIssueAttachmentContentPath(value.attachmentId);
   if (value.contentPath !== expectedPath) {

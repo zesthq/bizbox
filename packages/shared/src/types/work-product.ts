@@ -88,6 +88,11 @@ export function isIssueArtifactWorkProductMetadata(
   const contentType = readString(metadata.contentType);
   const byteSize = readNumber(metadata.byteSize);
 
+  const originalFilename = metadata.originalFilename;
+  if (originalFilename !== undefined && originalFilename !== null && typeof originalFilename !== "string") {
+    return false;
+  }
+
   return Boolean(
     attachmentId
       && contentPath
@@ -106,5 +111,8 @@ export function parseIssueArtifactWorkProductMetadata(
   const metadata = asRecord(product.metadata);
   if (!isIssueArtifactWorkProductMetadata(metadata)) return null;
 
-  return metadata as IssueArtifactWorkProductMetadata;
+  const originalFilename =
+    typeof metadata.originalFilename === "string" ? metadata.originalFilename : null;
+
+  return { ...(metadata as IssueArtifactWorkProductMetadata), originalFilename };
 }
