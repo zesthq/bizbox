@@ -50,6 +50,22 @@ export function workProductService(db: Db) {
       return row ? toIssueWorkProduct(row) : null;
     },
 
+    findByExternalIdForIssue: async (issueId: string, companyId: string, externalId: string) => {
+      const row = await db
+        .select()
+        .from(issueWorkProducts)
+        .where(
+          and(
+            eq(issueWorkProducts.issueId, issueId),
+            eq(issueWorkProducts.companyId, companyId),
+            eq(issueWorkProducts.externalId, externalId),
+          ),
+        )
+        .orderBy(desc(issueWorkProducts.updatedAt))
+        .then((rows) => rows[0] ?? null);
+      return row ? toIssueWorkProduct(row) : null;
+    },
+
     createForIssue: async (issueId: string, companyId: string, data: Omit<typeof issueWorkProducts.$inferInsert, "issueId" | "companyId">) => {
       const row = await db.transaction(async (tx) => {
         if (data.isPrimary) {
