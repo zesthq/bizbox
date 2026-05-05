@@ -3188,7 +3188,11 @@ export function issueRoutes(
 
     // Emit OTel metric for human-authored comments (board users only).
     if (actor.actorType === "user") {
-      recordHumanComment({ company_id: currentIssue.companyId, issue_id: currentIssue.id });
+      recordHumanComment({
+        company_id: currentIssue.companyId,
+        issue_id: currentIssue.id,
+        assignee_agent_id: currentIssue.assigneeAgentId ?? undefined,
+      });
     }
 
     if (actor.runId) {
