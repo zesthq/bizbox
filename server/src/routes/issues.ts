@@ -3187,7 +3187,10 @@ export function issueRoutes(
     );
 
     // Emit OTel metric for human-authored comments (board users only).
+    logger.info(`otel: actor type is ${actor.actorType}`)
+    logger.info(`otel: comment is ${comment}`)
     if (actor.actorType === "user") {
+      logger.info("otel: recording human comment")
       recordHumanComment({ company_id: currentIssue.companyId, issue_id: currentIssue.id });
     }
 
