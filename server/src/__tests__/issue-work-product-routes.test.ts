@@ -175,4 +175,41 @@ describe("issue work product routes", () => {
     expect(res.status).toBe(200);
     expect(mockWorkProductService.update).toHaveBeenCalledWith(workProductId, { title: "Recovered title" });
   });
+
+  it("rejects artifact updates that try to patch in a filesystem contentPath and fake attachment route", async () => {
+    mockWorkProductService.getById.mockResolvedValue({
+      id: workProductId,
+      companyId,
+      issueId,
+      type: "artifact",
+      url: `/api/attachments/${attachmentId}/content`,
+      metadata: {
+        attachmentId,
+        contentPath: `/api/attachments/${attachmentId}/content`,
+        sourcePath: "deliverables/final-packet.md",
+        contentType: "text/markdown",
+        byteSize: 128,
+        originalFilename: "final-packet.md",
+      },
+      createdByRunId: runId,
+    });
+
+    const res = await request(createApp())
+      .patch(`/api/work-products/${workProductId}`)
+      .send({
+        metadata: {
+          attachmentId,
+          contentPath: "/home/node/.openclaw/workspace-ceo/ceo-config-and-runs-report.md",
+          sourcePath: "deliverables/final-packet.md",
+          contentType: "text/markdown",
+          byteSize: 128,
+          originalFilename: "ceo-config-and-runs-report.md",
+        },
+        url: "/home/node/.openclaw/workspace-ceo/ceo-config-and-runs-report.md",
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("attachment-backed metadata");
+    expect(mockWorkProductService.update).not.toHaveBeenCalled();
+  });
 });

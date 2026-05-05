@@ -1375,6 +1375,7 @@ export function issueRoutes(
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
     const artifactValidationIssues = getIssueArtifactWorkProductValidationIssues({
       type: req.body.type ?? existing.type,
+      url: req.body.url ?? existing.url,
       metadata: req.body.metadata ?? existing.metadata,
       createdByRunId: req.body.createdByRunId ?? existing.createdByRunId,
     });

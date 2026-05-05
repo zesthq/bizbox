@@ -37,13 +37,55 @@ describe("work product validators", () => {
       type: "artifact",
       provider: "paperclip",
       title: "Final packet",
-      url: "https://example.com/artifacts/final-packet",
+      url: validArtifactMetadata.contentPath,
       status: "ready_for_review",
       metadata: validArtifactMetadata,
       createdByRunId: "22222222-2222-4222-8222-222222222222",
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it("rejects artifact metadata that points at a raw filesystem path", () => {
+    const parsed = createIssueWorkProductSchema.safeParse({
+      type: "artifact",
+      provider: "paperclip",
+      title: "Final packet",
+      url: "/home/node/.openclaw/workspace-ceo/ceo-config-and-runs-report.md",
+      status: "ready_for_review",
+      metadata: {
+        ...validArtifactMetadata,
+        contentPath: "/home/node/.openclaw/workspace-ceo/ceo-config-and-runs-report.md",
+      },
+      createdByRunId: "22222222-2222-4222-8222-222222222222",
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) throw new Error("Expected filesystem-backed artifact metadata to fail validation");
+    expect(parsed.error.issues.map((issue) => issue.path.join("."))).toEqual(
+      expect.arrayContaining(["metadata.contentPath"]),
+    );
+  });
+
+  it("rejects artifact metadata with extra contentBase64 payloads", () => {
+    const parsed = createIssueWorkProductSchema.safeParse({
+      type: "artifact",
+      provider: "paperclip",
+      title: "Final packet",
+      url: validArtifactMetadata.contentPath,
+      status: "ready_for_review",
+      metadata: {
+        ...validArtifactMetadata,
+        contentBase64: "IyBGaW5hbCBwYWNrZXQK",
+      },
+      createdByRunId: "22222222-2222-4222-8222-222222222222",
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) throw new Error("Expected extra artifact metadata keys to fail validation");
+    expect(parsed.error.issues.map((issue) => issue.path.join("."))).toEqual(
+      expect.arrayContaining(["metadata"]),
+    );
   });
 
   it("rejects partial artifact updates that try to switch to artifact without the required fields", () => {
@@ -62,6 +104,7 @@ describe("work product validators", () => {
   it("reports no artifact validation issues for non-artifact products", () => {
     expect(getIssueArtifactWorkProductValidationIssues({
       type: "pull_request",
+      url: null,
       metadata: null,
       createdByRunId: null,
     })).toEqual([]);

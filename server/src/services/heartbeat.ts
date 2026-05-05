@@ -3883,7 +3883,10 @@ export function heartbeatService(db: Db) {
         continue;
       }
 
-      const upserted = await workProductsSvc.upsertByExternalId(issueId, input.run.companyId, parsedWorkProduct.data);
+      const upserted = await workProductsSvc.upsertByExternalId(issueId, input.run.companyId, {
+        ...parsedWorkProduct.data,
+        externalId,
+      });
 
       // Re-read the authoritative state to detect a concurrent-run race where
       // another upsert overwrote our metadata after we wrote it.  If the stored

@@ -29,6 +29,10 @@ export const issueWorkProductReviewStateSchema = z.enum([
   "changes_requested",
 ]);
 
+function buildIssueAttachmentContentPath(attachmentId: string) {
+  return `/api/attachments/${attachmentId}/content`;
+}
+
 const issueWorkProductUrlSchema = z.string().trim().min(1).refine((value) => {
   if (value.startsWith("/")) return true;
   try {
@@ -46,16 +50,35 @@ export const issueArtifactWorkProductMetadataSchema = z.object({
   contentType: z.string().trim().min(1),
   byteSize: z.number().int().positive(),
   originalFilename: z.string().trim().min(1).nullable().optional(),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  const expectedPath = buildIssueAttachmentContentPath(value.attachmentId);
+  if (value.contentPath !== expectedPath) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Artifact contentPath must reference its attachment API route",
+      path: ["contentPath"],
+    });
+  }
+});
 
 const issueArtifactWorkProductPersistenceSchema = z.object({
   type: z.literal("artifact"),
+  url: issueWorkProductUrlSchema.optional().nullable(),
   metadata: issueArtifactWorkProductMetadataSchema,
   createdByRunId: z.string().uuid(),
+}).superRefine((value, ctx) => {
+  if (value.url !== undefined && value.url !== null && value.url !== value.metadata.contentPath) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Artifact url must match metadata.contentPath",
+      path: ["url"],
+    });
+  }
 });
 
 export function getIssueArtifactWorkProductValidationIssues(value: {
   type: unknown;
+  url?: unknown;
   metadata: unknown;
   createdByRunId: unknown;
 }) {
@@ -67,6 +90,7 @@ export function getIssueArtifactWorkProductValidationIssues(value: {
 function validateArtifactWorkProductRequirements(
   value: {
     type?: unknown;
+    url?: unknown;
     metadata?: unknown;
     createdByRunId?: unknown;
   },
@@ -75,6 +99,7 @@ function validateArtifactWorkProductRequirements(
   if (value.type !== "artifact") return;
   for (const issue of getIssueArtifactWorkProductValidationIssues({
     type: value.type,
+    url: value.url,
     metadata: value.metadata,
     createdByRunId: value.createdByRunId,
   })) {
