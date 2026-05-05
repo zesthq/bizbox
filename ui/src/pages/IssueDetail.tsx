@@ -2241,21 +2241,32 @@ export function IssueDetail() {
   }, [detailTab, pendingCommentComposerFocusKey]);
 
   const isImageAttachment = (attachment: IssueAttachment) => attachment.contentType.startsWith("image/");
-  const deliverables = (issue?.workProducts ?? [])
-    .map((product) => {
-      const metadata = parseIssueArtifactWorkProductMetadata(product);
-      return metadata ? { product, metadata } satisfies IssueDeliverable : null;
-    })
-    .filter((entry): entry is IssueDeliverable => entry !== null)
-    .sort((a, b) => {
-      if (a.product.isPrimary !== b.product.isPrimary) return a.product.isPrimary ? -1 : 1;
-      return new Date(b.product.updatedAt).getTime() - new Date(a.product.updatedAt).getTime();
-    });
-  const deliverableAttachmentIds = new Set(deliverables.map((entry) => entry.metadata.attachmentId));
+  const deliverables = useMemo(
+    () =>
+      (issue?.workProducts ?? [])
+        .map((product) => {
+          const metadata = parseIssueArtifactWorkProductMetadata(product);
+          return metadata ? { product, metadata } satisfies IssueDeliverable : null;
+        })
+        .filter((entry): entry is IssueDeliverable => entry !== null)
+        .sort((a, b) => {
+          if (a.product.isPrimary !== b.product.isPrimary) return a.product.isPrimary ? -1 : 1;
+          return new Date(b.product.updatedAt).getTime() - new Date(a.product.updatedAt).getTime();
+        }),
+    [issue?.workProducts],
+  );
+  const deliverableAttachmentIds = useMemo(
+    () => new Set(deliverables.map((entry) => entry.metadata.attachmentId)),
+    [deliverables],
+  );
   const attachmentList = attachments ?? [];
-  const visibleAttachments = attachmentList.filter((attachment) => !deliverableAttachmentIds.has(attachment.id));
-  const imageAttachments = visibleAttachments.filter(isImageAttachment);
-  const nonImageAttachments = visibleAttachments.filter((a) => !isImageAttachment(a));
+  const visibleAttachments = useMemo(
+    () => attachmentList.filter((attachment) => !deliverableAttachmentIds.has(attachment.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [attachments, deliverableAttachmentIds],
+  );
+  const imageAttachments = useMemo(() => visibleAttachments.filter(isImageAttachment), [visibleAttachments]);
+  const nonImageAttachments = useMemo(() => visibleAttachments.filter((a) => !isImageAttachment(a)), [visibleAttachments]);
 
   const handleChatImageClick = useCallback(
     (src: string) => {

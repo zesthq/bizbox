@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { issueWorkProducts } from "@paperclipai/db";
 import type { IssueWorkProduct } from "@paperclipai/shared";
@@ -64,6 +64,56 @@ export function workProductService(db: Db) {
         .orderBy(desc(issueWorkProducts.updatedAt))
         .limit(1)
         .then((rows) => rows[0] ?? null);
+      return row ? toIssueWorkProduct(row) : null;
+    },
+
+    /**
+     * Atomically insert-or-update a work product keyed on (issueId, externalId).
+     * Uses the unique partial index on those two columns to guarantee no duplicate
+     * rows can be created even under concurrent callers.
+     *
+     * Returns the upserted row.
+     */
+    upsertByExternalId: async (
+      issueId: string,
+      companyId: string,
+      data: Omit<typeof issueWorkProducts.$inferInsert, "issueId" | "companyId"> & { externalId: string },
+    ) => {
+      const row = await db.transaction(async (tx) => {
+        if (data.isPrimary) {
+          await tx
+            .update(issueWorkProducts)
+            .set({ isPrimary: false, updatedAt: new Date() })
+            .where(
+              and(
+                eq(issueWorkProducts.companyId, companyId),
+                eq(issueWorkProducts.issueId, issueId),
+                eq(issueWorkProducts.type, data.type),
+              ),
+            );
+        }
+        const now = new Date();
+        return await tx
+          .insert(issueWorkProducts)
+          .values({ ...data, companyId, issueId })
+          .onConflictDoUpdate({
+            target: [issueWorkProducts.issueId, issueWorkProducts.externalId],
+            targetWhere: sql`external_id IS NOT NULL`,
+            set: {
+              title: data.title,
+              url: data.url,
+              status: data.status,
+              summary: data.summary ?? null,
+              metadata: data.metadata,
+              isPrimary: data.isPrimary,
+              provider: data.provider,
+              createdByRunId: data.createdByRunId ?? null,
+              updatedAt: now,
+            },
+          })
+          .returning()
+          .then((rows) => rows[0] ?? null);
+      });
       return row ? toIssueWorkProduct(row) : null;
     },
 

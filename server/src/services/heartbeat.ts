@@ -3843,48 +3843,13 @@ export function heartbeatService(db: Db) {
       };
 
       const externalId = buildRunArtifactExternalId(input.agent.adapterType, artifact.sourcePath);
+
+      // Pre-fetch for old-attachment cleanup (best-effort; the upsert below is atomic)
       const existing = await workProductsSvc.findByExternalIdForIssue(issueId, input.run.companyId, externalId);
+      const previousMetadata = existing ? parseIssueArtifactWorkProductMetadata(existing) : null;
+      const isUpdate = existing !== null;
 
-      if (existing) {
-        const previousMetadata = parseIssueArtifactWorkProductMetadata(existing);
-        const updated = await workProductsSvc.update(existing.id, {
-          title: artifact.title,
-          url: metadata.contentPath,
-          status: "ready_for_review",
-          summary: artifact.summary ?? null,
-          metadata,
-          createdByRunId: input.run.id,
-          isPrimary: index === primaryIndex,
-          provider: "paperclip",
-        });
-        if (previousMetadata?.attachmentId && previousMetadata.attachmentId !== attachment.id) {
-          const removed = await issuesSvc.removeAttachment(previousMetadata.attachmentId);
-          if (removed) {
-            await storage.deleteObject(removed.companyId, removed.objectKey).catch((err) => {
-              logger.warn(
-                { err, attachmentId: removed.id, objectKey: removed.objectKey },
-                "failed to delete superseded artifact attachment object",
-              );
-            });
-          }
-        }
-        if (updated) {
-          await logActivity(db, {
-            companyId: input.run.companyId,
-            actorType: "agent",
-            actorId: input.agent.id,
-            agentId: input.agent.id,
-            runId: input.run.id,
-            action: "issue.work_product_updated",
-            entityType: "issue",
-            entityId: issueId,
-            details: { workProductId: updated.id, changedKeys: ["createdByRunId", "metadata", "status", "summary", "title", "url"] },
-          });
-        }
-        continue;
-      }
-
-      const created = await workProductsSvc.createForIssue(issueId, input.run.companyId, {
+      const upserted = await workProductsSvc.upsertByExternalId(issueId, input.run.companyId, {
         projectId: issue.projectId ?? null,
         executionWorkspaceId: issue.executionWorkspaceId ?? null,
         runtimeServiceId: null,
@@ -3901,17 +3866,32 @@ export function heartbeatService(db: Db) {
         metadata,
         createdByRunId: input.run.id,
       });
-      if (created) {
+
+      if (isUpdate && previousMetadata?.attachmentId && previousMetadata.attachmentId !== attachment.id) {
+        const removed = await issuesSvc.removeAttachment(previousMetadata.attachmentId);
+        if (removed) {
+          await storage.deleteObject(removed.companyId, removed.objectKey).catch((err) => {
+            logger.warn(
+              { err, attachmentId: removed.id, objectKey: removed.objectKey },
+              "failed to delete superseded artifact attachment object",
+            );
+          });
+        }
+      }
+
+      if (upserted) {
         await logActivity(db, {
           companyId: input.run.companyId,
           actorType: "agent",
           actorId: input.agent.id,
           agentId: input.agent.id,
           runId: input.run.id,
-          action: "issue.work_product_created",
+          action: isUpdate ? "issue.work_product_updated" : "issue.work_product_created",
           entityType: "issue",
           entityId: issueId,
-          details: { workProductId: created.id, type: created.type, provider: created.provider },
+          details: isUpdate
+            ? { workProductId: upserted.id, changedKeys: ["createdByRunId", "metadata", "status", "summary", "title", "url"] }
+            : { workProductId: upserted.id, type: upserted.type, provider: upserted.provider },
         });
       }
       } catch (err) {
