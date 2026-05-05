@@ -3790,10 +3790,8 @@ export function heartbeatService(db: Db) {
     const issue = await issuesSvc.getById(issueId);
     if (!issue) return;
 
-    const primaryIndex = Math.max(
-      0,
-      input.artifacts.findIndex((artifact) => artifact.isPrimary === true),
-    );
+    const primaryIndexRaw = input.artifacts.findIndex((artifact) => artifact.isPrimary === true);
+    const primaryIndex = primaryIndexRaw === -1 ? 0 : primaryIndexRaw;
 
     for (const [index, artifact] of input.artifacts.entries()) {
       if (!artifact.sourcePath.trim()) continue;

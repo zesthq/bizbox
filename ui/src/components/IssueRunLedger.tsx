@@ -261,21 +261,6 @@ function compactAgentName(run: LedgerRun, agentMap: ReadonlyMap<string, Pick<Age
   return run.agentName ?? agentMap.get(run.agentId)?.name ?? run.agentId.slice(0, 8);
 }
 
-function artifactSummariesForRun(runId: string, workProducts: IssueWorkProduct[]): RunArtifactSummary[] {
-  return workProducts
-    .filter((product) => product.createdByRunId === runId)
-    .map((product) => {
-      const metadata = parseIssueArtifactWorkProductMetadata(product);
-      if (!metadata) return null;
-      return {
-        id: product.id,
-        title: product.title,
-        contentPath: metadata.contentPath,
-      } satisfies RunArtifactSummary;
-    })
-    .filter((entry): entry is RunArtifactSummary => entry !== null);
-}
-
 export function IssueRunLedger({
   issueId,
   issueStatus,

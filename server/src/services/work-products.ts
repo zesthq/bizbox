@@ -62,6 +62,7 @@ export function workProductService(db: Db) {
           ),
         )
         .orderBy(desc(issueWorkProducts.updatedAt))
+        .limit(1)
         .then((rows) => rows[0] ?? null);
       return row ? toIssueWorkProduct(row) : null;
     },
