@@ -9,6 +9,7 @@ import {
   addIssueCommentSchema,
   acceptIssueThreadInteractionSchema,
   createIssueAttachmentMetadataSchema,
+  getIssueArtifactWorkProductValidationIssues,
   createIssueThreadInteractionSchema,
   createIssueWorkProductSchema,
   createIssueLabelSchema,
@@ -1372,6 +1373,18 @@ export function issueRoutes(
       return;
     }
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+    const artifactValidationIssues = getIssueArtifactWorkProductValidationIssues({
+      type: req.body.type ?? existing.type,
+      metadata: req.body.metadata ?? existing.metadata,
+      createdByRunId: req.body.createdByRunId ?? existing.createdByRunId,
+    });
+    if (artifactValidationIssues.length > 0) {
+      res.status(422).json({
+        error: "Artifact work products require attachment-backed metadata and createdByRunId",
+        details: artifactValidationIssues,
+      });
+      return;
+    }
     const product = await workProductsSvc.update(id, req.body);
     if (!product) {
       res.status(404).json({ error: "Work product not found" });

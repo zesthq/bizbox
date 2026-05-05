@@ -76,12 +76,35 @@ function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+export function isIssueArtifactWorkProductMetadata(
+  value: unknown,
+): value is IssueArtifactWorkProductMetadata {
+  const metadata = asRecord(value);
+  if (!metadata) return false;
+
+  const attachmentId = readString(metadata.attachmentId);
+  const contentPath = readString(metadata.contentPath);
+  const sourcePath = readString(metadata.sourcePath);
+  const contentType = readString(metadata.contentType);
+  const byteSize = readNumber(metadata.byteSize);
+
+  return Boolean(
+    attachmentId
+      && contentPath
+      && sourcePath
+      && contentType
+      && byteSize !== null
+      && Number.isInteger(byteSize)
+      && byteSize > 0,
+  );
+}
+
 export function parseIssueArtifactWorkProductMetadata(
   product: Pick<IssueWorkProduct, "type" | "metadata">,
 ): IssueArtifactWorkProductMetadata | null {
   if (product.type !== "artifact") return null;
   const metadata = asRecord(product.metadata);
-  if (!metadata) return null;
+  if (!isIssueArtifactWorkProductMetadata(metadata)) return null;
 
   const attachmentId = readString(metadata.attachmentId);
   const contentPath = readString(metadata.contentPath);
@@ -91,16 +114,12 @@ export function parseIssueArtifactWorkProductMetadata(
   const originalFilename =
     typeof metadata.originalFilename === "string" ? metadata.originalFilename : null;
 
-  if (!attachmentId || !contentPath || !sourcePath || !contentType || byteSize === null) {
-    return null;
-  }
-
   return {
-    attachmentId,
-    contentPath,
-    sourcePath,
-    contentType,
-    byteSize,
+    attachmentId: attachmentId!,
+    contentPath: contentPath!,
+    sourcePath: sourcePath!,
+    contentType: contentType!,
+    byteSize: byteSize!,
     originalFilename,
   };
 }

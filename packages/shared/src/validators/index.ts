@@ -214,6 +214,8 @@ export {
 export {
   createIssueWorkProductSchema,
   updateIssueWorkProductSchema,
+  issueArtifactWorkProductMetadataSchema,
+  getIssueArtifactWorkProductValidationIssues,
   issueWorkProductTypeSchema,
   issueWorkProductStatusSchema,
   issueWorkProductReviewStateSchema,
