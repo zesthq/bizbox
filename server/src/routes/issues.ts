@@ -3190,6 +3190,7 @@ export function issueRoutes(
     if (actor.actorType === "user") {
       recordHumanComment({
         company_id: currentIssue.companyId,
+        title: currentIssue.title,
         issue_id: currentIssue.id,
         assignee_agent_id: currentIssue.assigneeAgentId ?? undefined,
       });

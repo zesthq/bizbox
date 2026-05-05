@@ -118,6 +118,7 @@ function getHumanCommentsCounter(): Counter {
  */
 export function recordHumanComment(attributes: {
   company_id: string;
+  title: string;
   issue_id: string;
   assignee_agent_id: string | undefined;
 }): void {
