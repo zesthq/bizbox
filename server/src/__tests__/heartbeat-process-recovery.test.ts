@@ -1396,7 +1396,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       linkedIssueId: parentIssueId,
     });
 
-    const routineSvc = issueService(db);
+    const issueSvc = issueService(db);
     const heartbeat = heartbeatService(db);
 
     const reconcileBefore = await heartbeat.reconcileStrandedAssignedIssues();
@@ -1420,7 +1420,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
 
     await db.update(issues).set({ status: "done", updatedAt: new Date("2026-03-19T00:10:00.000Z") }).where(eq(issues.id, blockerId));
 
-    const dependents = await routineSvc.listWakeableBlockedDependents(blockerId);
+    const dependents = await issueSvc.listWakeableBlockedDependents(blockerId);
     expect(dependents).toEqual([
       expect.objectContaining({
         id: parentIssueId,
