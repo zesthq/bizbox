@@ -19,6 +19,7 @@ import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from "@opentelemetry/semantic-conventions";
 import type { Counter } from "@opentelemetry/api";
 import { metrics } from "@opentelemetry/api";
+import { logger } from "./middleware/logger.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -52,6 +53,8 @@ export function initOtel(): void {
   if (!hasEndpoint) return;
   if (_meterProvider) return;
 
+  logger.info("otel: starting OTel SDK");
+
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: "bizbox",
     [ATTR_SERVICE_VERSION]: process.env.npm_package_version ?? "unknown",
@@ -74,6 +77,7 @@ export function initOtel(): void {
   // Register as the global provider so @opentelemetry/api calls anywhere in
   // the process resolve to this instance.
   metrics.setGlobalMeterProvider(_meterProvider);
+  logger.info("otel: OTel SDK started and global MeterProvider registered");
 }
 
 // ---------------------------------------------------------------------------
@@ -85,9 +89,11 @@ export function initOtel(): void {
  */
 export async function shutdownOtel(): Promise<void> {
   if (_meterProvider) {
+    logger.info("otel: shutting down OTel SDK");
     await _meterProvider.shutdown();
     _meterProvider = null;
     _humanCommentsCounter = null;
+    logger.info("otel: OTel SDK shut down");
   }
 }
 
@@ -120,5 +126,6 @@ export function recordHumanComment(attributes: {
   company_id: string;
   issue_id: string;
 }): void {
+  logger.info({ attributes }, "otel: recording metric bizbox.issues.human_comments_total");
   getHumanCommentsCounter().add(1, attributes);
 }
