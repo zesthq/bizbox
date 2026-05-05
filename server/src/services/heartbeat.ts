@@ -3867,15 +3867,36 @@ export function heartbeatService(db: Db) {
         createdByRunId: input.run.id,
       });
 
-      if (isUpdate && previousMetadata?.attachmentId && previousMetadata.attachmentId !== attachment.id) {
-        const removed = await issuesSvc.removeAttachment(previousMetadata.attachmentId);
-        if (removed) {
-          await storage.deleteObject(removed.companyId, removed.objectKey).catch((err) => {
-            logger.warn(
-              { err, attachmentId: removed.id, objectKey: removed.objectKey },
-              "failed to delete superseded artifact attachment object",
-            );
+      // Re-read the authoritative state to detect a concurrent-run race where
+      // another upsert overwrote our metadata after we wrote it.  If the stored
+      // attachmentId no longer matches what we just uploaded, our attachment and
+      // storage object are orphaned — clean them up now.
+      const authoritative = upserted
+        ? parseIssueArtifactWorkProductMetadata(upserted)
+        : null;
+      if (authoritative && authoritative.attachmentId !== attachment.id) {
+        logger.warn(
+          { attachmentId: attachment.id, winnerAttachmentId: authoritative.attachmentId, runId: input.run.id },
+          "concurrent run overwrote artifact metadata — removing orphaned attachment",
+        );
+        const orphaned = await issuesSvc.removeAttachment(attachment.id);
+        if (orphaned) {
+          await storage.deleteObject(orphaned.companyId, orphaned.objectKey).catch((err) => {
+            logger.warn({ err, attachmentId: orphaned.id }, "failed to delete orphaned artifact attachment object");
           });
+        }
+      } else {
+        // Normal path: clean up the previous attachment if it was replaced.
+        if (isUpdate && previousMetadata?.attachmentId && previousMetadata.attachmentId !== attachment.id) {
+          const removed = await issuesSvc.removeAttachment(previousMetadata.attachmentId);
+          if (removed) {
+            await storage.deleteObject(removed.companyId, removed.objectKey).catch((err) => {
+              logger.warn(
+                { err, attachmentId: removed.id, objectKey: removed.objectKey },
+                "failed to delete superseded artifact attachment object",
+              );
+            });
+          }
         }
       }
 

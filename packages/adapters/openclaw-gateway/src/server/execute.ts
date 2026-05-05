@@ -948,16 +948,19 @@ function escapeRegex(value: string): string {
   return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
 }
 
-function compileArtifactPattern(pattern: string): RegExp | null {
-  const normalized = normalizeArtifactSourcePath(pattern);
-  if (!normalized) return null;
+/**
+ * Compile a pre-normalized glob pattern (from `parseArtifactOutputsConfig`) into a RegExp.
+ * Accepts only patterns that have already been validated and normalized — callers must not
+ * pass raw user input directly.
+ */
+function compileArtifactPattern(pattern: string): RegExp {
   let regex = "^";
-  for (let index = 0; index < normalized.length; index += 1) {
-    const char = normalized[index]!;
-    const next = normalized[index + 1];
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index]!;
+    const next = pattern[index + 1];
     if (char === "*") {
       if (next === "*") {
-        const nextNext = normalized[index + 2];
+        const nextNext = pattern[index + 2];
         if (nextNext === "/") {
           regex += "(?:.*/)?";
           index += 2;
@@ -1115,10 +1118,6 @@ async function collectArtifactsFromGateway(params: {
   const selected = new Map<string, GatewayArtifactSummary & { config: ArtifactOutputConfig; index: number }>();
   params.outputs.forEach((config, index) => {
     const matcher = compileArtifactPattern(config.pattern);
-    if (!matcher) {
-      void params.ctx.onLog("stderr", `[openclaw-gateway] ignoring invalid artifact pattern ${config.pattern}\n`);
-      return;
-    }
 
     let matched = false;
     for (const artifact of available) {
