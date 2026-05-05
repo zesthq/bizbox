@@ -345,7 +345,7 @@ describeEmbeddedPostgres("heartbeat issue-backed artifact persistence", () => {
     });
     expect(secondRun?.id).toBeTruthy();
     await waitForCondition(async () => {
-      const [persisted, productCount] = await Promise.all([
+      const [persisted, products] = await Promise.all([
         db
           .select({ status: heartbeatRuns.status })
           .from(heartbeatRuns)
@@ -354,10 +354,13 @@ describeEmbeddedPostgres("heartbeat issue-backed artifact persistence", () => {
         db
           .select()
           .from(issueWorkProducts)
-          .where(eq(issueWorkProducts.issueId, issueId))
-          .then((rows) => rows.length),
+          .where(eq(issueWorkProducts.issueId, issueId)),
       ]);
-      return persisted?.status === "succeeded" && productCount === 1;
+      return (
+        persisted?.status === "succeeded" &&
+        products.length === 1 &&
+        products[0]?.createdByRunId === secondRun!.id
+      );
     });
 
     const products = await db
