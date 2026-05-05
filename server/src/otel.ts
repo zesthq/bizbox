@@ -54,6 +54,8 @@ export function initOtel(): void {
   if (_meterProvider) return;
 
   logger.info("otel: starting OTel SDK");
+  logger.info(`otel: env var OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '${process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT}'`);
+  logger.info(`otel: env var OTEL_EXPORTER_OTLP_ENDPOINT: '${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}'`);
 
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: "bizbox",
