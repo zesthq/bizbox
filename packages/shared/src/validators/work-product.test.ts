@@ -69,6 +69,22 @@ describe("work product validators", () => {
     );
   });
 
+  it("rejects non-artifact work products with raw filesystem paths in url", () => {
+    const parsed = createIssueWorkProductSchema.safeParse({
+      type: "pull_request",
+      provider: "github",
+      title: "PR 123",
+      url: "/etc/passwd",
+      status: "ready_for_review",
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) throw new Error("Expected non-artifact filesystem url to fail validation");
+    expect(parsed.error.issues.map((issue) => issue.path.join("."))).toEqual(
+      expect.arrayContaining(["url"]),
+    );
+  });
+
   it("rejects artifact metadata with extra contentBase64 payloads", () => {
     const parsed = createIssueWorkProductSchema.safeParse({
       type: "artifact",
@@ -111,6 +127,18 @@ describe("work product validators", () => {
       metadata: {
         ...validArtifactMetadata,
         contentBase64: "IyBGaW5hbCBwYWNrZXQK",
+      },
+      createdByRunId: null,
+    })).toEqual([]);
+  });
+
+  it("allows stored artifact validation to tolerate zero-byte legacy attachments", () => {
+    expect(getStoredIssueArtifactWorkProductValidationIssues({
+      type: "artifact",
+      url: validArtifactMetadata.contentPath,
+      metadata: {
+        ...validArtifactMetadata,
+        byteSize: 0,
       },
       createdByRunId: null,
     })).toEqual([]);

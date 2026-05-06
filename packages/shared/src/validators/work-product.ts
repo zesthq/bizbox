@@ -34,7 +34,7 @@ function buildIssueAttachmentContentPath(attachmentId: string) {
 }
 
 const issueWorkProductUrlSchema = z.string().trim().min(1).refine((value) => {
-  if (value.startsWith("/")) return true;
+  if (value.startsWith("/api/")) return true;
   try {
     new URL(value);
     return true;
@@ -52,6 +52,10 @@ const issueArtifactWorkProductMetadataFieldsSchema = z.object({
   originalFilename: z.string().trim().min(1).nullable().optional().transform((v) => v ?? null),
 });
 
+const issueArtifactWorkProductStoredMetadataFieldsSchema = issueArtifactWorkProductMetadataFieldsSchema.extend({
+  byteSize: z.number().int().nonnegative(),
+});
+
 function refineIssueArtifactWorkProductMetadata(value: z.infer<typeof issueArtifactWorkProductMetadataFieldsSchema>, ctx: z.RefinementCtx) {
   const expectedPath = buildIssueAttachmentContentPath(value.attachmentId);
   if (value.contentPath !== expectedPath) {
@@ -67,7 +71,7 @@ export const issueArtifactWorkProductMetadataSchema = issueArtifactWorkProductMe
   .strict()
   .superRefine(refineIssueArtifactWorkProductMetadata);
 
-const issueArtifactWorkProductStoredMetadataSchema = issueArtifactWorkProductMetadataFieldsSchema
+const issueArtifactWorkProductStoredMetadataSchema = issueArtifactWorkProductStoredMetadataFieldsSchema
   .strip()
   .superRefine(refineIssueArtifactWorkProductMetadata);
 
