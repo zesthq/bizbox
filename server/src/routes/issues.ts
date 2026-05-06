@@ -1375,14 +1375,26 @@ export function issueRoutes(
       return;
     }
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
-    const artifactValidationIssues = getStoredIssueArtifactWorkProductValidationIssues({
-      type: "type" in req.body ? req.body.type : existing.type,
-      url: "url" in req.body ? req.body.url : existing.url,
-      metadata: "metadata" in req.body
-        ? req.body.metadata
-        : sanitizeStoredIssueArtifactWorkProductMetadata(existing.metadata),
-      createdByRunId: "createdByRunId" in req.body ? req.body.createdByRunId : existing.createdByRunId,
-    });
+    const mergedType = "type" in req.body ? req.body.type : existing.type;
+    const mergedUrl = "url" in req.body ? req.body.url : existing.url;
+    const mergedCreatedByRunId = "createdByRunId" in req.body ? req.body.createdByRunId : existing.createdByRunId;
+    const requestProvidedMetadata = "metadata" in req.body;
+    const mergedMetadata = requestProvidedMetadata
+      ? req.body.metadata
+      : sanitizeStoredIssueArtifactWorkProductMetadata(existing.metadata);
+    const artifactValidationIssues = requestProvidedMetadata
+      ? getIssueArtifactWorkProductValidationIssues({
+          type: mergedType,
+          url: mergedUrl,
+          metadata: mergedMetadata,
+          createdByRunId: mergedCreatedByRunId,
+        })
+      : getStoredIssueArtifactWorkProductValidationIssues({
+          type: mergedType,
+          url: mergedUrl,
+          metadata: mergedMetadata,
+          createdByRunId: mergedCreatedByRunId,
+        });
     if (artifactValidationIssues.length > 0) {
       res.status(422).json({
         error: "Artifact work products require attachment-backed metadata and createdByRunId",

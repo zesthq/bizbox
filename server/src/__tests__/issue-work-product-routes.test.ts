@@ -212,4 +212,41 @@ describe("issue work product routes", () => {
     expect(res.body.error).toContain("attachment-backed metadata");
     expect(mockWorkProductService.update).not.toHaveBeenCalled();
   });
+
+  it("rejects request metadata with extra keys even when PATCH omits type", async () => {
+    mockWorkProductService.getById.mockResolvedValue({
+      id: workProductId,
+      companyId,
+      issueId,
+      type: "artifact",
+      url: `/api/attachments/${attachmentId}/content`,
+      metadata: {
+        attachmentId,
+        contentPath: `/api/attachments/${attachmentId}/content`,
+        sourcePath: "deliverables/final-packet.md",
+        contentType: "text/markdown",
+        byteSize: 128,
+        originalFilename: "final-packet.md",
+      },
+      createdByRunId: runId,
+    });
+
+    const res = await request(createApp())
+      .patch(`/api/work-products/${workProductId}`)
+      .send({
+        metadata: {
+          attachmentId,
+          contentPath: `/api/attachments/${attachmentId}/content`,
+          sourcePath: "deliverables/final-packet.md",
+          contentType: "text/markdown",
+          byteSize: 128,
+          originalFilename: "final-packet.md",
+          contentBase64: "IyBGaW5hbCBwYWNrZXQK",
+        },
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("attachment-backed metadata");
+    expect(mockWorkProductService.update).not.toHaveBeenCalled();
+  });
 });
