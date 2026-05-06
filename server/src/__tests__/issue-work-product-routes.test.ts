@@ -205,7 +205,7 @@ describe("issue work product routes", () => {
           byteSize: 128,
           originalFilename: "ceo-config-and-runs-report.md",
         },
-        url: "/home/node/.openclaw/workspace-ceo/ceo-config-and-runs-report.md",
+        url: `/api/attachments/${attachmentId}/content`,
       });
 
     expect(res.status).toBe(422);
