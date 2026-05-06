@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { recordHumanComment } from "../otel.js";
+import { recordComment } from "../otel.js";
 import type { Db } from "@paperclipai/db";
 import { issueExecutionDecisions } from "@paperclipai/db";
 import {
@@ -3186,15 +3186,14 @@ export function issueRoutes(
       commentReferenceSummaryAfter,
     );
 
-    // Emit OTel metric for human-authored comments (board users only).
-    if (actor.actorType === "user") {
-      recordHumanComment({
-        company_id: currentIssue.companyId,
-        title: currentIssue.title,
-        issue_id: currentIssue.id,
-        assignee_agent_id: currentIssue.assigneeAgentId ?? undefined,
-      });
-    }
+    // Emit OTel metric for all comments.
+    recordComment({
+      company_id: currentIssue.companyId,
+      issue_status: currentIssue.status,
+      actor_type: actor.actorType,
+      assignee_agent_id: currentIssue.assigneeAgentId ?? undefined,
+      assignee_user_id: currentIssue.assigneeUserId ?? undefined,
+    });
 
     if (actor.runId) {
       await heartbeat.reportRunActivity(actor.runId).catch((err) =>

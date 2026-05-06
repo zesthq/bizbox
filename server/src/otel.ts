@@ -28,7 +28,7 @@ let _meterProvider: MeterProvider | null = null;
 
 // Counters — lazily resolved after init so callers can import at module load
 // time without worrying about init order.
-let _humanCommentsCounter: Counter | null = null;
+let _commentsCounter: Counter | null = null;
 
 // ---------------------------------------------------------------------------
 // Init
@@ -87,7 +87,7 @@ export async function shutdownOtel(): Promise<void> {
   if (_meterProvider) {
     await _meterProvider.shutdown();
     _meterProvider = null;
-    _humanCommentsCounter = null;
+    _commentsCounter = null;
   }
 }
 
@@ -95,32 +95,32 @@ export async function shutdownOtel(): Promise<void> {
 // Counters
 // ---------------------------------------------------------------------------
 
-function getHumanCommentsCounter(): Counter {
-  if (!_humanCommentsCounter) {
+function getCommentsCounter(): Counter {
+  if (!_commentsCounter) {
     const meter = metrics.getMeter("bizbox");
-    _humanCommentsCounter = meter.createCounter("bizbox.issues.human_comments_total", {
+    _commentsCounter = meter.createCounter("bizbox.issues.comments", {
       description:
-        "Total number of comments posted by a human (board user) on an issue. " +
-        "A rising value relative to agent comment volume signals human steering / intervention.",
+        "Total number of comments posted on an issue. " +
+        "Use the actor_type attribute to distinguish human (board user) vs agent comments.",
       unit: "{comment}",
     });
   }
-  return _humanCommentsCounter;
+  return _commentsCounter;
 }
 
 /**
- * Increment `bizbox.issues.human_comments_total`.
+ * Increment `bizbox.issues.comments`.
  *
- * Call this after a comment is successfully persisted and the actor is a
- * board user (i.e. `actor.actorType === "user"`).
+ * Call this after a comment is successfully persisted.
  *
  * @param attributes - OTel attributes attached to the data point.
  */
-export function recordHumanComment(attributes: {
+export function recordComment(attributes: {
   company_id: string;
-  title: string;
-  issue_id: string;
+  issue_status: string;
+  actor_type: string;
   assignee_agent_id: string | undefined;
+  assignee_user_id: string | undefined;
 }): void {
-  getHumanCommentsCounter().add(1, attributes);
+  getCommentsCounter().add(1, attributes);
 }

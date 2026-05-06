@@ -510,7 +510,7 @@ configuration changes.
 
 | Metric name | Type | Attributes | Description |
 |---|---|---|---|
-| `bizbox.issues.human_comments_total` | Counter | `company_id`, `issue_id` | Incremented each time a board user (human) posts a comment on an issue. A rising value relative to agent comment volume signals human steering / intervention. |
+| `bizbox.issues.comments` | Counter | `company_id`, `issue_status`, `actor_type`, `assignee_agent_id`, `assignee_user_id` | Incremented each time a user (human) or agent posts a comment on an issue. A rising user comments value relative to agent comment volume signals human steering / intervention. |
 
 ## CLI Client Operations
 
