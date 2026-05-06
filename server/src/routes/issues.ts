@@ -10,6 +10,7 @@ import {
   acceptIssueThreadInteractionSchema,
   createIssueAttachmentMetadataSchema,
   getIssueArtifactWorkProductValidationIssues,
+  sanitizeStoredIssueArtifactWorkProductMetadata,
   createIssueThreadInteractionSchema,
   createIssueWorkProductSchema,
   createIssueLabelSchema,
@@ -1376,7 +1377,9 @@ export function issueRoutes(
     const artifactValidationIssues = getIssueArtifactWorkProductValidationIssues({
       type: "type" in req.body ? req.body.type : existing.type,
       url: "url" in req.body ? req.body.url : existing.url,
-      metadata: "metadata" in req.body ? req.body.metadata : existing.metadata,
+      metadata: "metadata" in req.body
+        ? req.body.metadata
+        : sanitizeStoredIssueArtifactWorkProductMetadata(existing.metadata),
       createdByRunId: "createdByRunId" in req.body ? req.body.createdByRunId : existing.createdByRunId,
     });
     if (artifactValidationIssues.length > 0) {

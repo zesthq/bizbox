@@ -43,14 +43,16 @@ const issueWorkProductUrlSchema = z.string().trim().min(1).refine((value) => {
   }
 }, "Invalid url");
 
-export const issueArtifactWorkProductMetadataSchema = z.object({
+const issueArtifactWorkProductMetadataFieldsSchema = z.object({
   attachmentId: z.string().uuid(),
   contentPath: z.string().trim().min(1),
   sourcePath: z.string().trim().min(1),
   contentType: z.string().trim().min(1),
   byteSize: z.number().int().positive(),
   originalFilename: z.string().trim().min(1).nullable().optional().transform((v) => v ?? null),
-}).strict().superRefine((value, ctx) => {
+});
+
+function refineIssueArtifactWorkProductMetadata(value: z.infer<typeof issueArtifactWorkProductMetadataFieldsSchema>, ctx: z.RefinementCtx) {
   const expectedPath = buildIssueAttachmentContentPath(value.attachmentId);
   if (value.contentPath !== expectedPath) {
     ctx.addIssue({
@@ -59,7 +61,20 @@ export const issueArtifactWorkProductMetadataSchema = z.object({
       path: ["contentPath"],
     });
   }
-});
+}
+
+export const issueArtifactWorkProductMetadataSchema = issueArtifactWorkProductMetadataFieldsSchema
+  .strict()
+  .superRefine(refineIssueArtifactWorkProductMetadata);
+
+const issueArtifactWorkProductStoredMetadataSchema = issueArtifactWorkProductMetadataFieldsSchema
+  .strip()
+  .superRefine(refineIssueArtifactWorkProductMetadata);
+
+export function sanitizeStoredIssueArtifactWorkProductMetadata(value: unknown): unknown {
+  const parsed = issueArtifactWorkProductStoredMetadataSchema.safeParse(value);
+  return parsed.success ? parsed.data : value;
+}
 
 const issueArtifactWorkProductPersistenceSchema = z.object({
   type: z.literal("artifact"),

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createIssueWorkProductSchema,
   getIssueArtifactWorkProductValidationIssues,
+  sanitizeStoredIssueArtifactWorkProductMetadata,
   updateIssueWorkProductSchema,
 } from "./work-product.js";
 
@@ -86,6 +87,20 @@ describe("work product validators", () => {
     expect(parsed.error.issues.map((issue) => issue.path.join("."))).toEqual(
       expect.arrayContaining(["metadata"]),
     );
+  });
+
+  it("strips unknown keys from stored artifact metadata before merged-state validation", () => {
+    const sanitized = sanitizeStoredIssueArtifactWorkProductMetadata({
+      ...validArtifactMetadata,
+      contentBase64: "IyBGaW5hbCBwYWNrZXQK",
+    });
+
+    expect(getIssueArtifactWorkProductValidationIssues({
+      type: "artifact",
+      url: validArtifactMetadata.contentPath,
+      metadata: sanitized,
+      createdByRunId: "22222222-2222-4222-8222-222222222222",
+    })).toEqual([]);
   });
 
   it("rejects partial artifact updates that try to switch to artifact without the required fields", () => {

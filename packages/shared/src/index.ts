@@ -657,6 +657,7 @@ export {
   createIssueWorkProductSchema,
   updateIssueWorkProductSchema,
   issueArtifactWorkProductMetadataSchema,
+  sanitizeStoredIssueArtifactWorkProductMetadata,
   getIssueArtifactWorkProductValidationIssues,
   issueWorkProductTypeSchema,
   issueWorkProductStatusSchema,
