@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createIssueWorkProductSchema,
   getIssueArtifactWorkProductValidationIssues,
+  getStoredIssueArtifactWorkProductValidationIssues,
   sanitizeStoredIssueArtifactWorkProductMetadata,
   updateIssueWorkProductSchema,
 } from "./work-product.js";
@@ -100,6 +101,18 @@ describe("work product validators", () => {
       url: validArtifactMetadata.contentPath,
       metadata: sanitized,
       createdByRunId: "22222222-2222-4222-8222-222222222222",
+    })).toEqual([]);
+  });
+
+  it("allows stored artifact validation to tolerate missing legacy createdByRunId", () => {
+    expect(getStoredIssueArtifactWorkProductValidationIssues({
+      type: "artifact",
+      url: validArtifactMetadata.contentPath,
+      metadata: {
+        ...validArtifactMetadata,
+        contentBase64: "IyBGaW5hbCBwYWNrZXQK",
+      },
+      createdByRunId: null,
     })).toEqual([]);
   });
 

@@ -10,6 +10,7 @@ import {
   acceptIssueThreadInteractionSchema,
   createIssueAttachmentMetadataSchema,
   getIssueArtifactWorkProductValidationIssues,
+  getStoredIssueArtifactWorkProductValidationIssues,
   sanitizeStoredIssueArtifactWorkProductMetadata,
   createIssueThreadInteractionSchema,
   createIssueWorkProductSchema,
@@ -1374,7 +1375,7 @@ export function issueRoutes(
       return;
     }
     if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
-    const artifactValidationIssues = getIssueArtifactWorkProductValidationIssues({
+    const artifactValidationIssues = getStoredIssueArtifactWorkProductValidationIssues({
       type: "type" in req.body ? req.body.type : existing.type,
       url: "url" in req.body ? req.body.url : existing.url,
       metadata: "metadata" in req.body

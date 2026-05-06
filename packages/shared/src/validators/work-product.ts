@@ -91,6 +91,21 @@ const issueArtifactWorkProductPersistenceSchema = z.object({
   }
 });
 
+const issueArtifactWorkProductStoredPersistenceSchema = z.object({
+  type: z.literal("artifact"),
+  url: issueWorkProductUrlSchema.optional().nullable(),
+  metadata: issueArtifactWorkProductStoredMetadataSchema,
+  createdByRunId: z.string().uuid().nullable().optional(),
+}).superRefine((value, ctx) => {
+  if (value.url !== undefined && value.url !== null && value.url !== value.metadata.contentPath) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Artifact url must match metadata.contentPath",
+      path: ["url"],
+    });
+  }
+});
+
 export function getIssueArtifactWorkProductValidationIssues(value: {
   type: unknown;
   url?: unknown;
@@ -99,6 +114,17 @@ export function getIssueArtifactWorkProductValidationIssues(value: {
 }) {
   if (value.type !== "artifact") return [];
   const parsed = issueArtifactWorkProductPersistenceSchema.safeParse(value);
+  return parsed.success ? [] : parsed.error.issues;
+}
+
+export function getStoredIssueArtifactWorkProductValidationIssues(value: {
+  type: unknown;
+  url?: unknown;
+  metadata: unknown;
+  createdByRunId: unknown;
+}) {
+  if (value.type !== "artifact") return [];
+  const parsed = issueArtifactWorkProductStoredPersistenceSchema.safeParse(value);
   return parsed.success ? [] : parsed.error.issues;
 }
 

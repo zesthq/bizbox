@@ -3817,23 +3817,6 @@ export function heartbeatService(db: Db) {
         createdByAgentId: input.agent.id,
       });
 
-      await logActivity(db, {
-        companyId: input.run.companyId,
-        actorType: "agent",
-        actorId: input.agent.id,
-        agentId: input.agent.id,
-        runId: input.run.id,
-        action: "issue.attachment_added",
-        entityType: "issue",
-        entityId: issueId,
-        details: {
-          attachmentId: attachment.id,
-          originalFilename: attachment.originalFilename,
-          contentType: attachment.contentType,
-          byteSize: attachment.byteSize,
-        },
-      });
-
       const metadata = {
         attachmentId: attachment.id,
         contentPath: `/api/attachments/${attachment.id}/content`,
@@ -3907,6 +3890,24 @@ export function heartbeatService(db: Db) {
           });
         }
       } else {
+        if (upserted) {
+          await logActivity(db, {
+            companyId: input.run.companyId,
+            actorType: "agent",
+            actorId: input.agent.id,
+            agentId: input.agent.id,
+            runId: input.run.id,
+            action: "issue.attachment_added",
+            entityType: "issue",
+            entityId: issueId,
+            details: {
+              attachmentId: attachment.id,
+              originalFilename: attachment.originalFilename,
+              contentType: attachment.contentType,
+              byteSize: attachment.byteSize,
+            },
+          });
+        }
         // Normal path: clean up the previous attachment if it was replaced.
         if (isUpdate && previousMetadata?.attachmentId && previousMetadata.attachmentId !== attachment.id) {
           const removed = await issuesSvc.removeAttachment(previousMetadata.attachmentId);
