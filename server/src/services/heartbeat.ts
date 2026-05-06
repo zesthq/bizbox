@@ -3850,14 +3850,21 @@ export function heartbeatService(db: Db) {
         createdByRunId: input.run.id,
       });
       if (!parsedWorkProduct.success) {
-        const removedAttachment = await issuesSvc.removeAttachment(attachment.id);
-        if (removedAttachment) {
-          await storage.deleteObject(removedAttachment.companyId, removedAttachment.objectKey).catch((err) => {
-            logger.warn(
-              { err, attachmentId: removedAttachment.id, objectKey: removedAttachment.objectKey },
-              "failed to delete invalid artifact attachment object",
-            );
-          });
+        try {
+          const removedAttachment = await issuesSvc.removeAttachment(attachment.id);
+          if (removedAttachment) {
+            await storage.deleteObject(removedAttachment.companyId, removedAttachment.objectKey).catch((err) => {
+              logger.warn(
+                { err, attachmentId: removedAttachment.id, objectKey: removedAttachment.objectKey },
+                "failed to delete invalid artifact attachment object",
+              );
+            });
+          }
+        } catch (err) {
+          logger.warn(
+            { err, attachmentId: attachment.id, sourcePath: artifact.sourcePath, runId: input.run.id },
+            "failed to remove invalid artifact attachment after validation failure",
+          );
         }
         logger.warn(
           { issues: parsedWorkProduct.error.issues, sourcePath: artifact.sourcePath, runId: input.run.id },

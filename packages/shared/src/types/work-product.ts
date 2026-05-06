@@ -104,12 +104,40 @@ export function isIssueArtifactWorkProductMetadata(
   );
 }
 
+function isStoredIssueArtifactWorkProductMetadata(
+  value: unknown,
+): value is IssueArtifactWorkProductMetadata {
+  const metadata = asRecord(value);
+  if (!metadata) return false;
+
+  const attachmentId = readString(metadata.attachmentId);
+  const contentPath = readString(metadata.contentPath);
+  const sourcePath = readString(metadata.sourcePath);
+  const contentType = readString(metadata.contentType);
+  const byteSize = readNumber(metadata.byteSize);
+
+  const originalFilename = metadata.originalFilename;
+  if (originalFilename !== undefined && originalFilename !== null && typeof originalFilename !== "string") {
+    return false;
+  }
+
+  return Boolean(
+    attachmentId
+      && contentPath
+      && sourcePath
+      && contentType
+      && byteSize !== null
+      && Number.isInteger(byteSize)
+      && byteSize >= 0,
+  );
+}
+
 export function parseIssueArtifactWorkProductMetadata(
   product: Pick<IssueWorkProduct, "type" | "metadata">,
 ): IssueArtifactWorkProductMetadata | null {
   if (product.type !== "artifact") return null;
   const metadata = asRecord(product.metadata);
-  if (!isIssueArtifactWorkProductMetadata(metadata)) return null;
+  if (!isStoredIssueArtifactWorkProductMetadata(metadata)) return null;
 
   const originalFilename =
     typeof metadata.originalFilename === "string" ? metadata.originalFilename : null;
