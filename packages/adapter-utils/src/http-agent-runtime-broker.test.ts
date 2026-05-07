@@ -266,6 +266,26 @@ describe("createHttpAgentRuntimeBroker", () => {
     expect(op.pollAfterMs).toBe(500);
   });
 
+  it("getOperation synthesizes non-empty id when remote omits it", async () => {
+    fixture.setHandler((req) => {
+      if (req.method === "GET" && req.url === "/v2/runtime/operations/op-missing") {
+        return {
+          status: 200,
+          body: {
+            operation: {
+              state: "in_progress",
+            },
+          },
+        };
+      }
+      return null;
+    });
+    const broker = buildBroker();
+    const op = await broker.getOperation(makeCtx(fixture.baseUrl), "op-missing");
+    expect(op.state).toBe("in_progress");
+    expect(op.id.length).toBeGreaterThan(0);
+  });
+
   it("listInstances returns parsed entries", async () => {
     fixture.setHandler((req) => {
       if (req.method === "GET" && req.url?.startsWith("/v2/runtime/instances")) {

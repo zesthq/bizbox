@@ -215,6 +215,17 @@ function parseInstanceState(raw: unknown): RuntimeInstanceState | null {
   };
 }
 
+function fallbackOperationId(): string {
+  const cryptoObject = globalThis.crypto as
+    | { randomUUID?: () => string }
+    | undefined;
+  const generated = cryptoObject?.randomUUID?.();
+  if (typeof generated === "string" && generated.length > 0) {
+    return generated;
+  }
+  return `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
 function parseOperation(raw: unknown): BrokerOperation {
   const r = asRecord(raw) ?? {};
   const state = nonEmpty(r.state);
@@ -224,7 +235,7 @@ function parseOperation(raw: unknown): BrokerOperation {
       : "succeeded";
   const errRaw = asRecord(r.error);
   return {
-    id: nonEmpty(r.id) ?? "",
+    id: nonEmpty(r.id) ?? fallbackOperationId(),
     state: stateSafe,
     description: typeof r.description === "string" ? r.description : null,
     pollAfterMs: typeof r.pollAfterMs === "number" ? r.pollAfterMs : null,

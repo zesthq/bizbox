@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -711,7 +711,36 @@ export function agentRuntimeService(db: Db) {
       op: result.operation,
     });
 
+    let deactivatedAgentIds: string[] = [];
     if (result.operation.state === "succeeded") {
+      const boundAgents = await db
+        .select({ boundEntityId: runtimeBindings.boundEntityId })
+        .from(runtimeBindings)
+        .where(
+          and(
+            eq(runtimeBindings.instanceId, args.instanceId),
+            eq(runtimeBindings.boundEntityKind, "agent"),
+          ),
+        );
+      deactivatedAgentIds = boundAgents.map((row) => row.boundEntityId);
+
+      if (deactivatedAgentIds.length > 0) {
+        await db
+          .update(agents)
+          .set({
+            status: "terminated",
+            pauseReason: null,
+            pausedAt: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(agents.companyId, host.companyId),
+              inArray(agents.id, deactivatedAgentIds),
+            ),
+          );
+      }
+
       await db
         .delete(runtimeBindings)
         .where(eq(runtimeBindings.instanceId, args.instanceId));
@@ -749,6 +778,7 @@ export function agentRuntimeService(db: Db) {
         plan: existing.plan,
         operationState: result.operation.state,
         operationId: opRow.id,
+        ...(deactivatedAgentIds.length > 0 ? { deactivatedAgentIds } : {}),
       },
     });
 
