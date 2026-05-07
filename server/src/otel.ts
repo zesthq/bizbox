@@ -15,16 +15,20 @@
 
 import { MeterProvider, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from "@opentelemetry/semantic-conventions";
 import type { Counter, ObservableGauge, ObservableResult } from "@opentelemetry/api";
 import { metrics, trace } from "@opentelemetry/api";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
 let _meterProvider: MeterProvider | null = null;
+let _tracerProvider: NodeTracerProvider | null = null;
 
 // Counters — lazily resolved after init so callers can import at module load
 // time without worrying about init order.
@@ -54,30 +58,40 @@ export function initOtel(): void {
     process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim() ||
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
   if (!hasEndpoint) return;
-  if (_meterProvider) return;
+  if (_meterProvider && _tracerProvider) return;
 
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: "bizbox",
     [ATTR_SERVICE_VERSION]: process.env.npm_package_version ?? "unknown",
   });
 
-  // No url passed — the SDK reads OTEL_EXPORTER_OTLP_METRICS_ENDPOINT then
-  // OTEL_EXPORTER_OTLP_ENDPOINT automatically, matching the spec priority.
-  const exporter = new OTLPMetricExporter();
+  if (!_meterProvider) {
+    // No url passed — the SDK reads OTEL_EXPORTER_OTLP_METRICS_ENDPOINT then
+    // OTEL_EXPORTER_OTLP_ENDPOINT automatically, matching the spec priority.
+    const exporter = new OTLPMetricExporter();
 
-  _meterProvider = new MeterProvider({
-    resource,
-    readers: [
-      new PeriodicExportingMetricReader({
-        exporter,
-        exportIntervalMillis: Number(process.env.OTEL_EXPORT_INTERVAL_MS ?? 60_000),
-      }),
-    ],
-  });
+    _meterProvider = new MeterProvider({
+      resource,
+      readers: [
+        new PeriodicExportingMetricReader({
+          exporter,
+          exportIntervalMillis: Number(process.env.OTEL_EXPORT_INTERVAL_MS ?? 60_000),
+        }),
+      ],
+    });
 
-  // Register as the global provider so @opentelemetry/api calls anywhere in
-  // the process resolve to this instance.
-  metrics.setGlobalMeterProvider(_meterProvider);
+    // Register as the global provider so @opentelemetry/api calls anywhere in
+    // the process resolve to this instance.
+    metrics.setGlobalMeterProvider(_meterProvider);
+  }
+
+  if (!_tracerProvider) {
+    _tracerProvider = new NodeTracerProvider({
+      resource,
+      spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+    });
+    trace.setGlobalTracerProvider(_tracerProvider);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -88,9 +102,13 @@ export function initOtel(): void {
  * Flush and shut down the MeterProvider. Call during graceful server shutdown.
  */
 export async function shutdownOtel(): Promise<void> {
-  if (_meterProvider) {
-    await _meterProvider.shutdown();
+  if (_meterProvider || _tracerProvider) {
+    await Promise.all([
+      _meterProvider?.shutdown(),
+      _tracerProvider?.shutdown(),
+    ]);
     _meterProvider = null;
+    _tracerProvider = null;
     _commentsCounter = null;
     _humanIntervenedCounter = null;
     _issuesStatusChangedCounter = null;
