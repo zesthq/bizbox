@@ -224,3 +224,10 @@ export function recordIssueStatusCounts(attributes: {
   byProject.set(projectKey, new Map(Object.entries(attributes.counts_by_status)));
   _issuesCountByStatusByCompanyAndProject.set(attributes.company_id, byProject);
 }
+
+/**
+ * Clear all cached status snapshots for a company.
+ */
+export function clearIssueStatusCountsForCompany(companyId: string): void {
+  _issuesCountByStatusByCompanyAndProject.delete(companyId);
+}

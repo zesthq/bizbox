@@ -26,7 +26,12 @@ import {
 import type { IssueRelationIssueSummary } from "@paperclipai/shared";
 import { ISSUE_STATUSES, extractAgentMentionIds, extractProjectMentionIds, isUuidLike } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
-import { recordHumanIntervened, recordIssueClosed, recordIssueStatusCounts } from "../otel.js";
+import {
+  clearIssueStatusCountsForCompany,
+  recordHumanIntervened,
+  recordIssueClosed,
+  recordIssueStatusCounts,
+} from "../otel.js";
 import {
   defaultIssueExecutionWorkspaceSettingsForProject,
   gateProjectExecutionWorkspacePolicy,
@@ -1359,6 +1364,8 @@ export function issueService(db: Db) {
     }
 
     for (const [companyId, byProject] of countsByCompanyAndProjectId.entries()) {
+      clearIssueStatusCountsForCompany(companyId);
+
       if (byProject.size === 0) {
         recordIssueStatusCounts({
           company_id: companyId,
@@ -2263,6 +2270,7 @@ export function issueService(db: Db) {
         const humanAssignedAgent =
           Boolean(actorUserId) &&
           issueData.assigneeAgentId !== undefined &&
+          issueData.assigneeAgentId !== null &&
           issueData.assigneeAgentId !== existing.assigneeAgentId;
         if (humanAssignedAgent) {
           await markHumanIntervened({
