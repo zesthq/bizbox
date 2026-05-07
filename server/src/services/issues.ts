@@ -29,7 +29,7 @@ import { conflict, notFound, unprocessable } from "../errors.js";
 import {
   clearIssueStatusCountsForCompany,
   recordHumanIntervened,
-  recordIssueClosed,
+  recordIssueStatusChanged,
   recordIssueStatusCounts,
 } from "../otel.js";
 import {
@@ -75,10 +75,6 @@ function applyStatusSideEffects(
     patch.cancelledAt = new Date();
   }
   return patch;
-}
-
-function isClosedIssueStatus(status: string): boolean {
-  return status === "done" || status === "cancelled";
 }
 
 export interface IssueFilters {
@@ -2073,14 +2069,6 @@ export function issueService(db: Db) {
         }
 
         const [issue] = await tx.insert(issues).values(values).returning();
-        if (isClosedIssueStatus(issue.status)) {
-          recordIssueClosed({
-            company_id: issue.companyId,
-            project_id: issue.projectId ?? undefined,
-            assignee_agent_id: issue.assigneeAgentId ?? undefined,
-            assignee_user_id: issue.assigneeUserId ?? undefined,
-          });
-        }
         if (issue.createdByUserId && issue.assigneeAgentId) {
           await markHumanIntervened({
             issueId: issue.id,
@@ -2259,12 +2247,14 @@ export function issueService(db: Db) {
           );
         }
         const [enriched] = await withIssueLabels(tx, [updated]);
-        if (!isClosedIssueStatus(existing.status) && isClosedIssueStatus(updated.status)) {
-          recordIssueClosed({
+        if (existing.status !== updated.status) {
+          recordIssueStatusChanged({
             company_id: updated.companyId,
             project_id: updated.projectId ?? undefined,
-            assignee_agent_id: updated.assigneeAgentId ?? undefined,
-            assignee_user_id: updated.assigneeUserId ?? undefined,
+            from_status: existing.status,
+            to_status: updated.status,
+            actor_type: actorUserId ? "user" : actorAgentId ? "agent" : "system",
+            actor_id: actorUserId ?? actorAgentId ?? "system",
           });
         }
         const humanAssignedAgent =

@@ -30,7 +30,7 @@ let _meterProvider: MeterProvider | null = null;
 // time without worrying about init order.
 let _commentsCounter: Counter | null = null;
 let _humanIntervenedCounter: Counter | null = null;
-let _issuesClosedCounter: Counter | null = null;
+let _issuesStatusChangedCounter: Counter | null = null;
 let _issuesCountByStatusGauge: ObservableGauge | null = null;
 const _issuesCountByStatusByCompanyAndProject = new Map<string, Map<string, Map<string, number>>>();
 
@@ -93,7 +93,7 @@ export async function shutdownOtel(): Promise<void> {
     _meterProvider = null;
     _commentsCounter = null;
     _humanIntervenedCounter = null;
-    _issuesClosedCounter = null;
+    _issuesStatusChangedCounter = null;
     _issuesCountByStatusGauge = null;
     _issuesCountByStatusByCompanyAndProject.clear();
   }
@@ -127,15 +127,15 @@ function getHumanIntervenedCounter(): Counter {
   return _humanIntervenedCounter;
 }
 
-function getIssuesClosedCounter(): Counter {
-  if (!_issuesClosedCounter) {
+function getIssuesStatusChangedCounter(): Counter {
+  if (!_issuesStatusChangedCounter) {
     const meter = metrics.getMeter("bizbox");
-    _issuesClosedCounter = meter.createCounter("bizbox.issues.closed.count", {
-      description: "Total number of issue close events.",
+    _issuesStatusChangedCounter = meter.createCounter("bizbox.issues.status_changed", {
+      description: "Total number of issue status change events.",
       unit: "{issue}",
     });
   }
-  return _issuesClosedCounter;
+  return _issuesStatusChangedCounter;
 }
 
 /**
@@ -172,15 +172,17 @@ export function recordHumanIntervened(attributes: {
 }
 
 /**
- * Increment `bizbox.issues.closed.count`.
+ * Increment `bizbox.issues.status_changed`.
  */
-export function recordIssueClosed(attributes: {
+export function recordIssueStatusChanged(attributes: {
   company_id: string;
   project_id: string | undefined;
-  assignee_agent_id: string | undefined;
-  assignee_user_id: string | undefined;
+  from_status: string;
+  to_status: string;
+  actor_type: string;
+  actor_id: string;
 }): void {
-  getIssuesClosedCounter().add(1, attributes);
+  getIssuesStatusChangedCounter().add(1, attributes);
 }
 
 /**
