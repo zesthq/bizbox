@@ -18,7 +18,7 @@ import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from "@opentelemetry/semantic-conventions";
 import type { Counter, ObservableGauge, ObservableResult } from "@opentelemetry/api";
-import { metrics } from "@opentelemetry/api";
+import { metrics, trace } from "@opentelemetry/api";
 
 // ---------------------------------------------------------------------------
 // State
@@ -181,6 +181,40 @@ export function recordIssueClosed(attributes: {
   assignee_user_id: string | undefined;
 }): void {
   getIssuesClosedCounter().add(1, attributes);
+}
+
+/**
+ * Emit a trace span when a human posts an issue comment.
+ */
+export function traceHumanCommentPosted(attributes: {
+  company_id: string;
+  project_id: string | undefined;
+  issue_id: string;
+  issue_identifier: string | undefined;
+  issue_status: string;
+  comment_id: string;
+  commenter_id: string;
+  assignee_agent_id: string | undefined;
+  assignee_user_id: string | undefined;
+  body_length: number;
+}): void {
+  const tracer = trace.getTracer("bizbox");
+  const span = tracer.startSpan("issue.comment.human_posted", {
+    attributes: {
+      "company.id": attributes.company_id,
+      ...(attributes.project_id ? { "project.id": attributes.project_id } : {}),
+      "issue.id": attributes.issue_id,
+      ...(attributes.issue_identifier ? { "issue.identifier": attributes.issue_identifier } : {}),
+      "issue.status": attributes.issue_status,
+      "comment.id": attributes.comment_id,
+      "comment.actor_type": "user",
+      "comment.actor_id": attributes.commenter_id,
+      ...(attributes.assignee_agent_id ? { "issue.assignee_agent_id": attributes.assignee_agent_id } : {}),
+      ...(attributes.assignee_user_id ? { "issue.assignee_user_id": attributes.assignee_user_id } : {}),
+      "comment.body_length": attributes.body_length,
+    },
+  });
+  span.end();
 }
 
 function observeIssuesCountByStatus(result: ObservableResult): void {

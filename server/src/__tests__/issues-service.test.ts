@@ -24,7 +24,10 @@ import {
 } from "./helpers/embedded-postgres.js";
 vi.mock("../otel.js", () => ({
   recordHumanIntervened: vi.fn(),
+  recordIssueClosed: vi.fn(),
   recordIssueStatusCounts: vi.fn(),
+  clearIssueStatusCountsForCompany: vi.fn(),
+  traceHumanCommentPosted: vi.fn(),
 }));
 
 import { instanceSettingsService } from "../services/instance-settings.ts";
