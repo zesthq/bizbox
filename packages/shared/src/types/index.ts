@@ -107,7 +107,18 @@ export type {
   IssueWorkProductProvider,
   IssueWorkProductStatus,
   IssueWorkProductReviewState,
+  IssueArtifactWorkProductMetadata,
 } from "./work-product.js";
+export {
+  isIssueArtifactWorkProductMetadata,
+  parseIssueArtifactWorkProductMetadata,
+} from "./work-product.js";
+export type {
+  DeliverableAgentRef,
+  DeliverableDetail,
+  DeliverableIssueRef,
+  DeliverableListItem,
+} from "./deliverable.js";
 export type {
   Issue,
   IssueAssigneeAdapterOverrides,
@@ -297,3 +308,25 @@ export type {
   PluginDatabaseNamespaceMode,
   PluginDatabaseNamespaceStatus,
 } from "./plugin.js";
+export type {
+  BuilderSessionState,
+  BuilderMessageRole,
+  BuilderProposalStatus,
+  BuilderRuntimeConfigSummary,
+  BuilderHandoffTarget,
+  BuilderToolCall,
+  BuilderToolResult,
+  BuilderMessageContent,
+  BuilderMessage,
+  BuilderSession,
+  BuilderSessionDetail,
+  BuilderProviderSettings,
+  BuilderToolDescriptor,
+  BuilderToolCatalog,
+  BuilderProposal,
+} from "./builder.js";
+export {
+  BUILDER_SESSION_STATES,
+  BUILDER_MESSAGE_ROLES,
+  BUILDER_PROPOSAL_STATUSES,
+} from "./builder.js";

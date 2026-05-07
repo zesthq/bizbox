@@ -214,6 +214,10 @@ export {
 export {
   createIssueWorkProductSchema,
   updateIssueWorkProductSchema,
+  issueArtifactWorkProductMetadataSchema,
+  getStoredIssueArtifactWorkProductValidationIssues,
+  sanitizeStoredIssueArtifactWorkProductMetadata,
+  getIssueArtifactWorkProductValidationIssues,
   issueWorkProductTypeSchema,
   issueWorkProductStatusSchema,
   issueWorkProductReviewStateSchema,
@@ -378,3 +382,16 @@ export {
   type SetPluginState,
   type ListPluginState,
 } from "./plugin.js";
+
+export {
+  createBuilderSessionSchema,
+  sendBuilderMessageSchema,
+  updateBuilderProviderSettingsSchema,
+  applyBuilderProposalSchema,
+  rejectBuilderProposalSchema,
+  type CreateBuilderSession,
+  type SendBuilderMessage,
+  type UpdateBuilderProviderSettings,
+  type ApplyBuilderProposal,
+  type RejectBuilderProposal,
+} from "./builder.js";

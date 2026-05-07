@@ -51,6 +51,8 @@ export {
   PROJECT_COLORS,
   APPROVAL_TYPES,
   APPROVAL_STATUSES,
+  APPROVAL_DECISION_COMMENT_PREFIXES,
+  buildApprovalDecisionCommentBody,
   SECRET_PROVIDERS,
   STORAGE_PROVIDERS,
   BILLING_TYPES,
@@ -149,6 +151,7 @@ export {
   type PauseReason,
   type ApprovalType,
   type ApprovalStatus,
+  type ApprovalDecisionKind,
   type SecretProvider,
   type StorageProvider,
   type BillingType,
@@ -319,6 +322,7 @@ export type {
   IssueWorkProductProvider,
   IssueWorkProductStatus,
   IssueWorkProductReviewState,
+  IssueArtifactWorkProductMetadata,
   Issue,
   IssueAssigneeAdapterOverrides,
   IssueReferenceSource,
@@ -491,6 +495,14 @@ export type {
   PluginWebhookDeliveryRecord,
   QuotaWindow,
   ProviderQuotaResult,
+  DeliverableAgentRef,
+  DeliverableDetail,
+  DeliverableIssueRef,
+  DeliverableListItem,
+} from "./types/index.js";
+export {
+  isIssueArtifactWorkProductMetadata,
+  parseIssueArtifactWorkProductMetadata,
 } from "./types/index.js";
 export {
   ISSUE_REFERENCE_IDENTIFIER_RE,
@@ -651,6 +663,10 @@ export {
   createIssueAttachmentMetadataSchema,
   createIssueWorkProductSchema,
   updateIssueWorkProductSchema,
+  issueArtifactWorkProductMetadataSchema,
+  getStoredIssueArtifactWorkProductValidationIssues,
+  sanitizeStoredIssueArtifactWorkProductMetadata,
+  getIssueArtifactWorkProductValidationIssues,
   issueWorkProductTypeSchema,
   issueWorkProductStatusSchema,
   issueWorkProductReviewStateSchema,
@@ -913,3 +929,45 @@ export {
   type SecretsLocalEncryptedConfig,
   type ConfigMeta,
 } from "./config-schema.js";
+
+export {
+  calculateModelCostCents,
+  hasModelPricing,
+  getModelPricing,
+  type ModelPricing,
+} from "./model-pricing.js";
+
+export type {
+  BuilderSessionState,
+  BuilderMessageRole,
+  BuilderProposalStatus,
+  BuilderRuntimeConfigSummary,
+  BuilderHandoffTarget,
+  BuilderToolCall,
+  BuilderToolResult,
+  BuilderMessageContent,
+  BuilderMessage,
+  BuilderSession,
+  BuilderSessionDetail,
+  BuilderProviderSettings,
+  BuilderToolDescriptor,
+  BuilderToolCatalog,
+  BuilderProposal,
+} from "./types/builder.js";
+export {
+  BUILDER_SESSION_STATES,
+  BUILDER_MESSAGE_ROLES,
+  BUILDER_PROPOSAL_STATUSES,
+} from "./types/builder.js";
+export {
+  createBuilderSessionSchema,
+  sendBuilderMessageSchema,
+  updateBuilderProviderSettingsSchema,
+  applyBuilderProposalSchema,
+  rejectBuilderProposalSchema,
+  type CreateBuilderSession,
+  type SendBuilderMessage,
+  type UpdateBuilderProviderSettings,
+  type ApplyBuilderProposal,
+  type RejectBuilderProposal,
+} from "./validators/builder.js";

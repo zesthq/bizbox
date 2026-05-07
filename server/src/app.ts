@@ -15,6 +15,7 @@ import { companySkillRoutes } from "./routes/company-skills.js";
 import { agentRoutes } from "./routes/agents.js";
 import { projectRoutes } from "./routes/projects.js";
 import { issueRoutes } from "./routes/issues.js";
+import { deliverableRoutes } from "./routes/deliverables.js";
 import { routineRoutes } from "./routes/routines.js";
 import { executionWorkspaceRoutes } from "./routes/execution-workspaces.js";
 import { goalRoutes } from "./routes/goals.js";
@@ -34,6 +35,7 @@ import {
   type InstanceDatabaseBackupService,
 } from "./routes/instance-database-backups.js";
 import { llmRoutes } from "./routes/llms.js";
+import { builderRoutes } from "./routes/builder.js";
 import { authRoutes } from "./routes/auth.js";
 import { assetRoutes } from "./routes/assets.js";
 import { accessRoutes } from "./routes/access.js";
@@ -190,6 +192,7 @@ export async function createApp(
   api.use(issueRoutes(db, opts.storageService, {
     feedbackExportService: opts.feedbackExportService,
   }));
+  api.use(deliverableRoutes(db));
   api.use(routineRoutes(db));
   api.use(executionWorkspaceRoutes(db));
   api.use(goalRoutes(db));
@@ -204,6 +207,7 @@ export async function createApp(
   api.use(inboxDismissalRoutes(db));
   api.use(instanceSettingsRoutes(db));
   api.use(emergencyStopRoutes(db));
+  api.use(builderRoutes(db));
   if (opts.databaseBackupService) {
     api.use(instanceDatabaseBackupRoutes(opts.databaseBackupService));
   }
@@ -224,6 +228,10 @@ export async function createApp(
     lifecycleManager: lifecycle,
     db,
   });
+  // Bridge plugin-contributed builder tools (those declaring
+  // `surfaces: ["builder"]`) into the Builder tool catalog.
+  const { setBuilderPluginBridge } = await import("./services/builder/plugin-bridge.js");
+  setBuilderPluginBridge(toolDispatcher);
   const jobCoordinator = createPluginJobCoordinator({
     db,
     lifecycle,

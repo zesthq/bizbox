@@ -2,17 +2,21 @@ import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import {
   addApprovalCommentSchema,
+  buildApprovalDecisionCommentBody,
   createApprovalSchema,
   requestApprovalRevisionSchema,
   resolveApprovalSchema,
   resubmitApprovalSchema,
+  type ApprovalDecisionKind,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { logger } from "../middleware/logger.js";
 import {
   approvalService,
+  builderProposalStore,
   heartbeatService,
   issueApprovalService,
+  issueService,
   logActivity,
   secretService,
 } from "../services/index.js";
@@ -29,10 +33,101 @@ function redactApprovalPayload<T extends { payload: Record<string, unknown> }>(a
 export function approvalRoutes(db: Db) {
   const router = Router();
   const svc = approvalService(db);
+  const builderProposals = builderProposalStore(db);
   const heartbeat = heartbeatService(db);
   const issueApprovalsSvc = issueApprovalService(db);
+  const issuesSvc = issueService(db);
   const secretsSvc = secretService(db);
   const strictSecretsMode = process.env.BIZBOX_SECRETS_STRICT_MODE === "true";
+
+  /**
+   * Auto-post a templated decision comment to every issue linked to an
+   * approval, authored by the deciding human user. Failures are non-fatal
+   * because the approval has already been resolved and we must not roll it
+   * back; instead, we record an activity-log entry per failure so the audit
+   * trail captures the missed comment.
+   */
+  async function postDecisionCommentsForApproval(
+    approval: { id: string; companyId: string; type: string },
+    linkedIssueIds: string[],
+    decision: ApprovalDecisionKind,
+    decidedByUserId: string,
+    decisionNote: string | null | undefined,
+  ) {
+    if (linkedIssueIds.length === 0) return;
+    const body = buildApprovalDecisionCommentBody(decision, decisionNote);
+    for (const issueId of linkedIssueIds) {
+      let commentId: string;
+      try {
+        const comment = await issuesSvc.addComment(issueId, body, {
+          userId: decidedByUserId,
+        });
+        commentId = comment.id;
+      } catch (err) {
+        logger.warn(
+          {
+            err,
+            approvalId: approval.id,
+            issueId,
+            decision,
+          },
+          "failed to post approval decision comment",
+        );
+        await logActivity(db, {
+          companyId: approval.companyId,
+          actorType: "user",
+          actorId: decidedByUserId,
+          action: "approval.decision_comment_failed",
+          entityType: "issue",
+          entityId: issueId,
+          details: {
+            approvalId: approval.id,
+            approvalType: approval.type,
+            decision,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        }).catch((logErr) => {
+          logger.warn(
+            {
+              err: logErr,
+              originalErr: err,
+              approvalId: approval.id,
+              issueId,
+              decision,
+            },
+            "failed to record approval decision comment failure in activity log",
+          );
+        });
+        continue;
+      }
+
+      await logActivity(db, {
+        companyId: approval.companyId,
+        actorType: "user",
+        actorId: decidedByUserId,
+        action: "approval.decision_comment_posted",
+        entityType: "issue",
+        entityId: issueId,
+        details: {
+          approvalId: approval.id,
+          approvalType: approval.type,
+          decision,
+          commentId,
+        },
+      }).catch((err) => {
+        logger.warn(
+          {
+            err,
+            approvalId: approval.id,
+            issueId,
+            decision,
+            commentId,
+          },
+          "failed to record approval decision comment success in activity log",
+        );
+      });
+    }
+  }
 
   async function requireApprovalAccess(req: Request, id: string) {
     const approval = await svc.getById(id);
@@ -41,6 +136,38 @@ export function approvalRoutes(db: Db) {
     }
     assertCompanyAccess(req, approval.companyId);
     return approval;
+  }
+
+  async function syncBuilderProposalFromApprovalResolution(input: {
+    approvalId: string;
+    companyId: string;
+    status: "approved" | "applied" | "rejected";
+    decidedByUserId: string;
+  }) {
+    try {
+      const builderProposal = await builderProposals.getByApprovalId(
+        input.companyId,
+        input.approvalId,
+      );
+      if (!builderProposal) {
+        return;
+      }
+      await builderProposals.updateStatusFromApproval(
+        builderProposal.id,
+        input.status,
+        input.decidedByUserId,
+      );
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          approvalId: input.approvalId,
+          companyId: input.companyId,
+          status: input.status,
+        },
+        "failed to sync builder proposal after approval resolution",
+      );
+    }
   }
 
   router.get("/companies/:companyId/approvals", async (req, res) => {
@@ -136,11 +263,25 @@ export function approvalRoutes(db: Db) {
     }
     const decidedByUserId = req.actor.userId ?? "board";
     const { approval, applied } = await svc.approve(id, decidedByUserId, req.body.decisionNote);
+    await syncBuilderProposalFromApprovalResolution({
+      approvalId: approval.id,
+      companyId: approval.companyId,
+      status: applied ? "applied" : "approved",
+      decidedByUserId,
+    });
 
     if (applied) {
       const linkedIssues = await issueApprovalsSvc.listIssuesForApproval(approval.id);
       const linkedIssueIds = linkedIssues.map((issue) => issue.id);
       const primaryIssueId = linkedIssueIds[0] ?? null;
+
+      await postDecisionCommentsForApproval(
+        approval,
+        linkedIssueIds,
+        "approved",
+        decidedByUserId,
+        req.body.decisionNote,
+      );
 
       await logActivity(db, {
         companyId: approval.companyId,
@@ -232,8 +373,25 @@ export function approvalRoutes(db: Db) {
     }
     const decidedByUserId = req.actor.userId ?? "board";
     const { approval, applied } = await svc.reject(id, decidedByUserId, req.body.decisionNote);
+    await syncBuilderProposalFromApprovalResolution({
+      approvalId: approval.id,
+      companyId: approval.companyId,
+      status: "rejected",
+      decidedByUserId,
+    });
 
     if (applied) {
+      const linkedIssues = await issueApprovalsSvc.listIssuesForApproval(approval.id);
+      const linkedIssueIds = linkedIssues.map((issue) => issue.id);
+
+      await postDecisionCommentsForApproval(
+        approval,
+        linkedIssueIds,
+        "rejected",
+        decidedByUserId,
+        req.body.decisionNote,
+      );
+
       await logActivity(db, {
         companyId: approval.companyId,
         actorType: "user",
@@ -241,7 +399,7 @@ export function approvalRoutes(db: Db) {
         action: "approval.rejected",
         entityType: "approval",
         entityId: approval.id,
-        details: { type: approval.type },
+        details: { type: approval.type, linkedIssueIds },
       });
     }
 
@@ -259,17 +417,34 @@ export function approvalRoutes(db: Db) {
         return;
       }
       const decidedByUserId = req.actor.userId ?? "board";
-      const approval = await svc.requestRevision(id, decidedByUserId, req.body.decisionNote);
+      const { approval, applied } = await svc.requestRevision(
+        id,
+        decidedByUserId,
+        req.body.decisionNote,
+      );
 
-      await logActivity(db, {
-        companyId: approval.companyId,
-        actorType: "user",
-        actorId: req.actor.userId ?? "board",
-        action: "approval.revision_requested",
-        entityType: "approval",
-        entityId: approval.id,
-        details: { type: approval.type },
-      });
+      if (applied) {
+        const linkedIssues = await issueApprovalsSvc.listIssuesForApproval(approval.id);
+        const linkedIssueIds = linkedIssues.map((issue) => issue.id);
+
+        await postDecisionCommentsForApproval(
+          approval,
+          linkedIssueIds,
+          "revision_requested",
+          decidedByUserId,
+          req.body.decisionNote,
+        );
+
+        await logActivity(db, {
+          companyId: approval.companyId,
+          actorType: "user",
+          actorId: req.actor.userId ?? "board",
+          action: "approval.revision_requested",
+          entityType: "approval",
+          entityId: approval.id,
+          details: { type: approval.type, linkedIssueIds },
+        });
+      }
 
       res.json(redactApprovalPayload(approval));
     },
