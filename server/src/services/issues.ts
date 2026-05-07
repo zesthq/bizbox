@@ -2263,7 +2263,6 @@ export function issueService(db: Db) {
         const humanAssignedAgent =
           Boolean(actorUserId) &&
           issueData.assigneeAgentId !== undefined &&
-          issueData.assigneeAgentId !== null &&
           issueData.assigneeAgentId !== existing.assigneeAgentId;
         if (humanAssignedAgent) {
           await markHumanIntervened({
@@ -2814,7 +2813,8 @@ export function issueService(db: Db) {
         .where(eq(issues.id, issueId));
 
       if (actor.userId) {
-        if (issue.assigneeUserId) {
+        // Track human intervention only for agent-managed issues.
+        if (!issue.assigneeAgentId) {
           return redactIssueComment(comment, currentUserRedactionOptions.enabled);
         }
 
