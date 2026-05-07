@@ -510,7 +510,10 @@ configuration changes.
 
 | Metric name | Type | Attributes | Description |
 |---|---|---|---|
-| `bizbox.issues.comments` | Counter | `company_id`, `issue_status`, `actor_type`, `assignee_agent_id`, `assignee_user_id` | Incremented each time a user (human) or agent posts a comment on an issue. A rising user comments value relative to agent comment volume signals human steering / intervention. |
+| `bizbox.issues.comments` | Counter | `company_id`, `project_id`, `issue_status`, `actor_type`, `commenter_id`, `assignee_agent_id`, `assignee_user_id` | Incremented each time a user (human) or agent posts a comment on an issue. A rising user comments value relative to agent comment volume signals human steering / intervention. |
+| `bizbox.issues.human_intervened.count` | Counter | `company_id`, `project_id`, `issue_status`, `intervention_kind`, `intervener_id`, `assignee_agent_id` | Incremented once per issue (first human intervention only). Human intervention currently includes posting a comment as a user or assigning an agent as a user. |
+| `bizbox.issues.closed.count` | Counter | `company_id`, `project_id`, `assignee_agent_id`, `assignee_user_id` | Incremented each time an issue transitions into a closed terminal state (`done` or `cancelled`), including creation directly in either terminal status. |
+| `bizbox.issues.count` | Gauge | `company_id`, `project_id`, `issue_status` | Current number of non-hidden issues per status for each company+project slice. Status values are sourced from `ISSUE_STATUSES` in `@paperclipai/shared` (not hardcoded in OTel instrumentation). Reconciled at server startup and then every 60 seconds. |
 
 ## CLI Client Operations
 

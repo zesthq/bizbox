@@ -3189,8 +3189,10 @@ export function issueRoutes(
     // Emit OTel metric for all comments.
     recordComment({
       company_id: currentIssue.companyId,
+      project_id: currentIssue.projectId ?? undefined,
       issue_status: currentIssue.status,
       actor_type: actor.actorType,
+      commenter_id: actor.actorId,
       assignee_agent_id: currentIssue.assigneeAgentId ?? undefined,
       assignee_user_id: currentIssue.assigneeUserId ?? undefined,
     });

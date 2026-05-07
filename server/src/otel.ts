@@ -17,7 +17,7 @@ import { MeterProvider, PeriodicExportingMetricReader } from "@opentelemetry/sdk
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from "@opentelemetry/semantic-conventions";
-import type { Counter } from "@opentelemetry/api";
+import type { Counter, ObservableGauge, ObservableResult } from "@opentelemetry/api";
 import { metrics } from "@opentelemetry/api";
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,10 @@ let _meterProvider: MeterProvider | null = null;
 // Counters — lazily resolved after init so callers can import at module load
 // time without worrying about init order.
 let _commentsCounter: Counter | null = null;
+let _humanIntervenedCounter: Counter | null = null;
+let _issuesClosedCounter: Counter | null = null;
+let _issuesCountByStatusGauge: ObservableGauge | null = null;
+const _issuesCountByStatusByCompanyAndProject = new Map<string, Map<string, Map<string, number>>>();
 
 // ---------------------------------------------------------------------------
 // Init
@@ -88,6 +92,10 @@ export async function shutdownOtel(): Promise<void> {
     await _meterProvider.shutdown();
     _meterProvider = null;
     _commentsCounter = null;
+    _humanIntervenedCounter = null;
+    _issuesClosedCounter = null;
+    _issuesCountByStatusGauge = null;
+    _issuesCountByStatusByCompanyAndProject.clear();
   }
 }
 
@@ -108,6 +116,28 @@ function getCommentsCounter(): Counter {
   return _commentsCounter;
 }
 
+function getHumanIntervenedCounter(): Counter {
+  if (!_humanIntervenedCounter) {
+    const meter = metrics.getMeter("bizbox");
+    _humanIntervenedCounter = meter.createCounter("bizbox.issues.human_intervened.count", {
+      description: "Total number of issues where a human intervened at least once.",
+      unit: "{issue}",
+    });
+  }
+  return _humanIntervenedCounter;
+}
+
+function getIssuesClosedCounter(): Counter {
+  if (!_issuesClosedCounter) {
+    const meter = metrics.getMeter("bizbox");
+    _issuesClosedCounter = meter.createCounter("bizbox.issues.closed.count", {
+      description: "Total number of issue close events.",
+      unit: "{issue}",
+    });
+  }
+  return _issuesClosedCounter;
+}
+
 /**
  * Increment `bizbox.issues.comments`.
  *
@@ -117,10 +147,80 @@ function getCommentsCounter(): Counter {
  */
 export function recordComment(attributes: {
   company_id: string;
+  project_id: string | undefined;
   issue_status: string;
   actor_type: string;
+  commenter_id: string;
   assignee_agent_id: string | undefined;
   assignee_user_id: string | undefined;
 }): void {
   getCommentsCounter().add(1, attributes);
+}
+
+/**
+ * Increment `bizbox.issues.human_intervened.total`.
+ */
+export function recordHumanIntervened(attributes: {
+  company_id: string;
+  project_id: string | undefined;
+  issue_status: string;
+  intervention_kind: string;
+  intervener_id: string;
+  assignee_agent_id: string | undefined;
+}): void {
+  getHumanIntervenedCounter().add(1, attributes);
+}
+
+/**
+ * Increment `bizbox.issues.closed.count`.
+ */
+export function recordIssueClosed(attributes: {
+  company_id: string;
+  project_id: string | undefined;
+  assignee_agent_id: string | undefined;
+  assignee_user_id: string | undefined;
+}): void {
+  getIssuesClosedCounter().add(1, attributes);
+}
+
+function observeIssuesCountByStatus(result: ObservableResult): void {
+  for (const [companyId, countsByProject] of _issuesCountByStatusByCompanyAndProject.entries()) {
+    for (const [projectIdKey, countsByStatus] of countsByProject.entries()) {
+      const projectId = projectIdKey === "__none__" ? undefined : projectIdKey;
+      for (const [status, count] of countsByStatus.entries()) {
+        result.observe(count, {
+          company_id: companyId,
+          issue_status: status,
+          ...(projectId ? { project_id: projectId } : {}),
+        });
+      }
+    }
+  }
+}
+
+function getIssuesCountByStatusGauge(): ObservableGauge {
+  if (!_issuesCountByStatusGauge) {
+    const meter = metrics.getMeter("bizbox");
+    _issuesCountByStatusGauge = meter.createObservableGauge("bizbox.issues.count", {
+      description: "Current number of issues in each status.",
+      unit: "{issue}",
+    });
+    _issuesCountByStatusGauge.addCallback(observeIssuesCountByStatus);
+  }
+  return _issuesCountByStatusGauge;
+}
+
+/**
+ * Update the in-memory status snapshot used by `bizbox.issues.count`.
+ */
+export function recordIssueStatusCounts(attributes: {
+  company_id: string;
+  project_id: string | undefined;
+  counts_by_status: Record<string, number>;
+}): void {
+  getIssuesCountByStatusGauge();
+  const byProject = _issuesCountByStatusByCompanyAndProject.get(attributes.company_id) ?? new Map<string, Map<string, number>>();
+  const projectKey = attributes.project_id ?? "__none__";
+  byProject.set(projectKey, new Map(Object.entries(attributes.counts_by_status)));
+  _issuesCountByStatusByCompanyAndProject.set(attributes.company_id, byProject);
 }
