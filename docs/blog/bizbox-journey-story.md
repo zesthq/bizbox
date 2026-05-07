@@ -30,7 +30,7 @@ That was the vision. Making it real? That's been the journey.
 
 ## The Early Days: First Code, First Reality Checks
 
-**Late April 2026:** The first Bizbox agents started running. Not perfectly. Not elegantly. But *running*.
+**Mid-April 2026:** The first Bizbox agents started running. Not perfectly. Not elegantly. But *running*.
 
 Early wins:
 - **Agent provisioning via open broker framework:** We built a system where agents could be spun up, assigned work, and tracked — all programmatically.
@@ -38,7 +38,7 @@ Early wins:
 - **Multi-agent coordination:** Agents started handing work to each other (Dev Advocate → Tech Reviewer → DevRel Lead → Dennis for approval).
 
 Early failures:
-- **The $300/month cost crisis (05/05/2026):** An adapter loop caused 900+ token attempts in a single run. Our AWS bill exploded. We scrambled to implement spending caps and gating logic.
+- **The $300/month cost crisis (early May):** An adapter loop caused 900+ token attempts in a single run. Our AWS bill exploded. We scrambled to implement spending caps and gating logic.
 - **Status confusion:** We had "done" and "complete" statuses that meant different things to different agents. Took weeks to standardize.
 - **Quality vs. cost tension:** Sonnet was cheap but inconsistent. Opus was expensive but reliable. We're still finding the right balance.
 
@@ -50,13 +50,13 @@ By early May, we had agents shipping content, managing issues, and running routi
 
 ### Challenge 1: Security & Infrastructure
 
-**The X.com proxy problem (05/07/2026):** X's callback URI restrictions blocked our agents from posting. We couldn't expose our internal network. Solution? Built a secure proxy layer. Not glamorous. But necessary.
+**The X.com proxy problem (early May):** X's callback URI restrictions blocked our agents from posting. We couldn't expose our internal network. Solution? Built a secure proxy layer. Not glamorous. But necessary.
 
 **Lesson learned:** Real-world integrations always have sharp edges. You don't find them until you ship.
 
 ### Challenge 2: Agent Reliability
 
-**The Otto article retrieval bug (05/07/2026):** One of our agents kept failing to fetch articles. Root cause? A stale authentication token that only surfaced under specific conditions.
+**The article retrieval bug (early May):** Our article-retrieval agent kept failing to fetch content. Root cause? A stale authentication token that only surfaced under specific conditions.
 
 We built end-to-end tests. We added health checks. We made agent runs *observable* so when something broke, we could trace it.
 
@@ -64,7 +64,7 @@ We built end-to-end tests. We added health checks. We made agent runs *observabl
 
 ### Challenge 3: Quality Control
 
-**The SLT feedback loop (05/05/2026):** Our senior leadership team started reviewing agent output. Their verdict? "Good structure, inconsistent depth."
+**The SLT feedback loop (early May):** Our senior leadership team started reviewing agent output. Their verdict? "Good structure, inconsistent depth."
 
 We couldn't just throw more compute at it. We needed:
 - Clearer prompts (we borrowed the Growth team's evaluation framework)
@@ -79,7 +79,7 @@ One of our proudest achievements: lowering the barrier to contribution.
 
 **What that looked like:**
 - **Documentation-first PRs:** Every code change ships with updated docs. No exceptions.
-- **Architecture Decision Records (ADRs):** Every non-trivial choice gets documented — not just *what* we chose, but *why*, and what we gave up.
+- **Architecture Decision Records (ADRs):** We're implementing a system to document every non-trivial choice — not just *what* we chose, but *why*, and what we gave up.
 - **Build-in-public guardrails:** We don't leak internal context. We don't overpromise. We link every claim to a PR, issue, or release.
 - **Active triage:** GitHub issues and Discourse threads get a response within 24 hours. Not always a solution, but always acknowledgment.
 
@@ -115,7 +115,7 @@ We're not done. Not even close.
 **Where you can help:**
 - **Try Bizbox:** Spin up an agent, assign it work, see what breaks.
 - **Contribute:** Check the [good first issue](https://github.com/zesthq/bizbox/labels/good%20first%20issue) label. Or propose something entirely new.
-- **Join the conversation:** [GitHub Discussions](https://github.com/zesthq/bizbox/discussions), [Discourse](https://bizboxai.discourse.group), and X ([@BizboxAI](https://twitter.com/BizboxAI)) are where the real work happens.
+- **Join the conversation:** [GitHub Issues](https://github.com/zesthq/bizbox/issues), [Discourse](https://bizboxai.discourse.group), and X ([@BizboxAI](https://twitter.com/BizboxAI)) are where the real work happens.
 
 Building autonomous agents is hard. Building *trustworthy* autonomous agents is harder. But we're doing it in public, learning together, and shipping every week.
 
@@ -126,7 +126,6 @@ Thanks for being part of this journey.
 **Related Links**
 - [Bizbox on GitHub](https://github.com/zesthq/bizbox)
 - [Roadmap](https://github.com/zesthq/bizbox/blob/master/ROADMAP.md)
-- [Build Logs Archive](https://bizboxai.discourse.group/c/build-logs)
-- [Weekly Build Log (May 2–8, 2026)](https://github.com/zesthq/bizbox/discussions/31)
+- [Community Discussion](https://bizboxai.discourse.group)
 
 — The Bizbox Team
