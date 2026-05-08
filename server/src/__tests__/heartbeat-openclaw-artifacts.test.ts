@@ -359,7 +359,8 @@ describeEmbeddedPostgres("heartbeat issue-backed artifact persistence", () => {
       return (
         persisted?.status === "succeeded" &&
         products.length === 1 &&
-        products[0]?.createdByRunId === secondRun!.id
+        products[0]?.createdByRunId === secondRun!.id &&
+        mockStorage.deleteObject.mock.calls.length === 1
       );
     });
 
