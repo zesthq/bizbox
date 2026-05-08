@@ -36,6 +36,7 @@ let _commentsCounter: Counter | null = null;
 let _humanIntervenedCounter: Counter | null = null;
 let _issuesCreatedCounter: Counter | null = null;
 let _issuesStatusChangedCounter: Counter | null = null;
+let _runsStatusCounter: Counter | null = null;
 let _issuesCountByStatusGauge: ObservableGauge | null = null;
 const _issuesCountByStatusByCompanyAndProject = new Map<string, Map<string, Map<string, number>>>();
 
@@ -114,6 +115,7 @@ export async function shutdownOtel(): Promise<void> {
     _humanIntervenedCounter = null;
     _issuesCreatedCounter = null;
     _issuesStatusChangedCounter = null;
+    _runsStatusCounter = null;
     _issuesCountByStatusGauge = null;
     _issuesCountByStatusByCompanyAndProject.clear();
   }
@@ -167,6 +169,21 @@ function getIssuesStatusChangedCounter(): Counter {
     });
   }
   return _issuesStatusChangedCounter;
+}
+
+function getRunsStatusCounter(): Counter {
+  if (!_runsStatusCounter) {
+    const meter = metrics.getMeter("bizbox");
+    _runsStatusCounter = meter.createCounter("bizbox.runs.status", {
+      description: "Total number of run terminal status events.",
+      unit: "{run}",
+    });
+  }
+  return _runsStatusCounter;
+}
+
+function normalizeRunStatus(status: string): string {
+  return status === "canceled" ? "cancelled" : status;
 }
 
 /**
@@ -230,6 +247,22 @@ export function recordIssueStatusChanged(attributes: {
   actor_id: string;
 }): void {
   getIssuesStatusChangedCounter().add(1, attributes);
+}
+
+/**
+ * Increment `bizbox.runs.status`.
+ */
+export function recordRunStatus(attributes: {
+  company_id: string;
+  agent_id: string;
+  status: string;
+  invocation_source: string;
+  trigger_detail: string | undefined;
+}): void {
+  getRunsStatusCounter().add(1, {
+    ...attributes,
+    status: normalizeRunStatus(attributes.status),
+  });
 }
 
 /**

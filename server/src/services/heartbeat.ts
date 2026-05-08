@@ -86,6 +86,7 @@ import {
 import { issueService } from "./issues.js";
 import { agentThreadService } from "./agent-threads.js";
 import { workProductService } from "./work-products.js";
+import { recordRunStatus } from "../otel.js";
 import {
   getIssueContinuationSummaryDocument,
   refreshIssueContinuationSummary,
@@ -151,6 +152,8 @@ const EXECUTION_PATH_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_r
 const CANCELLABLE_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_retry"] as const;
 const HEARTBEAT_RUN_TERMINAL_STATUSES = ["succeeded", "failed", "cancelled", "timed_out"] as const;
 const UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES = ["failed", "cancelled", "timed_out"] as const;
+type HeartbeatRunTerminalStatus = (typeof HEARTBEAT_RUN_TERMINAL_STATUSES)[number];
+const HEARTBEAT_RUN_TERMINAL_STATUS_SET = new Set<string>(HEARTBEAT_RUN_TERMINAL_STATUSES);
 export const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS = [
   2 * 60 * 1000,
   10 * 60 * 1000,
@@ -2625,6 +2628,13 @@ export function heartbeatService(db: Db) {
     status: string,
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
   ) {
+    const previous = await db
+      .select({ status: heartbeatRuns.status })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId))
+      .then((rows) => rows[0] ?? null);
+    if (!previous) return null;
+
     const updated = await db
       .update(heartbeatRuns)
       .set({ status, ...patch, updatedAt: new Date() })
@@ -2649,6 +2659,18 @@ export function heartbeatService(db: Db) {
         },
       });
       publishRunLifecyclePluginEvent(updated);
+
+      const wasTerminal = HEARTBEAT_RUN_TERMINAL_STATUS_SET.has(previous.status as HeartbeatRunTerminalStatus);
+      const nowTerminal = HEARTBEAT_RUN_TERMINAL_STATUS_SET.has(updated.status as HeartbeatRunTerminalStatus);
+      if (!wasTerminal && nowTerminal) {
+        recordRunStatus({
+          company_id: updated.companyId,
+          agent_id: updated.agentId,
+          status: updated.status,
+          invocation_source: updated.invocationSource,
+          trigger_detail: updated.triggerDetail ?? undefined,
+        });
+      }
     }
 
     return updated;
