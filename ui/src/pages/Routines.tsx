@@ -614,14 +614,14 @@ export function Routines() {
               ) : null}
             </div>
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ToggleSwitch
                   checked={routineViewState.showArchived}
                   onCheckedChange={(showArchived) => updateRoutineView({ showArchived })}
                   aria-label="Show archived routines"
                 />
                 <span>Show archived</span>
-              </label>
+              </div>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="ghost" size="sm" className="text-xs">
