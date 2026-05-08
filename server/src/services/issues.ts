@@ -2070,16 +2070,6 @@ export function issueService(db: Db) {
         }
 
         const [issue] = await tx.insert(issues).values(values).returning();
-        recordIssueCreated({
-          company_id: issue.companyId,
-          project_id: issue.projectId ?? undefined,
-          actor_type: issue.createdByUserId ? "user" : issue.createdByAgentId ? "agent" : "system",
-          actor_id: issue.createdByUserId ?? issue.createdByAgentId ?? "system",
-          initial_status: issue.status,
-          assignee_agent_id: issue.assigneeAgentId ?? undefined,
-          assignee_user_id: issue.assigneeUserId ?? undefined,
-          origin_kind: issue.originKind,
-        });
         if (issue.createdByUserId && issue.assigneeAgentId) {
           await markHumanIntervened({
             issueId: issue.id,
@@ -2107,6 +2097,18 @@ export function issueService(db: Db) {
             tx,
           );
         }
+
+        recordIssueCreated({
+          company_id: issue.companyId,
+          project_id: issue.projectId ?? undefined,
+          actor_type: issue.createdByUserId ? "user" : issue.createdByAgentId ? "agent" : "system",
+          actor_id: issue.createdByUserId ?? issue.createdByAgentId ?? "system",
+          initial_status: issue.status,
+          assignee_agent_id: issue.assigneeAgentId ?? undefined,
+          assignee_user_id: issue.assigneeUserId ?? undefined,
+          origin_kind: issue.originKind,
+        });
+
         const [enriched] = await withIssueLabels(tx, [issue]);
         return enriched;
       });
