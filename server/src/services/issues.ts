@@ -1941,7 +1941,7 @@ export function issueService(db: Db) {
       if (data.status === "in_progress" && !data.assigneeAgentId && !data.assigneeUserId) {
         throw unprocessable("in_progress issues require an assignee");
       }
-      return db.transaction(async (tx) => {
+      const created = await db.transaction(async (tx) => {
         const defaultCompanyGoal = await getDefaultCompanyGoal(tx, companyId);
         const projectGoalId = await getProjectDefaultGoalId(tx, companyId, issueData.projectId);
         let projectWorkspaceId = issueData.projectWorkspaceId ?? null;
@@ -2100,20 +2100,24 @@ export function issueService(db: Db) {
           );
         }
 
-        recordIssueCreated({
-          company_id: issue.companyId,
-          project_id: issue.projectId ?? undefined,
-          actor_type: issue.createdByUserId ? "user" : issue.createdByAgentId ? "agent" : "system",
-          actor_id: issue.createdByUserId ?? issue.createdByAgentId ?? "system",
-          initial_status: issue.status,
-          assignee_agent_id: issue.assigneeAgentId ?? undefined,
-          assignee_user_id: issue.assigneeUserId ?? undefined,
-          origin_kind: issue.originKind,
-        });
-
         const [enriched] = await withIssueLabels(tx, [issue]);
-        return enriched;
+        return {
+          enriched,
+          metricAttributes: {
+            company_id: issue.companyId,
+            project_id: issue.projectId ?? undefined,
+            actor_type: issue.createdByUserId ? "user" : issue.createdByAgentId ? "agent" : "system",
+            actor_id: issue.createdByUserId ?? issue.createdByAgentId ?? "system",
+            initial_status: issue.status,
+            assignee_agent_id: issue.assigneeAgentId ?? undefined,
+            assignee_user_id: issue.assigneeUserId ?? undefined,
+            origin_kind: issue.originKind,
+          },
+        };
       });
+
+      recordIssueCreated(created.metricAttributes);
+      return created.enriched;
     },
 
     update: async (
