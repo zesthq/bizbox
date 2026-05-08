@@ -2628,19 +2628,41 @@ export function heartbeatService(db: Db) {
     status: string,
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
   ) {
-    const previous = await db
-      .select({ status: heartbeatRuns.status })
-      .from(heartbeatRuns)
-      .where(eq(heartbeatRuns.id, runId))
-      .then((rows) => rows[0] ?? null);
-    if (!previous) return null;
+    const transition = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select ${heartbeatRuns.id} from ${heartbeatRuns} where ${heartbeatRuns.id} = ${runId} for update`,
+      );
 
-    const updated = await db
-      .update(heartbeatRuns)
-      .set({ status, ...patch, updatedAt: new Date() })
-      .where(eq(heartbeatRuns.id, runId))
-      .returning()
-      .then((rows) => rows[0] ?? null);
+      const previous = await tx
+        .select({ status: heartbeatRuns.status })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, runId))
+        .then((rows) => rows[0] ?? null);
+      if (!previous) {
+        return { updated: null as typeof heartbeatRuns.$inferSelect | null, shouldEmitTerminalMetric: false };
+      }
+
+      const updated = await tx
+        .update(heartbeatRuns)
+        .set({ status, ...patch, updatedAt: new Date() })
+        .where(eq(heartbeatRuns.id, runId))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+
+      if (!updated) {
+        return { updated: null as typeof heartbeatRuns.$inferSelect | null, shouldEmitTerminalMetric: false };
+      }
+
+      const wasTerminal = HEARTBEAT_RUN_TERMINAL_STATUS_SET.has(previous.status as HeartbeatRunTerminalStatus);
+      const nowTerminal = HEARTBEAT_RUN_TERMINAL_STATUS_SET.has(updated.status as HeartbeatRunTerminalStatus);
+
+      return {
+        updated,
+        shouldEmitTerminalMetric: !wasTerminal && nowTerminal,
+      };
+    });
+
+    const updated = transition.updated;
 
     if (updated) {
       publishLiveEvent({
@@ -2660,9 +2682,7 @@ export function heartbeatService(db: Db) {
       });
       publishRunLifecyclePluginEvent(updated);
 
-      const wasTerminal = HEARTBEAT_RUN_TERMINAL_STATUS_SET.has(previous.status as HeartbeatRunTerminalStatus);
-      const nowTerminal = HEARTBEAT_RUN_TERMINAL_STATUS_SET.has(updated.status as HeartbeatRunTerminalStatus);
-      if (!wasTerminal && nowTerminal) {
+      if (transition.shouldEmitTerminalMetric) {
         recordRunStatus({
           company_id: updated.companyId,
           agent_id: updated.agentId,
