@@ -84,6 +84,7 @@ type RoutineGroupBy = "none" | "project" | "assignee";
 type RoutineViewState = {
   groupBy: RoutineGroupBy;
   collapsedGroups: string[];
+  showArchived: boolean;
 };
 
 type RoutineGroup = {
@@ -95,6 +96,7 @@ type RoutineGroup = {
 const defaultRoutineViewState: RoutineViewState = {
   groupBy: "none",
   collapsedGroups: [],
+  showArchived: false,
 };
 
 function getRoutineViewState(key: string): RoutineViewState {
@@ -492,6 +494,14 @@ export function Routines() {
     () => new Map((projects ?? []).map((project) => [project.id, project])),
     [projects],
   );
+  const visibleRoutines = useMemo(
+    () => (routines ?? []).filter((routine) => routineViewState.showArchived || routine.status !== "archived"),
+    [routineViewState.showArchived, routines],
+  );
+  const archivedRoutineCount = useMemo(
+    () => (routines ?? []).filter((routine) => routine.status === "archived").length,
+    [routines],
+  );
   const liveIssueIds = useMemo(() => {
     const ids = new Set<string>();
     for (const run of liveRuns ?? []) {
@@ -500,8 +510,8 @@ export function Routines() {
     return ids;
   }, [liveRuns]);
   const routineGroups = useMemo(
-    () => buildRoutineGroups(routines ?? [], routineViewState.groupBy, projectById, agentById),
-    [agentById, projectById, routineViewState.groupBy, routines],
+    () => buildRoutineGroups(visibleRoutines, routineViewState.groupBy, projectById, agentById),
+    [agentById, projectById, routineViewState.groupBy, visibleRoutines],
   );
   const recentRunsIssueLinkState = useMemo(
     () =>
@@ -593,39 +603,56 @@ export function Routines() {
         />
         <TabsContent value="routines" className="space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              {(routines ?? []).length} routine{(routines ?? []).length === 1 ? "" : "s"}
-            </p>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-xs">
-                  <Layers className="h-3.5 w-3.5 sm:h-3 sm:w-3 sm:mr-1" />
-                  <span className="hidden sm:inline">Group</span>
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-44 p-0">
-                <div className="p-2 space-y-0.5">
-                  {([
-                    ["project", "Project"],
-                    ["assignee", "Agent"],
-                    ["none", "None"],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm ${
-                        routineViewState.groupBy === value
-                          ? "bg-accent/50 text-foreground"
-                          : "text-muted-foreground hover:bg-accent/50"
-                      }`}
-                      onClick={() => updateRoutineView({ groupBy: value, collapsedGroups: [] })}
-                    >
-                      <span>{label}</span>
-                      {routineViewState.groupBy === value ? <Check className="h-3.5 w-3.5" /> : null}
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">
+                {visibleRoutines.length} routine{visibleRoutines.length === 1 ? "" : "s"}
+              </p>
+              {!routineViewState.showArchived && archivedRoutineCount > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {archivedRoutineCount} archived hidden
+                </p>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <ToggleSwitch
+                  checked={routineViewState.showArchived}
+                  onCheckedChange={(showArchived) => updateRoutineView({ showArchived })}
+                  aria-label="Show archived routines"
+                />
+                <span>Show archived</span>
+              </label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="sm" className="text-xs">
+                    <Layers className="h-3.5 w-3.5 sm:h-3 sm:w-3 sm:mr-1" />
+                    <span className="hidden sm:inline">Group</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-44 p-0">
+                  <div className="p-2 space-y-0.5">
+                    {([
+                      ["project", "Project"],
+                      ["assignee", "Agent"],
+                      ["none", "None"],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm ${
+                          routineViewState.groupBy === value
+                            ? "bg-accent/50 text-foreground"
+                            : "text-muted-foreground hover:bg-accent/50"
+                        }`}
+                        onClick={() => updateRoutineView({ groupBy: value, collapsedGroups: [] })}
+                      >
+                        <span>{label}</span>
+                        {routineViewState.groupBy === value ? <Check className="h-3.5 w-3.5" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
         </TabsContent>
         <TabsContent value="runs">
@@ -907,11 +934,15 @@ export function Routines() {
 
       {activeTab === "routines" ? (
         <div>
-          {(routines ?? []).length === 0 ? (
+          {visibleRoutines.length === 0 ? (
             <div className="py-12">
               <EmptyState
                 icon={Repeat}
-                message="No routines yet. Use Create routine to define the first recurring workflow."
+                message={
+                  archivedRoutineCount > 0 && !routineViewState.showArchived
+                    ? "All routines are archived. Turn on Show archived to view them."
+                    : "No routines yet. Use Create routine to define the first recurring workflow."
+                }
               />
             </div>
           ) : (

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Routines, buildRoutineGroups } from "./Routines";
 
 let currentSearch = "";
+let container: HTMLDivElement;
 
 const navigateMock = vi.fn();
 const routinesListMock = vi.fn<(companyId: string) => Promise<RoutineListItem[]>>();
@@ -17,6 +18,19 @@ const issuesListRenderMock = vi.fn(({ issues }: { issues: Issue[] }) => (
 ));
 
 vi.mock("@/lib/router", () => ({
+  Link: ({
+    to,
+    children,
+    ...props
+  }: {
+    to: string;
+    children: unknown;
+    [key: string]: unknown;
+  }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
   useNavigate: () => navigateMock,
   useLocation: () => ({ pathname: "/routines", search: currentSearch ? `?${currentSearch}` : "", hash: "" }),
   useSearchParams: () => [new URLSearchParams(currentSearch), vi.fn()],
@@ -207,6 +221,28 @@ vi.mock("../components/AgentIconPicker", () => ({
   AgentIcon: () => <span data-testid="agent-icon" />,
 }));
 
+vi.mock("@/components/ui/toggle-switch", () => ({
+  ToggleSwitch: ({
+    checked,
+    onCheckedChange,
+    "aria-label": ariaLabel,
+  }: {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+    "aria-label"?: string;
+  }) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      onClick={() => onCheckedChange(!checked)}
+    >
+      {checked ? "on" : "off"}
+    </button>
+  ),
+}));
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -291,11 +327,39 @@ async function flush() {
   await Promise.resolve();
   await Promise.resolve();
   await new Promise((resolve) => window.setTimeout(resolve, 0));
+  await Promise.resolve();
+  await new Promise((resolve) => window.setTimeout(resolve, 10));
+}
+
+async function renderRoutines() {
+  const root = createRoot(container);
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <Routines />
+      </QueryClientProvider>,
+    );
+    await flush();
+    await flush();
+  });
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (container.textContent?.trim()) break;
+    await act(async () => {
+      await flush();
+    });
+  }
+
+  return root;
 }
 
 describe("Routines page", () => {
-  let container: HTMLDivElement;
-
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -342,23 +406,129 @@ describe("Routines page", () => {
       createIssue({ id: "issue-2", title: "Routine execution B", identifier: "PAP-1001", issueNumber: 1001 }),
     ]);
 
-    const root = createRoot(container);
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-      },
-    });
+    const root = await renderRoutines();
+
+    expect(issuesListMock).toHaveBeenCalledWith("company-1", { originKind: "routine_execution" });
 
     await act(async () => {
-      root.render(
-        <QueryClientProvider client={queryClient}>
-          <Routines />
-        </QueryClientProvider>,
-      );
+      root.unmount();
+    });
+  });
+
+  it("hides archived routines by default and shows filtered count copy", async () => {
+    routinesListMock.mockResolvedValue([
+      createRoutine({ id: "routine-1", title: "Active routine", status: "active" }),
+      createRoutine({ id: "routine-2", title: "Archived routine", status: "archived" }),
+    ]);
+    issuesListMock.mockResolvedValue([]);
+
+    const root = await renderRoutines();
+
+    expect(container.textContent).toContain("Active routine");
+    expect(container.textContent).not.toContain("Archived routine");
+    expect(container.textContent).toContain("1 routine");
+    expect(container.textContent).toContain("1 archived hidden");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("reveals archived routines when the show archived toggle is enabled", async () => {
+    routinesListMock.mockResolvedValue([
+      createRoutine({ id: "routine-1", title: "Active routine", status: "active" }),
+      createRoutine({ id: "routine-2", title: "Archived routine", status: "archived" }),
+    ]);
+    issuesListMock.mockResolvedValue([]);
+
+    const root = await renderRoutines();
+    const toggle = container.querySelector('[aria-label="Show archived routines"]');
+    expect(toggle).not.toBeNull();
+
+    await act(async () => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await flush();
     });
 
-    expect(issuesListMock).toHaveBeenCalledWith("company-1", { originKind: "routine_execution" });
+    expect(container.textContent).toContain("Active routine");
+    expect(container.textContent).toContain("Archived routine");
+    expect(container.textContent).toContain("2 routines");
+    expect(container.textContent).not.toContain("archived hidden");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("rehides archived routines when the toggle is turned back off", async () => {
+    routinesListMock.mockResolvedValue([
+      createRoutine({ id: "routine-1", title: "Active routine", status: "active" }),
+      createRoutine({ id: "routine-2", title: "Archived routine", status: "archived" }),
+    ]);
+    issuesListMock.mockResolvedValue([]);
+
+    const root = await renderRoutines();
+    const toggle = container.querySelector('[aria-label="Show archived routines"]');
+    expect(toggle).not.toBeNull();
+
+    await act(async () => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+    });
+
+    expect(container.textContent).toContain("Active routine");
+    expect(container.textContent).not.toContain("Archived routine");
+    expect(container.textContent).toContain("1 archived hidden");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("restores the persisted show archived preference for the same company", async () => {
+    localStorage.setItem(
+      "paperclip:routines-view:company-1",
+      JSON.stringify({ groupBy: "none", collapsedGroups: [], showArchived: true }),
+    );
+    routinesListMock.mockResolvedValue([
+      createRoutine({ id: "routine-1", title: "Active routine", status: "active" }),
+      createRoutine({ id: "routine-2", title: "Archived routine", status: "archived" }),
+    ]);
+    issuesListMock.mockResolvedValue([]);
+
+    const root = await renderRoutines();
+
+    expect(container.textContent).toContain("Archived routine");
+    const toggle = container.querySelector('[aria-label="Show archived routines"]');
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps archived routines out of grouped sections while hidden", async () => {
+    localStorage.setItem(
+      "paperclip:routines-view:company-1",
+      JSON.stringify({ groupBy: "project", collapsedGroups: [], showArchived: false }),
+    );
+    routinesListMock.mockResolvedValue([
+      createRoutine({ id: "routine-1", title: "Visible project routine", projectId: "project-1", status: "active" }),
+      createRoutine({ id: "routine-2", title: "Hidden archived routine", projectId: "project-2", status: "archived" }),
+    ]);
+    issuesListMock.mockResolvedValue([]);
+
+    const root = await renderRoutines();
+
+    expect(container.textContent).toContain("Project Alpha");
+    expect(container.textContent).toContain("Visible project routine");
+    expect(container.textContent).not.toContain("Project Beta");
+    expect(container.textContent).not.toContain("Hidden archived routine");
 
     await act(async () => {
       root.unmount();
