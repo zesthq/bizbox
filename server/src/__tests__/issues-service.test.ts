@@ -23,6 +23,7 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 vi.mock("../otel.js", () => ({
+  recordComment: vi.fn(),
   recordHumanIntervened: vi.fn(),
   recordIssueCreated: vi.fn(),
   recordIssueStatusChanged: vi.fn(),
