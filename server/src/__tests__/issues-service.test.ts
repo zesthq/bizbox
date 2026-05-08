@@ -24,6 +24,7 @@ import {
 } from "./helpers/embedded-postgres.js";
 vi.mock("../otel.js", () => ({
   recordHumanIntervened: vi.fn(),
+  recordIssueCreated: vi.fn(),
   recordIssueStatusChanged: vi.fn(),
   recordIssueStatusCounts: vi.fn(),
   clearIssueStatusCountsForCompany: vi.fn(),

@@ -34,6 +34,7 @@ let _tracerProvider: NodeTracerProvider | null = null;
 // time without worrying about init order.
 let _commentsCounter: Counter | null = null;
 let _humanIntervenedCounter: Counter | null = null;
+let _issuesCreatedCounter: Counter | null = null;
 let _issuesStatusChangedCounter: Counter | null = null;
 let _issuesCountByStatusGauge: ObservableGauge | null = null;
 const _issuesCountByStatusByCompanyAndProject = new Map<string, Map<string, Map<string, number>>>();
@@ -111,6 +112,7 @@ export async function shutdownOtel(): Promise<void> {
     _tracerProvider = null;
     _commentsCounter = null;
     _humanIntervenedCounter = null;
+    _issuesCreatedCounter = null;
     _issuesStatusChangedCounter = null;
     _issuesCountByStatusGauge = null;
     _issuesCountByStatusByCompanyAndProject.clear();
@@ -143,6 +145,17 @@ function getHumanIntervenedCounter(): Counter {
     });
   }
   return _humanIntervenedCounter;
+}
+
+function getIssuesCreatedCounter(): Counter {
+  if (!_issuesCreatedCounter) {
+    const meter = metrics.getMeter("bizbox");
+    _issuesCreatedCounter = meter.createCounter("bizbox.issues.created", {
+      description: "Total number of created issues.",
+      unit: "{issue}",
+    });
+  }
+  return _issuesCreatedCounter;
 }
 
 function getIssuesStatusChangedCounter(): Counter {
@@ -187,6 +200,22 @@ export function recordHumanIntervened(attributes: {
   assignee_agent_id: string | undefined;
 }): void {
   getHumanIntervenedCounter().add(1, attributes);
+}
+
+/**
+ * Increment `bizbox.issues.created`.
+ */
+export function recordIssueCreated(attributes: {
+  company_id: string;
+  project_id: string | undefined;
+  actor_type: string;
+  actor_id: string;
+  initial_status: string;
+  assignee_agent_id: string | undefined;
+  assignee_user_id: string | undefined;
+  origin_kind: string;
+}): void {
+  getIssuesCreatedCounter().add(1, attributes);
 }
 
 /**

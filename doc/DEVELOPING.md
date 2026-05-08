@@ -513,6 +513,7 @@ Bizbox also emits traces via OpenTelemetry when OTel is enabled.
 
 | Metric name | Type | Attributes | Description |
 |---|---|---|---|
+| `bizbox.issues.created` | Counter | `company_id`, `project_id`, `actor_type`, `actor_id`, `initial_status`, `assignee_agent_id`, `assignee_user_id`, `origin_kind` | Incremented each time an issue is created. |
 | `bizbox.issues.comments` | Counter | `company_id`, `project_id`, `issue_status`, `actor_type`, `commenter_id`, `assignee_agent_id`, `assignee_user_id` | Incremented each time a user (human) or agent posts a comment on an issue. A rising user comments value relative to agent comment volume signals human steering / intervention. |
 | `bizbox.issues.human_intervened.count` | Counter | `company_id`, `project_id`, `issue_status`, `intervention_kind`, `intervener_id`, `assignee_agent_id` | Incremented once per issue (first human intervention only). Human intervention currently includes posting a comment as a user or assigning an agent as a user. |
 | `bizbox.issues.status_changed` | Counter | `company_id`, `project_id`, `from_status`, `to_status`, `actor_type`, `actor_id` | Incremented each time an existing issue transitions from one status to another. Creation is not counted. |
