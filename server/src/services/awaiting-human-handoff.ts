@@ -274,7 +274,6 @@ export async function maybeLogAwaitingHumanHandoff(
       "awaiting_human notification was not delivered",
     );
   }
-  if (delivery.status !== "sent") return false;
 
   await logActivity(db, {
     companyId: input.updatedIssue.companyId,
@@ -302,7 +301,7 @@ export async function maybeLogAwaitingHumanHandoff(
       interactionKind: input.interaction?.kind ?? null,
       blockerIssueId: firstBlocker?.id ?? null,
       blockerIdentifier: firstBlocker?.identifier ?? null,
-      dedupeKey,
+      dedupeKey: delivery.status === "sent" ? dedupeKey : null,
       notification,
       notificationDelivery: {
         status: delivery.status,
@@ -313,5 +312,5 @@ export async function maybeLogAwaitingHumanHandoff(
     },
   });
 
-  return true;
+  return delivery.status === "sent";
 }
