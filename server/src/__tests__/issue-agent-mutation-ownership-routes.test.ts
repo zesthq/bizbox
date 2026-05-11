@@ -134,6 +134,7 @@ function registerRouteMocks() {
     }),
     issueService: () => mockIssueService,
     issueThreadInteractionService: () => mockIssueThreadInteractionService,
+    maybeLogAwaitingHumanHandoff: vi.fn(async () => false),
     logActivity: vi.fn(async () => undefined),
     projectService: () => ({}),
     routineService: () => ({
