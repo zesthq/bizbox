@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  activityLog,
   agents,
   companies,
   createDb,
@@ -39,6 +41,7 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(issueThreadInteractions);
     await db.delete(issueDocuments);
     await db.delete(documentRevisions);
@@ -495,6 +498,11 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
 
     const parkedIssue = (await db.select().from(issues)).find((row) => row.id === issueId);
     expect(parkedIssue?.status).toBe("awaiting_human");
+    const initialHandoffs = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"));
+    expect(initialHandoffs).toHaveLength(1);
 
     const answered = await interactionsSvc.answerQuestions({
       id: issueId,
@@ -515,6 +523,12 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       status: "todo",
       assigneeAgentId: agentId,
     });
+
+    const handoffsAfterAnswer = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"));
+    expect(handoffsAfterAnswer).toHaveLength(1);
   });
 
   it("reuses the existing interaction when the same idempotency key is submitted twice", async () => {
@@ -605,6 +619,12 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     const rows = await db.select().from(issueThreadInteractions);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.idempotencyKey).toBe("run-1:questionnaire");
+
+    const handoffs = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"));
+    expect(handoffs).toHaveLength(1);
   });
 
   it("accepts request_confirmation interactions without creating child issues", async () => {
@@ -847,6 +867,94 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
 
     const updated = (await db.select().from(issues)).find((row) => row.id === issueId);
     expect(updated?.status).toBe("awaiting_human");
+
+    const handoff = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"))
+      .then((rows) => rows[0] ?? null);
+    expect(handoff?.details).toMatchObject({
+      issueId,
+      issuePath: expect.stringContaining("/issues/"),
+      handoffKind: "ask_user_questions",
+      needsHumanInput: "Need answers to 1 question(s).",
+      notification: expect.objectContaining({
+        link: expect.stringContaining("/issues/"),
+      }),
+    });
+  });
+
+  it("auto-parks an in_progress issue to awaiting_human when an agent creates a request_confirmation interaction", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+    const agentId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Auto-park confirmation parent",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Engineer",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Reply draft approval",
+      status: "in_progress",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    await interactionsSvc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "request_confirmation",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Need approval on the exact reply draft before posting.",
+      },
+    }, {
+      agentId,
+    });
+
+    const updated = (await db.select().from(issues)).find((row) => row.id === issueId);
+    expect(updated?.status).toBe("awaiting_human");
+
+    const handoff = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"))
+      .then((rows) => rows[0] ?? null);
+    expect(handoff?.details).toMatchObject({
+      issueId,
+      handoffKind: "request_confirmation",
+      needsHumanInput: "Need approval on the exact reply draft before posting.",
+      notification: expect.objectContaining({
+        summary: "Need approval on the exact reply draft before posting.",
+      }),
+    });
   });
 
   it("moves awaiting_human back to todo when a request_confirmation is rejected", async () => {
@@ -921,6 +1029,12 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       status: "todo",
       assigneeAgentId: agentId,
     });
+
+    const handoffs = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"));
+    expect(handoffs).toHaveLength(1);
   });
 
   it("does not auto-park when a board user creates an interaction", async () => {
@@ -978,6 +1092,12 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
 
     const updated = (await db.select().from(issues)).find((row) => row.id === issueId);
     expect(updated?.status).toBe("in_progress");
+
+    const handoffs = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"));
+    expect(handoffs).toHaveLength(0);
   });
 
   it("preserves awaiting_human when accepting a confirmation that returns to the creator agent", async () => {

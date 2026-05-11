@@ -42,6 +42,8 @@ import { validate } from "../middleware/validate.js";
 import {
   accessService,
   agentService,
+  clampIssueListLimit,
+  documentService,
   executionWorkspaceService,
   feedbackService,
   goalService,
@@ -53,9 +55,8 @@ import {
   ISSUE_LIST_MAX_LIMIT,
   issueReferenceService,
   issueService,
-  clampIssueListLimit,
-  documentService,
   logActivity,
+  maybeLogAwaitingHumanHandoff,
   projectService,
   routineService,
   workProductService,
@@ -1853,6 +1854,7 @@ export function issueRoutes(
         ? (await svc.getDependencyReadiness(existing.id)).unresolvedBlockerCount > 0
         : false;
     let interruptedRunId: string | null = null;
+    let humanOwnedOpenBlockers: Array<NonNullable<Awaited<ReturnType<typeof svc.getById>>>> = [];
     const closedExecutionWorkspace = await getClosedIssueExecutionWorkspace(existing);
     const isAgentWorkUpdate = req.actor.type === "agent" && Object.keys(updateFields).length > 0;
 
@@ -1922,14 +1924,14 @@ export function issueRoutes(
         const blockers = await Promise.all(
           blockerIssueIds.map((blockerId: string) => svc.getById(blockerId)),
         );
-        const hasHumanOwnedOpenBlocker = blockers.some((blocker) => (
-          blocker
+        humanOwnedOpenBlockers = blockers.filter((blocker): blocker is NonNullable<typeof blocker> => (
+          Boolean(blocker)
           && blocker.companyId === existing.companyId
           && !isClosedIssueStatus(blocker.status)
           && typeof blocker.assigneeUserId === "string"
           && blocker.assigneeUserId.length > 0
         ));
-        if (hasHumanOwnedOpenBlocker) {
+        if (humanOwnedOpenBlockers.length > 0) {
           updateFields.status = "awaiting_human";
         }
       }
@@ -2048,6 +2050,32 @@ export function issueRoutes(
     if (!issue) {
       res.status(404).json({ error: "Issue not found" });
       return;
+    }
+    if (
+      req.actor.type === "agent"
+      && existing.status !== "awaiting_human"
+      && issue.status === "awaiting_human"
+      && humanOwnedOpenBlockers.length > 0
+    ) {
+      await maybeLogAwaitingHumanHandoff(db, {
+        previousIssue: existing,
+        updatedIssue: issue,
+        source: "issue.patch_human_blocker_normalization",
+        handoffKind: "human_owned_blocker",
+        blockers: humanOwnedOpenBlockers.map((blocker) => ({
+          id: blocker.id,
+          identifier: blocker.identifier ?? null,
+          title: blocker.title,
+          assigneeUserId: blocker.assigneeUserId ?? null,
+        })),
+        actor: {
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId ?? null,
+          userId: actor.actorType === "user" ? actor.actorId : null,
+          runId: actor.runId ?? null,
+        },
+      });
     }
     if (titleOrDescriptionChanged) {
       await issueReferencesSvc.syncIssue(issue.id);

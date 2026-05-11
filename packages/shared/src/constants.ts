@@ -900,6 +900,7 @@ export const PLUGIN_EVENT_TYPES = [
   "project.workspace_deleted",
   "issue.created",
   "issue.updated",
+  "issue.awaiting_human.entered",
   "issue.comment.created",
   "issue.document.created",
   "issue.document.updated",

@@ -1032,8 +1032,32 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
     expect(issue?.status).toBe("awaiting_human");
 
+    const handoff = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"))
+      .then((rows) => rows[0] ?? null);
+    expect(handoff?.details).toMatchObject({
+      issueId,
+      handoffKind: "human_owned_blocker",
+      blockerIssueId,
+      blockerIdentifier: `${issuePrefix}-2`,
+      issuePath: expect.stringContaining("/issues/"),
+      notification: expect.objectContaining({
+        link: expect.stringContaining("/issues/"),
+      }),
+    });
+
     const wakeups = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, agentId));
     expect(wakeups).toHaveLength(1);
+
+    const rerun = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(rerun.awaitingHumanParked).toBe(0);
+    const handoffsAfterRerun = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"));
+    expect(handoffsAfterRerun).toHaveLength(1);
   });
 
   it("ignores done board-owned blockers when reconciling stranded todo work", async () => {

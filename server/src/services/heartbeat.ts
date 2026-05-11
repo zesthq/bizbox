@@ -72,6 +72,7 @@ import {
   type IssueLivenessFinding,
 } from "./issue-liveness.js";
 import { logActivity, publishPluginDomainEvent, type LogActivityInput } from "./activity-log.js";
+import { maybeLogAwaitingHumanHandoff } from "./awaiting-human-handoff.js";
 import {
   buildWorkspaceReadyComment,
   cleanupExecutionWorkspaceArtifacts,
@@ -4638,21 +4639,29 @@ export function heartbeatService(db: Db) {
           if (updated) {
             result.awaitingHumanParked += 1;
             result.issueIds.push(issue.id);
-            await logActivity(db, {
-              companyId: issue.companyId,
-              actorType: "system",
-              actorId: "system",
-              agentId: null,
-              runId: null,
-              action: "issue.updated",
-              entityType: "issue",
-              entityId: issue.id,
-              details: {
-                identifier: issue.identifier,
-                status: "awaiting_human",
-                previousStatus: "todo",
-                source: "heartbeat.reconcile_human_blocked_todo_issue",
+            await maybeLogAwaitingHumanHandoff(db, {
+              previousIssue: issue,
+              updatedIssue: updated,
+              source: "heartbeat.reconcile_human_blocked_todo_issue",
+              handoffKind: "human_owned_blocker",
+              blockers: relations.blockedBy
+                .filter((blocker) =>
+                  blocker.status !== "done"
+                  && blocker.status !== "cancelled"
+                  && typeof blocker.assigneeUserId === "string"
+                  && blocker.assigneeUserId.length > 0,
+                )
+                .map((blocker) => ({
+                  id: blocker.id,
+                  identifier: blocker.identifier ?? null,
+                  title: blocker.title,
+                  assigneeUserId: blocker.assigneeUserId ?? null,
+                })),
+              actor: {
+                actorType: "system",
+                actorId: "system",
               },
+              emitIssueUpdatedActivity: true,
             });
           } else {
             result.skipped += 1;
