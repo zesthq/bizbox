@@ -3,7 +3,12 @@ import type {
   AskUserQuestionsInteraction,
   RequestConfirmationInteraction,
 } from "@paperclipai/shared";
+import {
+  sendAwaitingHumanNotification,
+  type AwaitingHumanNotificationPayload,
+} from "./awaiting-human-notifications.js";
 import { logActivity } from "./activity-log.js";
+import { logger } from "../middleware/logger.js";
 
 type AwaitingHumanIssueSnapshot = {
   id: string;
@@ -43,14 +48,6 @@ type AwaitingHumanHandoffInput = {
   interaction?: AwaitingHumanInteraction | null;
   blockers?: AwaitingHumanBlocker[] | null;
   emitIssueUpdatedActivity?: boolean;
-};
-
-type NotificationPayload = {
-  title: string;
-  summary: string;
-  link: string;
-  cta: string;
-  labels: string[];
 };
 
 function truncateText(value: string, maxLength: number) {
@@ -154,7 +151,12 @@ function resolveAudienceUserId(input: AwaitingHumanHandoffInput) {
   return userIds.length === 1 ? userIds[0] : null;
 }
 
-function buildNotification(input: AwaitingHumanHandoffInput, link: string, needsHumanInput: string): NotificationPayload {
+function buildNotification(
+  input: AwaitingHumanHandoffInput,
+  link: string,
+  needsHumanInput: string,
+  audienceUserId: string | null,
+): AwaitingHumanNotificationPayload {
   const label = input.updatedIssue.identifier ?? truncateText(input.updatedIssue.title, 48);
   return {
     title: truncateText(`${label} is waiting on human input`, 120),
@@ -162,6 +164,9 @@ function buildNotification(input: AwaitingHumanHandoffInput, link: string, needs
     link,
     cta: `Open ${label} in Bizbox and respond there.`,
     labels: ["awaiting_human", input.handoffKind],
+    kind: input.handoffKind,
+    audience: audienceUserId,
+    body: null,
   };
 }
 
@@ -188,7 +193,7 @@ export async function maybeLogAwaitingHumanHandoff(
   const dedupeKey = buildDedupeKey(input);
   const audienceUserId = resolveAudienceUserId(input);
   const notificationLink = issueUrl ?? issuePath;
-  const notification = buildNotification(input, notificationLink, needsHumanInput);
+  const notification = buildNotification(input, notificationLink, needsHumanInput, audienceUserId);
   const firstBlocker = input.blockers?.[0] ?? null;
 
   if (input.emitIssueUpdatedActivity) {
@@ -251,6 +256,27 @@ export async function maybeLogAwaitingHumanHandoff(
       notification,
     },
   });
+
+  const delivery = await sendAwaitingHumanNotification({
+    companyId: input.updatedIssue.companyId,
+    issueId: input.updatedIssue.id,
+    handoffKind: input.handoffKind,
+    dedupeKey,
+    notification,
+  });
+  if (delivery.status !== "sent") {
+    logger.warn(
+      {
+        companyId: input.updatedIssue.companyId,
+        issueId: input.updatedIssue.id,
+        handoffKind: input.handoffKind,
+        dedupeKey,
+        channel: delivery.channel,
+        detail: delivery.detail,
+      },
+      "awaiting_human notification was not delivered",
+    );
+  }
 
   return true;
 }
