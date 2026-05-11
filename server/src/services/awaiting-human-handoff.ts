@@ -274,7 +274,7 @@ export async function maybeLogAwaitingHumanHandoff(
       "awaiting_human notification was not delivered",
     );
   }
-  if (delivery.status === "failed") return false;
+  if (delivery.status !== "sent") return false;
 
   await logActivity(db, {
     companyId: input.updatedIssue.companyId,

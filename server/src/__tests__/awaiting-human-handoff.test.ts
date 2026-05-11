@@ -248,6 +248,63 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     expect(sendAwaitingHumanNotification).toHaveBeenCalledTimes(2);
   });
 
+  it("retries after a skipped delivery once notification config is restored", async () => {
+    vi.mocked(sendAwaitingHumanNotification)
+      .mockResolvedValueOnce({
+        status: "skipped",
+        channel: "clickup-chat",
+        detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+      } as any)
+      .mockResolvedValueOnce({
+        status: "sent",
+        channel: "clickup-chat",
+        detail: "sent",
+        externalId: "msg_125",
+      } as any);
+
+    const db = mockDbWithAwaitingHumanRows();
+    const first = await maybeLogAwaitingHumanHandoff(db, {
+      previousIssue: {
+        ...basePreviousIssue,
+        status: "awaiting_human",
+      },
+      updatedIssue: baseUpdatedIssue,
+      source: "heartbeat.reconcile_stranded_assigned_issues",
+      handoffKind: "human_owned_blocker",
+      actor: baseActor,
+      blockers: [
+        {
+          id: "blocker-1",
+          identifier: "BIZ-36",
+          title: "Board decision needed",
+          assigneeUserId: "board-user",
+        },
+      ],
+    });
+    const second = await maybeLogAwaitingHumanHandoff(db, {
+      previousIssue: {
+        ...basePreviousIssue,
+        status: "awaiting_human",
+      },
+      updatedIssue: baseUpdatedIssue,
+      source: "heartbeat.reconcile_stranded_assigned_issues",
+      handoffKind: "human_owned_blocker",
+      actor: baseActor,
+      blockers: [
+        {
+          id: "blocker-1",
+          identifier: "BIZ-36",
+          title: "Board decision needed",
+          assigneeUserId: "board-user",
+        },
+      ],
+    });
+
+    expect(first).toBe(false);
+    expect(second).toBe(true);
+    expect(sendAwaitingHumanNotification).toHaveBeenCalledTimes(2);
+  });
+
   it("does not suppress a new blocker cycle from an old-cycle dedupe log", async () => {
     const db = mockDbWithAwaitingHumanRows([
       {
