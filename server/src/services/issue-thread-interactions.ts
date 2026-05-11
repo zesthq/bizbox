@@ -805,7 +805,7 @@ export function issueThreadInteractionService(db: Db) {
             await maybeLogAwaitingHumanHandoff(db, {
               previousIssue: currentIssueRow,
               updatedIssue,
-              source: "issue_thread_interaction_auto_park",
+              source: "issue_thread_interactions.create_auto_park",
               handoffKind: data.kind,
               interaction: buildAwaitingHumanInteraction(created.id, data),
               actor: {

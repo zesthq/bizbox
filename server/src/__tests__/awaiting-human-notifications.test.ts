@@ -98,7 +98,7 @@ describe("sendAwaitingHumanNotification", () => {
     expect(result.status).toBe("sent");
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels",
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels?page=1&page_size=100",
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "token-123",
@@ -111,6 +111,65 @@ describe("sendAwaitingHumanNotification", () => {
       expect.objectContaining({
         method: "POST",
       }),
+    );
+  });
+
+  it("continues channel lookup across pages before giving up", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+    process.env.CLICKUP_ENGINEERING_CHANNEL_NAME = "engineering";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: Array.from({ length: 100 }, (_, index) => ({
+            id: `channel-${index + 1}`,
+            name: `other-${index + 1}`,
+          })),
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ id: "channel-lookup-2", name: "engineering" }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { id: "message-44" } }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await sendAwaitingHumanNotification({
+      companyId: "company-1",
+      issueId: "issue-1",
+      handoffKind: "human_owned_blocker",
+      dedupeKey: "human-blocker:issue-1:blocker-1",
+      notification: {
+        title: "BIZ-35 is waiting on human input",
+        summary: "Waiting on human input to unblock BIZ-36.",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Open BIZ-35 in Bizbox and respond there.",
+        labels: ["awaiting_human", "human_owned_blocker"],
+        kind: "human_owned_blocker",
+        audience: "board-user",
+      },
+    });
+
+    expect(result.status).toBe("sent");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels?page=1&page_size=100",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels?page=2&page_size=100",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels/channel-lookup-2/messages",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 

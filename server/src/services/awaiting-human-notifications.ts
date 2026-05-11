@@ -4,6 +4,7 @@ const MAX_TITLE_LENGTH = 120;
 const MAX_SUMMARY_LENGTH = 280;
 const MAX_DETAIL_BULLETS = 5;
 const MAX_BULLET_LENGTH = 220;
+const CLICKUP_CHANNEL_LOOKUP_PAGE_SIZE = 100;
 
 export interface AwaitingHumanNotificationPayload {
   title: string;
@@ -120,27 +121,37 @@ async function resolveClickUpChannelId(config: ClickUpChatConfig): Promise<strin
   if (config.channelId) return config.channelId;
   if (!config.personalToken || !config.workspaceId || !config.channelName) return null;
 
-  const response = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/chat/channels`,
-    {
+  const normalizedTarget = config.channelName.trim().toLowerCase();
+  for (let page = 1; page <= 100; page += 1) {
+    const url = new URL(
+      `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/chat/channels`,
+    );
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("page_size", String(CLICKUP_CHANNEL_LOOKUP_PAGE_SIZE));
+
+    const response = await fetch(url.toString(), {
       headers: {
         Authorization: config.personalToken,
       },
-    },
-  );
+    });
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`channel-lookup-failed:${response.status}:${truncateText(body, 240)}`);
-  }
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`channel-lookup-failed:${response.status}:${truncateText(body, 240)}`);
+    }
 
-  const payload = await response.json() as { data?: Array<{ id?: unknown; name?: unknown }> };
-  const normalizedTarget = config.channelName.trim().toLowerCase();
-  for (const channel of payload.data ?? []) {
-    const name = typeof channel.name === "string" ? channel.name.trim().toLowerCase() : "";
-    if (name === normalizedTarget) {
-      const id = typeof channel.id === "string" ? channel.id.trim() : String(channel.id ?? "").trim();
-      if (id) return id;
+    const payload = await response.json() as { data?: Array<{ id?: unknown; name?: unknown }> };
+    const channels = payload.data ?? [];
+    for (const channel of channels) {
+      const name = typeof channel.name === "string" ? channel.name.trim().toLowerCase() : "";
+      if (name === normalizedTarget) {
+        const id = typeof channel.id === "string" ? channel.id.trim() : String(channel.id ?? "").trim();
+        if (id) return id;
+      }
+    }
+
+    if (channels.length < CLICKUP_CHANNEL_LOOKUP_PAGE_SIZE) {
+      return null;
     }
   }
 
