@@ -1,4 +1,6 @@
 import type { Db } from "@paperclipai/db";
+import { activityLog } from "@paperclipai/db";
+import { and, eq } from "drizzle-orm";
 import type {
   AskUserQuestionsInteraction,
   RequestConfirmationInteraction,
@@ -178,11 +180,29 @@ function buildDedupeKey(input: AwaitingHumanHandoffInput) {
   return `interaction:${input.interaction?.id ?? input.updatedIssue.id}`;
 }
 
+async function hasLoggedAwaitingHumanHandoff(db: Db, input: AwaitingHumanHandoffInput, dedupeKey: string) {
+  const rows = await db
+    .select({
+      details: activityLog.details,
+    })
+    .from(activityLog)
+    .where(and(
+      eq(activityLog.companyId, input.updatedIssue.companyId),
+      eq(activityLog.action, "issue.awaiting_human.entered"),
+      eq(activityLog.entityId, input.updatedIssue.id),
+    ));
+
+  return rows.some((row) => {
+    const details = row.details;
+    if (!details || typeof details !== "object" || Array.isArray(details)) return false;
+    return (details as Record<string, unknown>).dedupeKey === dedupeKey;
+  });
+}
+
 export async function maybeLogAwaitingHumanHandoff(
   db: Db,
   input: AwaitingHumanHandoffInput,
 ) {
-  if (input.previousIssue.status === "awaiting_human") return false;
   if (input.updatedIssue.status !== "awaiting_human") return false;
 
   const issuePathId = resolveIssuePathId(input.updatedIssue);
@@ -191,6 +211,7 @@ export async function maybeLogAwaitingHumanHandoff(
   const issueUrl = baseUrl ? new URL(issuePath, `${baseUrl}/`).toString() : null;
   const needsHumanInput = resolveNeedsHumanInput(input);
   const dedupeKey = buildDedupeKey(input);
+  if (await hasLoggedAwaitingHumanHandoff(db, input, dedupeKey)) return false;
   const audienceUserId = resolveAudienceUserId(input);
   const notificationLink = issueUrl ?? issuePath;
   const notification = buildNotification(input, notificationLink, needsHumanInput, audienceUserId);
@@ -226,6 +247,28 @@ export async function maybeLogAwaitingHumanHandoff(
     });
   }
 
+  const delivery = await sendAwaitingHumanNotification({
+    companyId: input.updatedIssue.companyId,
+    issueId: input.updatedIssue.id,
+    handoffKind: input.handoffKind,
+    notification,
+  });
+
+  if (delivery.status !== "sent") {
+    logger.warn(
+      {
+        companyId: input.updatedIssue.companyId,
+        issueId: input.updatedIssue.id,
+        handoffKind: input.handoffKind,
+        dedupeKey,
+        channel: delivery.channel,
+        detail: delivery.detail,
+      },
+      "awaiting_human notification was not delivered",
+    );
+  }
+  if (delivery.status === "failed") return false;
+
   await logActivity(db, {
     companyId: input.updatedIssue.companyId,
     actorType: input.actor.actorType,
@@ -254,28 +297,14 @@ export async function maybeLogAwaitingHumanHandoff(
       blockerIdentifier: firstBlocker?.identifier ?? null,
       dedupeKey,
       notification,
-    },
-  });
-
-  const delivery = await sendAwaitingHumanNotification({
-    companyId: input.updatedIssue.companyId,
-    issueId: input.updatedIssue.id,
-    handoffKind: input.handoffKind,
-    notification,
-  });
-  if (delivery.status !== "sent") {
-    logger.warn(
-      {
-        companyId: input.updatedIssue.companyId,
-        issueId: input.updatedIssue.id,
-        handoffKind: input.handoffKind,
-        dedupeKey,
+      notificationDelivery: {
+        status: delivery.status,
         channel: delivery.channel,
         detail: delivery.detail,
+        externalId: delivery.externalId ?? null,
       },
-      "awaiting_human notification was not delivered",
-    );
-  }
+    },
+  });
 
   return true;
 }

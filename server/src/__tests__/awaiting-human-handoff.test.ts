@@ -43,6 +43,16 @@ const baseActor = {
   runId: "run-1",
 };
 
+function mockDbWithAwaitingHumanRows(rows: Array<{ details: Record<string, unknown> | null }> = []): Db {
+  return {
+    select: () => ({
+      from: () => ({
+        where: () => Promise.resolve(rows),
+      }),
+    }),
+  } as unknown as Db;
+}
+
 afterEach(() => {
   vi.clearAllMocks();
   delete process.env.BIZBOX_PUBLIC_URL;
@@ -52,7 +62,7 @@ describe("maybeLogAwaitingHumanHandoff", () => {
   it("sends a ClickUp notification for request_confirmation handoffs", async () => {
     process.env.BIZBOX_PUBLIC_URL = "https://bizbox.example";
 
-    const created = await maybeLogAwaitingHumanHandoff({} as Db, {
+    const created = await maybeLogAwaitingHumanHandoff(mockDbWithAwaitingHumanRows(), {
       previousIssue: basePreviousIssue,
       updatedIssue: baseUpdatedIssue,
       source: "issue_thread_interactions.create",
@@ -86,7 +96,7 @@ describe("maybeLogAwaitingHumanHandoff", () => {
   });
 
   it("sends a ClickUp notification for ask_user_questions handoffs", async () => {
-    const created = await maybeLogAwaitingHumanHandoff({} as Db, {
+    const created = await maybeLogAwaitingHumanHandoff(mockDbWithAwaitingHumanRows(), {
       previousIssue: basePreviousIssue,
       updatedIssue: baseUpdatedIssue,
       source: "issue_thread_interactions.create",
@@ -120,7 +130,7 @@ describe("maybeLogAwaitingHumanHandoff", () => {
   });
 
   it("sends a ClickUp notification for human_owned_blocker handoffs", async () => {
-    const created = await maybeLogAwaitingHumanHandoff({} as Db, {
+    const created = await maybeLogAwaitingHumanHandoff(mockDbWithAwaitingHumanRows(), {
       previousIssue: basePreviousIssue,
       updatedIssue: baseUpdatedIssue,
       source: "heartbeat.reconcile_stranded_assigned_issues",
@@ -147,8 +157,10 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     );
   });
 
-  it("does not resend when the issue is already awaiting_human", async () => {
-    const created = await maybeLogAwaitingHumanHandoff({} as Db, {
+  it("does not resend when the same handoff dedupe key is already logged", async () => {
+    const dedupeKey = "human-blocker:issue-1:blocker-1";
+    const db = mockDbWithAwaitingHumanRows([{ details: { dedupeKey } }]);
+    const created = await maybeLogAwaitingHumanHandoff(db, {
       previousIssue: {
         ...basePreviousIssue,
         status: "awaiting_human",
@@ -170,5 +182,62 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     expect(created).toBe(false);
     expect(sendAwaitingHumanNotification).not.toHaveBeenCalled();
     expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  it("retries delivery when the issue is still awaiting_human but no dedupe marker was logged", async () => {
+    vi.mocked(sendAwaitingHumanNotification)
+      .mockResolvedValueOnce({
+        status: "failed",
+        channel: "clickup-chat",
+        detail: "http-error:500",
+      } as any)
+      .mockResolvedValueOnce({
+        status: "sent",
+        channel: "clickup-chat",
+        detail: "sent",
+        externalId: "msg_124",
+      } as any);
+
+    const db = mockDbWithAwaitingHumanRows();
+    const first = await maybeLogAwaitingHumanHandoff(db, {
+      previousIssue: {
+        ...basePreviousIssue,
+        status: "awaiting_human",
+      },
+      updatedIssue: baseUpdatedIssue,
+      source: "heartbeat.reconcile_stranded_assigned_issues",
+      handoffKind: "human_owned_blocker",
+      actor: baseActor,
+      blockers: [
+        {
+          id: "blocker-1",
+          identifier: "BIZ-36",
+          title: "Board decision needed",
+          assigneeUserId: "board-user",
+        },
+      ],
+    });
+    const second = await maybeLogAwaitingHumanHandoff(db, {
+      previousIssue: {
+        ...basePreviousIssue,
+        status: "awaiting_human",
+      },
+      updatedIssue: baseUpdatedIssue,
+      source: "heartbeat.reconcile_stranded_assigned_issues",
+      handoffKind: "human_owned_blocker",
+      actor: baseActor,
+      blockers: [
+        {
+          id: "blocker-1",
+          identifier: "BIZ-36",
+          title: "Board decision needed",
+          assigneeUserId: "board-user",
+        },
+      ],
+    });
+
+    expect(first).toBe(false);
+    expect(second).toBe(true);
+    expect(sendAwaitingHumanNotification).toHaveBeenCalledTimes(2);
   });
 });
