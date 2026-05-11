@@ -21,7 +21,6 @@ export interface SendAwaitingHumanNotificationInput {
   companyId: string;
   issueId: string;
   handoffKind: "request_confirmation" | "ask_user_questions" | "human_owned_blocker";
-  dedupeKey: string;
   notification: AwaitingHumanNotificationPayload;
 }
 

@@ -261,7 +261,6 @@ export async function maybeLogAwaitingHumanHandoff(
     companyId: input.updatedIssue.companyId,
     issueId: input.updatedIssue.id,
     handoffKind: input.handoffKind,
-    dedupeKey,
     notification,
   });
   if (delivery.status !== "sent") {

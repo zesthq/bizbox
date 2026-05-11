@@ -76,7 +76,6 @@ describe("maybeLogAwaitingHumanHandoff", () => {
         companyId: "company-1",
         issueId: "issue-1",
         handoffKind: "request_confirmation",
-        dedupeKey: "interaction:interaction-1",
         notification: expect.objectContaining({
           link: "https://bizbox.example/issues/BIZ-35",
           summary: "Approve the exact GitHub reply before posting.",
@@ -141,7 +140,6 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     expect(sendAwaitingHumanNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         handoffKind: "human_owned_blocker",
-        dedupeKey: "human-blocker:issue-1:blocker-1",
         notification: expect.objectContaining({
           summary: "Waiting on human input to unblock BIZ-36.",
         }),

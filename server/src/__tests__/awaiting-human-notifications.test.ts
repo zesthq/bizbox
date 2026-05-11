@@ -29,7 +29,6 @@ describe("sendAwaitingHumanNotification", () => {
       companyId: "company-1",
       issueId: "issue-1",
       handoffKind: "request_confirmation",
-      dedupeKey: "interaction:interaction-1",
       notification: {
         title: "BIZ-35 is waiting on human input",
         summary: "Approve the exact GitHub reply before posting.",
@@ -82,7 +81,6 @@ describe("sendAwaitingHumanNotification", () => {
       companyId: "company-1",
       issueId: "issue-1",
       handoffKind: "ask_user_questions",
-      dedupeKey: "interaction:interaction-2",
       notification: {
         title: "BIZ-35 is waiting on human input",
         summary: "Need answers to 2 question(s).",
@@ -143,7 +141,6 @@ describe("sendAwaitingHumanNotification", () => {
       companyId: "company-1",
       issueId: "issue-1",
       handoffKind: "human_owned_blocker",
-      dedupeKey: "human-blocker:issue-1:blocker-1",
       notification: {
         title: "BIZ-35 is waiting on human input",
         summary: "Waiting on human input to unblock BIZ-36.",
@@ -178,7 +175,6 @@ describe("sendAwaitingHumanNotification", () => {
       companyId: "company-1",
       issueId: "issue-1",
       handoffKind: "ask_user_questions",
-      dedupeKey: "interaction:interaction-2",
       notification: {
         title: "BIZ-35 is waiting on human input",
         summary: "Need answers to 2 question(s).",
