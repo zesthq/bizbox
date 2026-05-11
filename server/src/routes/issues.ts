@@ -2075,6 +2075,11 @@ export function issueRoutes(
           userId: actor.actorType === "user" ? actor.actorId : null,
           runId: actor.runId ?? null,
         },
+      }).catch((err) => {
+        logger.warn(
+          { err, issueId: issue.id, blockerIssueIds: humanOwnedOpenBlockers.map((blocker) => blocker.id) },
+          "failed to record awaiting_human handoff for board-owned blockers",
+        );
       });
     }
     if (titleOrDescriptionChanged) {
