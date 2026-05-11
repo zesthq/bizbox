@@ -24,6 +24,7 @@ const basePreviousIssue = {
   identifier: "BIZ-35",
   title: "Community reply approval",
   status: "in_progress",
+  updatedAt: "2026-05-11T10:00:00.000Z",
   assigneeAgentId: "agent-1",
   assigneeUserId: null,
 };
@@ -31,6 +32,7 @@ const basePreviousIssue = {
 const baseUpdatedIssue = {
   ...basePreviousIssue,
   status: "awaiting_human",
+  updatedAt: "2026-05-11T10:05:00.000Z",
   assigneeAgentId: null,
   assigneeUserId: "board-user",
 };
@@ -43,7 +45,9 @@ const baseActor = {
   runId: "run-1",
 };
 
-function mockDbWithAwaitingHumanRows(rows: Array<{ details: Record<string, unknown> | null }> = []): Db {
+function mockDbWithAwaitingHumanRows(
+  rows: Array<{ createdAt?: Date; details: Record<string, unknown> | null }> = [],
+): Db {
   return {
     select: () => ({
       from: () => ({
@@ -159,7 +163,10 @@ describe("maybeLogAwaitingHumanHandoff", () => {
 
   it("does not resend when the same handoff dedupe key is already logged", async () => {
     const dedupeKey = "human-blocker:issue-1:blocker-1";
-    const db = mockDbWithAwaitingHumanRows([{ details: { dedupeKey } }]);
+    const db = mockDbWithAwaitingHumanRows([{
+      createdAt: new Date("2026-05-11T10:06:00.000Z"),
+      details: { dedupeKey },
+    }]);
     const created = await maybeLogAwaitingHumanHandoff(db, {
       previousIssue: {
         ...basePreviousIssue,
@@ -239,5 +246,40 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     expect(first).toBe(false);
     expect(second).toBe(true);
     expect(sendAwaitingHumanNotification).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not suppress a new blocker cycle from an old-cycle dedupe log", async () => {
+    const db = mockDbWithAwaitingHumanRows([
+      {
+        createdAt: new Date("2026-05-11T10:10:00.000Z"),
+        details: { dedupeKey: "human-blocker:issue-1:blocker-1" },
+      },
+    ]);
+
+    const created = await maybeLogAwaitingHumanHandoff(db, {
+      previousIssue: {
+        ...basePreviousIssue,
+        status: "in_progress",
+        updatedAt: "2026-05-11T10:04:00.000Z",
+      },
+      updatedIssue: {
+        ...baseUpdatedIssue,
+        updatedAt: "2026-05-11T11:00:00.000Z",
+      },
+      source: "heartbeat.reconcile_stranded_assigned_issues",
+      handoffKind: "human_owned_blocker",
+      actor: baseActor,
+      blockers: [
+        {
+          id: "blocker-1",
+          identifier: "BIZ-36",
+          title: "Board decision needed",
+          assigneeUserId: "board-user",
+        },
+      ],
+    });
+
+    expect(created).toBe(true);
+    expect(sendAwaitingHumanNotification).toHaveBeenCalledTimes(1);
   });
 });

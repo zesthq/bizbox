@@ -1,6 +1,6 @@
 import type { Db } from "@paperclipai/db";
 import { activityLog } from "@paperclipai/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import type {
   AskUserQuestionsInteraction,
   RequestConfirmationInteraction,
@@ -18,6 +18,7 @@ type AwaitingHumanIssueSnapshot = {
   identifier: string | null;
   title: string;
   status: string;
+  updatedAt?: Date | string | null;
   assigneeAgentId?: string | null;
   assigneeUserId?: string | null;
 };
@@ -181,8 +182,12 @@ function buildDedupeKey(input: AwaitingHumanHandoffInput) {
 }
 
 async function hasLoggedAwaitingHumanHandoff(db: Db, input: AwaitingHumanHandoffInput, dedupeKey: string) {
+  const cycleStart = input.updatedIssue.updatedAt
+    ? new Date(input.updatedIssue.updatedAt)
+    : null;
   const rows = await db
     .select({
+      createdAt: activityLog.createdAt,
       details: activityLog.details,
     })
     .from(activityLog)
@@ -190,9 +195,11 @@ async function hasLoggedAwaitingHumanHandoff(db: Db, input: AwaitingHumanHandoff
       eq(activityLog.companyId, input.updatedIssue.companyId),
       eq(activityLog.action, "issue.awaiting_human.entered"),
       eq(activityLog.entityId, input.updatedIssue.id),
+      ...(cycleStart && !Number.isNaN(cycleStart.getTime()) ? [gte(activityLog.createdAt, cycleStart)] : []),
     ));
 
   return rows.some((row) => {
+    if (cycleStart && row.createdAt && row.createdAt < cycleStart) return false;
     const details = row.details;
     if (!details || typeof details !== "object" || Array.isArray(details)) return false;
     return (details as Record<string, unknown>).dedupeKey === dedupeKey;

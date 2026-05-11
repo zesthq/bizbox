@@ -789,6 +789,7 @@ export function issueThreadInteractionService(db: Db) {
             identifier: issues.identifier,
             title: issues.title,
             status: issues.status,
+            updatedAt: issues.updatedAt,
             assigneeAgentId: issues.assigneeAgentId,
             assigneeUserId: issues.assigneeUserId,
           })
