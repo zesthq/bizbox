@@ -117,7 +117,16 @@ function resolveIssuePathId(issue: AwaitingHumanIssueSnapshot) {
 
 function resolveBaseUrl() {
   const configured = process.env.BIZBOX_PUBLIC_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, "");
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      parsed.search = "";
+      parsed.hash = "";
+      return parsed.toString().replace(/\/+$/, "");
+    } catch {
+      return null;
+    }
+  }
   const apiUrl = process.env.BIZBOX_API_URL?.trim();
   if (!apiUrl) return null;
   try {

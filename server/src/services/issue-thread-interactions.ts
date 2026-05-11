@@ -61,6 +61,15 @@ type ResolvedInteractionResult = {
 
 type IssueThreadInteractionRow = typeof issueThreadInteractions.$inferSelect;
 type IssueTouchDb = Pick<Db, "update">;
+type AwaitingHumanCreateInteraction = Extract<
+  CreateIssueThreadInteraction,
+  { kind: "ask_user_questions" | "request_confirmation" }
+>;
+type AwaitingHumanInteractionKind = AwaitingHumanCreateInteraction["kind"];
+type AwaitingHumanInteractionForKind<TKind extends AwaitingHumanInteractionKind> =
+  TKind extends "ask_user_questions"
+    ? Pick<AskUserQuestionsInteraction, "id" | "kind" | "title" | "summary" | "payload">
+    : Pick<RequestConfirmationInteraction, "id" | "kind" | "title" | "summary" | "payload">;
 
 type IssueResolutionContext = {
   id: string;
@@ -131,6 +140,19 @@ function hydrateInteraction(
     default:
       throw unprocessable(`Unknown interaction kind: ${row.kind}`);
   }
+}
+
+function buildAwaitingHumanInteraction<TKind extends AwaitingHumanInteractionKind>(
+  id: string,
+  data: Extract<AwaitingHumanCreateInteraction, { kind: TKind }>,
+): AwaitingHumanInteractionForKind<TKind> {
+  return {
+    id,
+    kind: data.kind,
+    title: data.title ?? null,
+    summary: data.summary ?? null,
+    payload: data.payload,
+  } as AwaitingHumanInteractionForKind<TKind>;
 }
 
 async function touchIssue(db: IssueTouchDb, issueId: string) {
@@ -780,27 +802,12 @@ export function issueThreadInteractionService(db: Db) {
             actorUserId: actor.userId ?? null,
           });
           if (updatedIssue) {
-            const interaction = data.kind === "ask_user_questions"
-              ? {
-                id: created.id,
-                kind: data.kind,
-                title: data.title ?? null,
-                summary: data.summary ?? null,
-                payload: data.payload,
-              }
-              : {
-                id: created.id,
-                kind: data.kind,
-                title: data.title ?? null,
-                summary: data.summary ?? null,
-                payload: data.payload,
-              };
             await maybeLogAwaitingHumanHandoff(db, {
               previousIssue: currentIssueRow,
               updatedIssue,
               source: "issue_thread_interaction_auto_park",
               handoffKind: data.kind,
-              interaction,
+              interaction: buildAwaitingHumanInteraction(created.id, data),
               actor: {
                 actorType: actor.userId ? "user" : actor.agentId ? "agent" : "system",
                 actorId: actor.userId ?? actor.agentId ?? "system",
