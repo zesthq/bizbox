@@ -5193,7 +5193,23 @@ export function heartbeatService(db: Db) {
       return `ClickUp reply received:\n\n${replyBody}`;
     }
 
+    async function getCurrentIssueStatus(companyId: string, issueId: string) {
+      const row = await db
+        .select({ status: issues.status })
+        .from(issues)
+        .where(
+          and(
+            eq(issues.companyId, companyId),
+            eq(issues.id, issueId),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      return row?.status ?? null;
+    }
+
     const candidateIssueIds = [...new Set(candidates.map((candidate) => candidate.issueId))];
+    const candidateCompanyIds = [...new Set(candidates.map((candidate) => candidate.companyId))];
     const candidateInteractionKeys = new Set(
       candidates.map((candidate) => `${candidate.companyId}:${candidate.issueId}:${candidate.interactionId}`),
     );
@@ -5209,6 +5225,7 @@ export function heartbeatService(db: Db) {
           and(
             eq(activityLog.action, "issue.awaiting_human.entered"),
             eq(activityLog.entityType, "issue"),
+            inArray(activityLog.companyId, candidateCompanyIds),
             inArray(activityLog.entityId, candidateIssueIds),
           ),
         )
@@ -5311,7 +5328,8 @@ export function heartbeatService(db: Db) {
               return createdComment;
             });
 
-            if (wakeAgentId && candidate.status !== "backlog") {
+            const currentIssueStatus = await getCurrentIssueStatus(candidate.companyId, candidate.issueId);
+            if (wakeAgentId && currentIssueStatus !== "backlog") {
               await enqueueWakeup(wakeAgentId, {
                 source: "automation",
                 triggerDetail: "system",

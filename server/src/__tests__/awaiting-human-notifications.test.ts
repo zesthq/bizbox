@@ -348,6 +348,34 @@ describe("sendAwaitingHumanNotification", () => {
     });
   });
 
+  it("returns forwardable replies when the reactions lookup fails after replies were collected", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ id: "reply-1", content: "Please fix the rollout title first." }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: async () => "temporary outage",
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "forward_reply",
+      detail: "non-approval-reply-detected",
+      resolutionSource: "clickup_reply",
+      replies: [{ id: "reply-1", content: "Please fix the rollout title first." }],
+    });
+  });
+
   it("supports configurable positive reply keywords", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";

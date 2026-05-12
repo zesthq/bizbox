@@ -405,6 +405,42 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     expect(wakes).toHaveLength(2);
   });
 
+  it("does not enqueue a wake when the issue moved to backlog before forwarding the ClickUp reply", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const seeded = await seedAwaitingHumanConfirmation();
+    globalThis.fetch = vi.fn()
+      .mockImplementationOnce(async () => {
+        await db
+          .update(issues)
+          .set({ status: "backlog" })
+          .where(eq(issues.id, seeded.issueId));
+        return {
+          ok: true,
+          json: async () => ({
+            data: [{ id: "reply-1", content: "Please revise the title." }],
+          }),
+        };
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      }) as typeof fetch;
+
+    const result = await heartbeat.reconcileAwaitingHumanApprovals();
+
+    expect(result.approved).toBe(0);
+    const comments = await db
+      .select()
+      .from(issueComments)
+      .where(eq(issueComments.issueId, seeded.issueId));
+    expect(comments).toHaveLength(1);
+
+    const wakes = await waitForWakeup(seeded.agentId, 250);
+    expect(wakes).toHaveLength(0);
+  });
+
   it("does not accept a pending confirmation for neutral or negative reactions", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";

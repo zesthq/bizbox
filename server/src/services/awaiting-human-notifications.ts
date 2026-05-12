@@ -493,6 +493,14 @@ export async function detectClickUpAwaitingHumanApproval(
 
   const reactionsResult = await getClickUpChatMessageReactions(messageId);
   if (reactionsResult.status === "failed" || reactionsResult.status === "skipped") {
+    if (forwardableReplies.length > 0) {
+      return {
+        status: "forward_reply",
+        detail: "non-approval-reply-detected",
+        resolutionSource: "clickup_reply",
+        replies: forwardableReplies,
+      };
+    }
     return {
       status: reactionsResult.status,
       detail: reactionsResult.detail,
