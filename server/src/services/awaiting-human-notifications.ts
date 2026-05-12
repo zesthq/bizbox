@@ -67,10 +67,11 @@ export interface ClickUpChatMessageReaction {
 }
 
 export interface ClickUpAwaitingHumanApprovalResult {
-  status: ClickUpApiStatus | "approved";
+  status: ClickUpApiStatus | "approved" | "forward_reply";
   detail: string;
   resolutionSource?: "clickup_reply" | "clickup_reaction";
   clickupReaction?: string | null;
+  replies?: ClickUpChatMessageReply[];
 }
 
 function truncateText(value: string, maxLength: number) {
@@ -488,6 +489,7 @@ export async function detectClickUpAwaitingHumanApproval(
       resolutionSource: "clickup_reply",
     };
   }
+  const forwardableReplies = repliesResult.replies.filter((reply) => normalizeReplyContent(reply.content).length > 0);
 
   const reactionsResult = await getClickUpChatMessageReactions(messageId);
   if (reactionsResult.status === "failed" || reactionsResult.status === "skipped") {
@@ -507,6 +509,14 @@ export async function detectClickUpAwaitingHumanApproval(
       detail: "positive-reaction-detected",
       resolutionSource: "clickup_reaction",
       clickupReaction: matchingReaction.name,
+    };
+  }
+  if (forwardableReplies.length > 0) {
+    return {
+      status: "forward_reply",
+      detail: "non-approval-reply-detected",
+      resolutionSource: "clickup_reply",
+      replies: forwardableReplies,
     };
   }
 

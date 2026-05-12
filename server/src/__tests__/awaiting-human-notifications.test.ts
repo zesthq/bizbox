@@ -308,8 +308,13 @@ describe("sendAwaitingHumanNotification", () => {
     const result = await detectClickUpAwaitingHumanApproval("message-42");
 
     expect(result).toEqual({
-      status: "no_approval",
-      detail: "no-approval-signal",
+      status: "forward_reply",
+      detail: "non-approval-reply-detected",
+      resolutionSource: "clickup_reply",
+      replies: [
+        { id: "reply-1", content: "No, please revise this" },
+        { id: "reply-2", content: "Can you clarify the rollout plan?" },
+      ],
     });
   });
 

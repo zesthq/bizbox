@@ -10,6 +10,7 @@ import {
   goals,
   heartbeatRuns,
   instanceSettings,
+  issueComments,
   issueThreadInteractions,
   issues,
 } from "@paperclipai/db";
@@ -100,6 +101,7 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     await db.delete(heartbeatRuns);
     await db.delete(agentWakeupRequests);
     await db.delete(issueThreadInteractions);
+    await db.delete(issueComments);
     await db.delete(issues);
     await db.delete(goals);
     await db.delete(agents);
@@ -240,6 +242,8 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
 
     const wakes = await waitForWakeup(seeded.agentId);
     expect(wakes).toHaveLength(1);
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
+    expect(comments).toHaveLength(0);
 
     const acceptedActivity = await db
       .select()
@@ -272,6 +276,8 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
 
     expect(result.approved).toBe(1);
     await waitForWakeup(seeded.agentId);
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
+    expect(comments).toHaveLength(0);
     const acceptedActivity = await db
       .select()
       .from(activityLog)
@@ -282,6 +288,121 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
       clickupMessageId: "message-42",
       clickupReaction: "heavy_check_mark",
     });
+  });
+
+  it("forwards non-approval ClickUp replies into issue comments and wakes the creator agent", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const seeded = await seedAwaitingHumanConfirmation();
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ id: "reply-1", content: "Please change the rollout title first." }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ id: "reply-1", content: "Please change the rollout title first." }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      }) as typeof fetch;
+
+    const first = await heartbeat.reconcileAwaitingHumanApprovals();
+    const second = await heartbeat.reconcileAwaitingHumanApprovals();
+
+    expect(first.approved).toBe(0);
+    expect(second.approved).toBe(0);
+
+    const comments = await db
+      .select()
+      .from(issueComments)
+      .where(eq(issueComments.issueId, seeded.issueId));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.authorAgentId).toBeNull();
+    expect(comments[0]?.authorUserId).toBeNull();
+    expect(comments[0]?.body).toBe("ClickUp reply received:\n\nPlease change the rollout title first.");
+
+    const interaction = await db
+      .select()
+      .from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, seeded.interactionId))
+      .then((rows) => rows[0] ?? null);
+    expect(interaction?.status).toBe("pending");
+
+    const wakes = await waitForWakeup(seeded.agentId);
+    expect(wakes).toHaveLength(1);
+
+    const commentActivities = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.comment_added"));
+    expect(commentActivities).toHaveLength(1);
+    expect(commentActivities[0]?.details).toMatchObject({
+      interactionId: seeded.interactionId,
+      clickupMessageId: "message-42",
+      clickupReplyId: "reply-1",
+      commentId: comments[0]?.id,
+    });
+  });
+
+  it("forwards multiple distinct non-approval replies only once each", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const seeded = await seedAwaitingHumanConfirmation();
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: "reply-1", content: "Please revise the title." },
+            { id: "reply-2", content: "Also add the rollback note." },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: "reply-1", content: "Please revise the title." },
+            { id: "reply-2", content: "Also add the rollback note." },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      }) as typeof fetch;
+
+    await heartbeat.reconcileAwaitingHumanApprovals();
+    await heartbeat.reconcileAwaitingHumanApprovals();
+
+    const comments = await db
+      .select()
+      .from(issueComments)
+      .where(eq(issueComments.issueId, seeded.issueId));
+    expect(comments).toHaveLength(2);
+    expect(comments.map((comment) => comment.body)).toEqual([
+      "ClickUp reply received:\n\nPlease revise the title.",
+      "ClickUp reply received:\n\nAlso add the rollback note.",
+    ]);
+
+    const wakes = await waitForWakeup(seeded.agentId);
+    expect(wakes).toHaveLength(2);
   });
 
   it("does not accept a pending confirmation for neutral or negative reactions", async () => {
