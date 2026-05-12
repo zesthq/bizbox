@@ -1540,6 +1540,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       .where(eq(issueComments.issueId, issueId));
     expect(comments).toHaveLength(1);
     expect(comments[0]?.body).toContain("Finished both deliverables.");
+    expect(comments[0]?.body).not.toContain("<issue-document");
   });
 
   it("blocks stranded in-progress work after the continuation retry was already used", async () => {

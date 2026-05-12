@@ -86,6 +86,10 @@ function extractLegacyDeliverableSection(summary: string): HeartbeatRunIssueDocu
   }];
 }
 
+function stripTaggedIssueDocuments(summary: string) {
+  return summary.replace(/<issue-document\b[^>]*>[\s\S]*?<\/issue-document>/gi, "").trim();
+}
+
 export function mergeHeartbeatRunResultJson(
   resultJson: Record<string, unknown> | null | undefined,
   summary: string | null | undefined,
@@ -168,12 +172,17 @@ export function buildHeartbeatRunIssueComment(
     return null;
   }
 
-  return (
+  const comment =
     readCommentText(resultJson.summary)
     ?? readCommentText(resultJson.result)
     ?? readCommentText(resultJson.message)
-    ?? null
-  );
+    ?? null;
+
+  if (!comment) {
+    return null;
+  }
+
+  return readCommentText(stripTaggedIssueDocuments(comment));
 }
 
 export function extractHeartbeatRunIssueDocumentPromotions(

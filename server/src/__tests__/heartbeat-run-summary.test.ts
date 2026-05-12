@@ -56,6 +56,24 @@ describe("buildHeartbeatRunIssueComment", () => {
     expect(comment).not.toContain("Run summary");
   });
 
+  it("strips tagged issue documents from the posted issue comment", () => {
+    const comment = buildHeartbeatRunIssueComment({
+      summary: [
+        "## Summary",
+        "",
+        "Finished both deliverables.",
+        "",
+        "<issue-document key=\"first-doc\" title=\"First Doc\">",
+        "Hidden promoted content",
+        "</issue-document>",
+      ].join("\n"),
+    });
+
+    expect(comment).toBe("## Summary\n\nFinished both deliverables.");
+    expect(comment).not.toContain("<issue-document");
+    expect(comment).not.toContain("Hidden promoted content");
+  });
+
   it("falls back to result or message when summary is missing", () => {
     expect(buildHeartbeatRunIssueComment({ result: "done" })).toBe("done");
     expect(buildHeartbeatRunIssueComment({ message: "completed" })).toBe("completed");
