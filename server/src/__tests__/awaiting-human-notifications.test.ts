@@ -432,6 +432,35 @@ describe("sendAwaitingHumanNotification", () => {
     });
   });
 
+  it("still accepts a configured positive reaction when the replies lookup fails", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+    process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS = "white_check_mark";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: async () => "temporary outage",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ reaction: "white_check_mark", count: 1 }],
+        }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "approved",
+      detail: "positive-reaction-detected",
+      resolutionSource: "clickup_reaction",
+      clickupReaction: "white_check_mark",
+    });
+  });
+
   it("supports configurable positive reply keywords", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";

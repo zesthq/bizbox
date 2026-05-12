@@ -509,13 +509,14 @@ export async function detectClickUpAwaitingHumanApproval(
   }
 
   const repliesResult = await getClickUpChatMessageReplies(messageId);
-  if (repliesResult.status === "failed" || repliesResult.status === "skipped") {
+  if (repliesResult.status === "skipped") {
     return {
       status: repliesResult.status,
       detail: repliesResult.detail,
     };
   }
-  const approvingReply = repliesResult.replies.find((reply) => replySignalsApproval(reply, config));
+  const availableReplies = repliesResult.status === "sent" ? repliesResult.replies : [];
+  const approvingReply = availableReplies.find((reply) => replySignalsApproval(reply, config));
   if (approvingReply) {
     return {
       status: "approved",
@@ -523,7 +524,7 @@ export async function detectClickUpAwaitingHumanApproval(
       resolutionSource: "clickup_reply",
     };
   }
-  const forwardableReplies = repliesResult.replies.filter((reply) => normalizeReplyContent(reply.content).length > 0);
+  const forwardableReplies = availableReplies.filter((reply) => normalizeReplyContent(reply.content).length > 0);
 
   const reactionsResult = await getClickUpChatMessageReactions(messageId);
   if (reactionsResult.status === "failed" || reactionsResult.status === "skipped") {
@@ -533,6 +534,12 @@ export async function detectClickUpAwaitingHumanApproval(
         detail: "non-approval-reply-detected",
         resolutionSource: "clickup_reply",
         replies: forwardableReplies,
+      };
+    }
+    if (repliesResult.status === "failed") {
+      return {
+        status: repliesResult.status,
+        detail: repliesResult.detail,
       };
     }
     return {
@@ -559,6 +566,12 @@ export async function detectClickUpAwaitingHumanApproval(
       detail: "non-approval-reply-detected",
       resolutionSource: "clickup_reply",
       replies: forwardableReplies,
+    };
+  }
+  if (repliesResult.status === "failed") {
+    return {
+      status: repliesResult.status,
+      detail: repliesResult.detail,
     };
   }
 
