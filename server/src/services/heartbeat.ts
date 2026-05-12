@@ -31,6 +31,7 @@ import {
   heartbeatRuns,
   issueComments,
   issueRelations,
+  issueThreadInteractions,
   issues,
   issueWorkProducts,
   projects,
@@ -73,6 +74,7 @@ import {
 } from "./issue-liveness.js";
 import { logActivity, publishPluginDomainEvent, type LogActivityInput } from "./activity-log.js";
 import { maybeLogAwaitingHumanHandoff } from "./awaiting-human-handoff.js";
+import { detectClickUpAwaitingHumanApproval } from "./awaiting-human-notifications.js";
 import {
   buildWorkspaceReadyComment,
   cleanupExecutionWorkspaceArtifacts,
@@ -124,6 +126,8 @@ import {
 } from "@paperclipai/adapter-utils/server-utils";
 import { extractSkillMentionIds } from "@paperclipai/shared";
 import { getStorageService } from "../storage/index.js";
+import { issueThreadInteractionService } from "./issue-thread-interactions.js";
+import { finalizeAcceptedInteractionResolution } from "./issue-interaction-resolution-effects.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const MAX_PERSISTED_LOG_CHUNK_CHARS = 64 * 1024;
@@ -5119,6 +5123,157 @@ export function heartbeatService(db: Db) {
     return result;
   }
 
+  async function reconcileAwaitingHumanApprovals() {
+    const candidates = await db
+      .select({
+        issueId: issues.id,
+        companyId: issues.companyId,
+        identifier: issues.identifier,
+        status: issues.status,
+        assigneeAgentId: issues.assigneeAgentId,
+        assigneeUserId: issues.assigneeUserId,
+        interactionId: issueThreadInteractions.id,
+      })
+      .from(issues)
+      .innerJoin(
+        issueThreadInteractions,
+        and(
+          eq(issueThreadInteractions.issueId, issues.id),
+          eq(issueThreadInteractions.companyId, issues.companyId),
+        ),
+      )
+      .where(
+        and(
+          eq(issues.status, "awaiting_human"),
+          eq(issueThreadInteractions.kind, "request_confirmation"),
+          eq(issueThreadInteractions.status, "pending"),
+        ),
+      );
+
+    const result = {
+      checked: 0,
+      approved: 0,
+      failed: 0,
+      skipped: 0,
+      issueIds: [] as string[],
+      interactionIds: [] as string[],
+    };
+    const interactionsSvc = issueThreadInteractionService(db);
+
+    for (const candidate of candidates) {
+      const handoff = await db
+        .select({
+          details: activityLog.details,
+        })
+        .from(activityLog)
+        .where(
+          and(
+            eq(activityLog.companyId, candidate.companyId),
+            eq(activityLog.action, "issue.awaiting_human.entered"),
+            eq(activityLog.entityType, "issue"),
+            eq(activityLog.entityId, candidate.issueId),
+            sql`${activityLog.details} ->> 'interactionId' = ${candidate.interactionId}`,
+          ),
+        )
+        .orderBy(desc(activityLog.createdAt))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+
+      const details = parseObject(handoff?.details);
+      const delivery = parseObject(details.notificationDelivery);
+      const messageId = readNonEmptyString(delivery.externalId);
+      if (
+        delivery.channel !== "clickup-chat"
+        || delivery.status !== "sent"
+        || !messageId
+      ) {
+        result.skipped += 1;
+        continue;
+      }
+
+      result.checked += 1;
+      const approval = await detectClickUpAwaitingHumanApproval(messageId);
+      if (approval.status === "failed") {
+        result.failed += 1;
+        logger.warn({
+          issueId: candidate.issueId,
+          interactionId: candidate.interactionId,
+          clickupMessageId: messageId,
+          detail: approval.detail,
+        }, "failed to poll ClickUp awaiting_human approval state");
+        continue;
+      }
+      if (approval.status === "skipped" || approval.status === "no_approval") {
+        if (approval.status === "skipped") result.skipped += 1;
+        continue;
+      }
+
+      try {
+        const { interaction, createdIssues, continuationIssue } = await interactionsSvc.acceptInteraction({
+          id: candidate.issueId,
+          companyId: candidate.companyId,
+          goalId: null,
+          projectId: null,
+        }, candidate.interactionId, {}, {
+          actorType: "system",
+          userId: null,
+          agentId: null,
+        });
+
+        await finalizeAcceptedInteractionResolution({
+          db,
+          heartbeat: { wakeup: enqueueWakeup },
+          logActivity,
+          issue: {
+            id: candidate.issueId,
+            companyId: candidate.companyId,
+            identifier: candidate.identifier,
+            status: candidate.status,
+            assigneeAgentId: candidate.assigneeAgentId,
+            assigneeUserId: candidate.assigneeUserId,
+          },
+          interaction,
+          createdIssues,
+          continuationIssue,
+          actor: {
+            actorType: "system",
+            actorId: "clickup_approval_poller",
+            agentId: null,
+            runId: null,
+          },
+          source: "clickup.awaiting_human.approval",
+          metadata: {
+            resolutionSource: approval.resolutionSource,
+            clickupMessageId: messageId,
+            clickupReaction: approval.clickupReaction ?? null,
+          },
+        });
+
+        if (interaction.status === "accepted") {
+          result.approved += 1;
+          result.issueIds.push(candidate.issueId);
+          result.interactionIds.push(candidate.interactionId);
+        } else {
+          result.skipped += 1;
+        }
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 409) {
+          result.skipped += 1;
+          continue;
+        }
+        result.failed += 1;
+        logger.warn({
+          err: error,
+          issueId: candidate.issueId,
+          interactionId: candidate.interactionId,
+          clickupMessageId: messageId,
+        }, "failed to accept awaiting_human approval from ClickUp");
+      }
+    }
+
+    return result;
+  }
+
   async function updateRuntimeState(
     agent: typeof agents.$inferSelect,
     run: typeof heartbeatRuns.$inferSelect,
@@ -7870,6 +8025,8 @@ export function heartbeatService(db: Db) {
     reconcileStrandedAssignedIssues,
 
     reconcileIssueGraphLiveness,
+
+    reconcileAwaitingHumanApprovals,
 
     tickTimers: async (now = new Date()) => {
       const allAgents = await db.select().from(agents);

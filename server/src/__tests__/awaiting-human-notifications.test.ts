@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sendAwaitingHumanNotification } from "../services/awaiting-human-notifications.js";
+import {
+  detectClickUpAwaitingHumanApproval,
+  getClickUpChatMessageReactions,
+  getClickUpChatMessageReplies,
+  sendAwaitingHumanNotification,
+} from "../services/awaiting-human-notifications.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -10,6 +15,7 @@ afterEach(() => {
   delete process.env.CLICKUP_WORKSPACE_ID;
   delete process.env.CLICKUP_ENGINEERING_CHANNEL_ID;
   delete process.env.CLICKUP_ENGINEERING_CHANNEL_NAME;
+  delete process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS;
 });
 
 describe("sendAwaitingHumanNotification", () => {
@@ -188,6 +194,151 @@ describe("sendAwaitingHumanNotification", () => {
       status: "skipped",
       channel: "clickup-chat",
       detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+    });
+  });
+
+  it("retrieves ClickUp message replies for approval polling", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: "reply-1", content: "Ship it" },
+          { id: "reply-2", message: "Approved" },
+        ],
+      }),
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await getClickUpChatMessageReplies("message-42");
+
+    expect(result).toEqual({
+      status: "sent",
+      detail: "ok",
+      replies: [
+        { id: "reply-1", content: "Ship it" },
+        { id: "reply-2", content: "Approved" },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/messages/message-42/replies",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "token-123",
+        }),
+      }),
+    );
+  });
+
+  it("retrieves ClickUp message reactions for approval polling", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { reaction: "thumbsup", count: 2 },
+          { emoji: { name: "eyes" }, users: [{ id: "u1" }] },
+        ],
+      }),
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await getClickUpChatMessageReactions("message-42");
+
+    expect(result).toEqual({
+      status: "sent",
+      detail: "ok",
+      reactions: [
+        { name: "thumbsup", count: 2 },
+        { name: "eyes", count: 1 },
+      ],
+    });
+  });
+
+  it("prefers replies over reactions when detecting approval", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ id: "reply-1", content: "yes" }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ reaction: "thumbsup", count: 1 }] }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "approved",
+      detail: "reply-detected",
+      resolutionSource: "clickup_reply",
+    });
+  });
+
+  it("treats only configured positive reactions as approval", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+    process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS = "white_check_mark";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { reaction: "thumbsup", count: 3 },
+            { reaction: "white_check_mark", count: 1 },
+          ],
+        }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "approved",
+      detail: "positive-reaction-detected",
+      resolutionSource: "clickup_reaction",
+      clickupReaction: "white_check_mark",
+    });
+  });
+
+  it("ignores neutral or noisy reactions when detecting approval", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { reaction: "eyes", count: 2 },
+            { reaction: "thumbsdown", count: 1 },
+          ],
+        }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "no_approval",
+      detail: "no-approval-signal",
     });
   });
 });

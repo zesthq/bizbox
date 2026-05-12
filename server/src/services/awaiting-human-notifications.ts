@@ -5,6 +5,7 @@ const MAX_SUMMARY_LENGTH = 280;
 const MAX_DETAIL_BULLETS = 5;
 const MAX_BULLET_LENGTH = 220;
 const CLICKUP_CHANNEL_LOOKUP_PAGE_SIZE = 100;
+const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS = ["thumbsup", "white_check_mark", "heavy_check_mark"] as const;
 
 export interface AwaitingHumanNotificationPayload {
   title: string;
@@ -36,7 +37,27 @@ type ClickUpChatConfig = {
   workspaceId: string;
   channelId: string;
   channelName: string;
+  approvalPositiveReactions: string[];
 };
+
+type ClickUpApiStatus = "sent" | "skipped" | "failed" | "no_approval";
+
+export interface ClickUpChatMessageReply {
+  id: string | null;
+  content: string | null;
+}
+
+export interface ClickUpChatMessageReaction {
+  name: string;
+  count: number;
+}
+
+export interface ClickUpAwaitingHumanApprovalResult {
+  status: ClickUpApiStatus | "approved";
+  detail: string;
+  resolutionSource?: "clickup_reply" | "clickup_reaction";
+  clickupReaction?: string | null;
+}
 
 function truncateText(value: string, maxLength: number) {
   const compact = compactWhitespace(value);
@@ -69,12 +90,121 @@ function extractBullets(body: string | null | undefined) {
 }
 
 function readClickUpChatConfig(): ClickUpChatConfig {
+  const positiveReactions = (process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS ?? "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
   return {
     personalToken: process.env.CLICKUP_PERSONAL_TOKEN?.trim() ?? "",
     workspaceId: process.env.CLICKUP_WORKSPACE_ID?.trim() ?? "",
     channelId: process.env.CLICKUP_ENGINEERING_CHANNEL_ID?.trim() ?? "",
     channelName: process.env.CLICKUP_ENGINEERING_CHANNEL_NAME?.trim() || DEFAULT_CLICKUP_CHANNEL_NAME,
+    approvalPositiveReactions: positiveReactions.length > 0
+      ? [...new Set(positiveReactions)]
+      : [...DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS],
   };
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeReactionName(value: unknown) {
+  const raw = readString(value);
+  if (!raw) return null;
+  return raw.toLowerCase().replaceAll(" ", "_");
+}
+
+async function fetchClickUpJson(
+  config: ClickUpChatConfig,
+  path: string,
+): Promise<{ status: "ok"; payload: unknown } | { status: "failed"; detail: string }> {
+  try {
+    const response = await fetch(
+      `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}${path}`,
+      {
+        headers: {
+          Authorization: config.personalToken,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const body = await response.text();
+      return {
+        status: "failed",
+        detail: `http-error:${response.status}:${truncateText(body, 240)}`,
+      };
+    }
+
+    return {
+      status: "ok",
+      payload: await response.json(),
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function extractReplyRows(payload: unknown): ClickUpChatMessageReply[] {
+  const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+  const rows = Array.isArray(record?.data)
+    ? record.data
+    : Array.isArray(record?.replies)
+      ? record.replies
+      : Array.isArray(payload)
+        ? payload
+        : [];
+
+  return rows.map((entry) => {
+    const row = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+    return {
+      id: readString(row.id),
+      content: readString(row.content) ?? readString(row.message) ?? readString(row.text),
+    };
+  });
+}
+
+function extractReactionRows(payload: unknown): ClickUpChatMessageReaction[] {
+  const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+  const rows = Array.isArray(record?.data)
+    ? record.data
+    : Array.isArray(record?.reactions)
+      ? record.reactions
+      : Array.isArray(payload)
+        ? payload
+        : [];
+
+  const flattened: ClickUpChatMessageReaction[] = [];
+  for (const entry of rows) {
+    const row = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+    const directName = normalizeReactionName(row.name ?? row.reaction ?? row.emoji ?? row.emoji_name);
+    if (directName) {
+      const count = typeof row.count === "number"
+        ? row.count
+        : typeof row.total === "number"
+          ? row.total
+          : Array.isArray(row.users)
+            ? row.users.length
+            : 1;
+      flattened.push({ name: directName, count: Math.max(0, count) });
+      continue;
+    }
+
+    const emoji = row.emoji && typeof row.emoji === "object" ? row.emoji as Record<string, unknown> : null;
+    const nestedName = normalizeReactionName(emoji?.name ?? emoji?.shortcode ?? emoji?.alias);
+    if (nestedName) {
+      flattened.push({
+        name: nestedName,
+        count: Array.isArray(row.users) ? row.users.length : 1,
+      });
+    }
+  }
+
+  return flattened;
 }
 
 function renderClickUpMessage(notification: AwaitingHumanNotificationPayload) {
@@ -223,4 +353,129 @@ export async function sendAwaitingHumanNotification(
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function getClickUpChatMessageReplies(messageId: string): Promise<{
+  status: ClickUpApiStatus;
+  detail: string;
+  replies: ClickUpChatMessageReply[];
+}> {
+  const config = readClickUpChatConfig();
+  if (!config.personalToken) {
+    return {
+      status: "skipped",
+      detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+      replies: [],
+    };
+  }
+  if (!config.workspaceId) {
+    return {
+      status: "skipped",
+      detail: "missing-target: CLICKUP_WORKSPACE_ID",
+      replies: [],
+    };
+  }
+
+  const response = await fetchClickUpJson(
+    config,
+    `/chat/messages/${encodeURIComponent(messageId)}/replies`,
+  );
+  if (response.status === "failed") {
+    return { status: "failed", detail: response.detail, replies: [] };
+  }
+
+  return {
+    status: "sent",
+    detail: "ok",
+    replies: extractReplyRows(response.payload),
+  };
+}
+
+export async function getClickUpChatMessageReactions(messageId: string): Promise<{
+  status: ClickUpApiStatus;
+  detail: string;
+  reactions: ClickUpChatMessageReaction[];
+}> {
+  const config = readClickUpChatConfig();
+  if (!config.personalToken) {
+    return {
+      status: "skipped",
+      detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+      reactions: [],
+    };
+  }
+  if (!config.workspaceId) {
+    return {
+      status: "skipped",
+      detail: "missing-target: CLICKUP_WORKSPACE_ID",
+      reactions: [],
+    };
+  }
+
+  const response = await fetchClickUpJson(
+    config,
+    `/chat/messages/${encodeURIComponent(messageId)}/reactions`,
+  );
+  if (response.status === "failed") {
+    return { status: "failed", detail: response.detail, reactions: [] };
+  }
+
+  return {
+    status: "sent",
+    detail: "ok",
+    reactions: extractReactionRows(response.payload),
+  };
+}
+
+export async function detectClickUpAwaitingHumanApproval(
+  messageId: string,
+): Promise<ClickUpAwaitingHumanApprovalResult> {
+  const config = readClickUpChatConfig();
+  if (!config.personalToken) {
+    return { status: "skipped", detail: "missing-credential: CLICKUP_PERSONAL_TOKEN" };
+  }
+  if (!config.workspaceId) {
+    return { status: "skipped", detail: "missing-target: CLICKUP_WORKSPACE_ID" };
+  }
+
+  const repliesResult = await getClickUpChatMessageReplies(messageId);
+  if (repliesResult.status === "failed" || repliesResult.status === "skipped") {
+    return {
+      status: repliesResult.status,
+      detail: repliesResult.detail,
+    };
+  }
+  if (repliesResult.replies.length > 0) {
+    return {
+      status: "approved",
+      detail: "reply-detected",
+      resolutionSource: "clickup_reply",
+    };
+  }
+
+  const reactionsResult = await getClickUpChatMessageReactions(messageId);
+  if (reactionsResult.status === "failed" || reactionsResult.status === "skipped") {
+    return {
+      status: reactionsResult.status,
+      detail: reactionsResult.detail,
+    };
+  }
+
+  const positiveSet = new Set(config.approvalPositiveReactions);
+  const matchingReaction = reactionsResult.reactions.find((reaction) =>
+    reaction.count > 0 && positiveSet.has(reaction.name)
+  );
+  if (matchingReaction) {
+    return {
+      status: "approved",
+      detail: "positive-reaction-detected",
+      resolutionSource: "clickup_reaction",
+      clickupReaction: matchingReaction.name,
+    };
+  }
+
+  return {
+    status: "no_approval",
+    detail: "no-approval-signal",
+  };
 }
