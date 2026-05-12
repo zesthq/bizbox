@@ -127,7 +127,7 @@ import {
 import { extractSkillMentionIds } from "@paperclipai/shared";
 import { getStorageService } from "../storage/index.js";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
-import { finalizeAcceptedInteractionResolution } from "./issue-interaction-resolution-effects.js";
+import { finalizeAcceptedInteractionResolution, isClosedIssueStatus } from "./issue-interaction-resolution-effects.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const MAX_PERSISTED_LOG_CHUNK_CHARS = 64 * 1024;
@@ -5329,7 +5329,7 @@ export function heartbeatService(db: Db) {
             });
 
             const currentIssueStatus = await getCurrentIssueStatus(candidate.companyId, candidate.issueId);
-            if (wakeAgentId && currentIssueStatus !== "backlog") {
+            if (wakeAgentId && currentIssueStatus !== "backlog" && !isClosedIssueStatus(currentIssueStatus)) {
               await enqueueWakeup(wakeAgentId, {
                 source: "automation",
                 triggerDetail: "system",

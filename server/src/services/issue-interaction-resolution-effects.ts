@@ -4,7 +4,7 @@ import { logger } from "../middleware/logger.js";
 import type { LogActivityInput } from "./activity-log.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 
-function isClosedIssueStatus(status: string | null | undefined): status is "done" | "cancelled" {
+export function isClosedIssueStatus(status: string | null | undefined): status is "done" | "cancelled" {
   return status === "done" || status === "cancelled";
 }
 

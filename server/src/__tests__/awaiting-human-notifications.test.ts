@@ -318,6 +318,41 @@ describe("sendAwaitingHumanNotification", () => {
     });
   });
 
+  it("does not treat negated approval phrases as approval", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: "reply-1", content: "not okay" },
+            { id: "reply-2", content: "don't go ahead" },
+            { id: "reply-3", content: "not approved" },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "forward_reply",
+      detail: "non-approval-reply-detected",
+      resolutionSource: "clickup_reply",
+      replies: [
+        { id: "reply-1", content: "not okay" },
+        { id: "reply-2", content: "don't go ahead" },
+        { id: "reply-3", content: "not approved" },
+      ],
+    });
+  });
+
   it("still accepts a configured positive reaction when replies are not approving", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";

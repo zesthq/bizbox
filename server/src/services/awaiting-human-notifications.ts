@@ -19,6 +19,18 @@ const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS = [
   "go ahead",
   "+1",
 ] as const;
+const NEGATED_APPROVAL_PREFIXES = [
+  "not",
+  "no",
+  "never",
+  "nope",
+  "don t",
+  "dont",
+  "can t",
+  "cant",
+  "won t",
+  "wont",
+] as const;
 
 export interface AwaitingHumanNotificationPayload {
   title: string;
@@ -142,12 +154,24 @@ function normalizeReplyContent(value: string | null | undefined) {
   return compactWhitespace(value.toLowerCase().replace(/[^\p{L}\p{N}\s+]+/gu, " "));
 }
 
+function hasNegatedApprovalPrefix(content: string, keywordStart: number) {
+  const prefix = content.slice(0, keywordStart).trimEnd();
+  if (!prefix) return false;
+  return NEGATED_APPROVAL_PREFIXES.some((negation) => prefix.endsWith(negation));
+}
+
 function replySignalsApproval(reply: ClickUpChatMessageReply, config: ClickUpChatConfig) {
   const content = normalizeReplyContent(reply.content);
   if (!content) return false;
   return config.approvalPositiveReplyKeywords.some((keyword) => {
     if (content === keyword) return true;
-    return content.startsWith(`${keyword} `) || content.includes(` ${keyword} `) || content.endsWith(` ${keyword}`);
+    const matchPositions = [
+      content.startsWith(`${keyword} `) ? 0 : -1,
+      content.includes(` ${keyword} `) ? content.indexOf(` ${keyword} `) + 1 : -1,
+      content.endsWith(` ${keyword}`) ? content.length - keyword.length : -1,
+    ].filter((position) => position >= 0);
+
+    return matchPositions.some((position) => !hasNegatedApprovalPrefix(content, position));
   });
 }
 
