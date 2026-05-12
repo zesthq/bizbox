@@ -165,9 +165,19 @@ function replySignalsApproval(reply: ClickUpChatMessageReply, config: ClickUpCha
   if (!content) return false;
   return config.approvalPositiveReplyKeywords.some((keyword) => {
     if (content === keyword) return true;
+    const searchToken = ` ${keyword} `;
+    const includePositions: number[] = [];
+    let searchFrom = 0;
+    while (true) {
+      const index = content.indexOf(searchToken, searchFrom);
+      if (index === -1) break;
+      includePositions.push(index + 1);
+      searchFrom = index + 1;
+    }
+
     const matchPositions = [
       content.startsWith(`${keyword} `) ? 0 : -1,
-      content.includes(` ${keyword} `) ? content.indexOf(` ${keyword} `) + 1 : -1,
+      ...includePositions,
       content.endsWith(` ${keyword}`) ? content.length - keyword.length : -1,
     ].filter((position) => position >= 0);
 

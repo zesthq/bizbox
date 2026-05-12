@@ -353,6 +353,27 @@ describe("sendAwaitingHumanNotification", () => {
     });
   });
 
+  it("accepts a later non-negated keyword even if an earlier match is negated", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [{ id: "reply-1", content: "not ok sounds ok to me" }],
+      }),
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "approved",
+      detail: "positive-reply-detected",
+      resolutionSource: "clickup_reply",
+    });
+  });
+
   it("still accepts a configured positive reaction when replies are not approving", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
