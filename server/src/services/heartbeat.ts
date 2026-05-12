@@ -5328,6 +5328,8 @@ export function heartbeatService(db: Db) {
               return createdComment;
             });
 
+            forwardedAny = true;
+
             const currentIssueStatus = await getCurrentIssueStatus(candidate.companyId, candidate.issueId);
             if (wakeAgentId && currentIssueStatus !== "backlog" && !isClosedIssueStatus(currentIssueStatus)) {
               await enqueueWakeup(wakeAgentId, {
@@ -5354,8 +5356,6 @@ export function heartbeatService(db: Db) {
                 },
               });
             }
-
-            forwardedAny = true;
           } catch (error) {
             result.failed += 1;
             logger.warn({
