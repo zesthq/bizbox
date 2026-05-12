@@ -66,6 +66,20 @@ describe("isUserCommentForImport", () => {
     const res = isUserCommentForImport({ id: "c6", comment_text: "agent reply", user: { id: -16805283 }, date: "600" }, "bot-1", -16805283);
     expect(res).toEqual({ id: "c6", text: "agent reply", createdAt: 600 });
   });
+
+  it("falls back to rich comment array when comment_text missing", () => {
+    const res = isUserCommentForImport({
+      id: "c7",
+      comment: [
+        { text: "reviewed " },
+        { type: "tag", user: { username: "Risk" } },
+        { text: " and approved" },
+      ],
+      user: { id: -16805283 },
+      date: "700",
+    }, "bot-1", -16805283);
+    expect(res).toEqual({ id: "c7", text: "reviewed @Risk and approved", createdAt: 700 });
+  });
 });
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();

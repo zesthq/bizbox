@@ -220,11 +220,29 @@ function buildTaskFields(body: string, cfg: ReturnType<typeof resolveConfig>): R
   return fields;
 }
 
+function renderCommentRichText(raw: unknown): string {
+  if (!Array.isArray(raw)) return "";
+  return raw
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const row = part as Record<string, unknown>;
+      const directText = typeof row.text === "string" ? row.text : "";
+      if (directText) return directText;
+      const user = row.user && typeof row.user === "object" ? (row.user as Record<string, unknown>) : null;
+      const username = user ? asString(user.username) : "";
+      if (row.type === "tag") return username ? `@${username}` : "@user";
+      return "";
+    })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function isUserCommentForImport(raw: unknown, bridgeBotUserId: string | null, clickupAgentUserId: number | null = null): { id: string; text: string; createdAt: number } | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
   const id = asScalarString(row.id);
-  const text = asString(row.comment_text);
+  const text = asString(row.comment_text) || renderCommentRichText(row.comment);
   const author = row.user && typeof row.user === "object" ? (row.user as Record<string, unknown>) : null;
   const authorId = author ? asScalarString(author.id) : "";
   const isSystem = typeof row.comment === "object" && row.comment !== null && !Array.isArray(row.comment);

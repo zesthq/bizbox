@@ -46,6 +46,7 @@ import {
   companySkillService,
   budgetService,
   heartbeatService,
+  clickupBridgeService,
   ISSUE_LIST_DEFAULT_LIMIT,
   issueApprovalService,
   issueService,
@@ -754,14 +755,43 @@ export function agentRoutes(db: Db) {
     return privateKey.export({ type: "pkcs8", format: "pem" }).toString();
   }
 
-  function ensureGatewayDeviceKey(
+  function normalizeOpenClawGatewayUrl(value: unknown): string | null {
+    const raw = asNonEmptyString(value);
+    if (!raw) return null;
+    try {
+      const parsed = new URL(raw);
+      parsed.hash = "";
+      parsed.search = "";
+      parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+      return parsed.toString();
+    } catch {
+      return raw.trim();
+    }
+  }
+
+  async function ensureGatewayDeviceKey(
+    companyId: string,
     adapterType: string | null | undefined,
     adapterConfig: Record<string, unknown>,
-  ): Record<string, unknown> {
+  ): Promise<Record<string, unknown>> {
     if (adapterType !== "openclaw_gateway") return adapterConfig;
     const disableDeviceAuth = parseBooleanLike(adapterConfig.disableDeviceAuth);
     if (disableDeviceAuth !== false) return adapterConfig;
     if (asNonEmptyString(adapterConfig.devicePrivateKeyPem)) return adapterConfig;
+
+    const targetUrl = normalizeOpenClawGatewayUrl(adapterConfig.url);
+    if (targetUrl) {
+      const existingAgents = await svc.list(companyId);
+      for (const existingAgent of existingAgents) {
+        if (existingAgent.adapterType !== "openclaw_gateway") continue;
+        const existingConfig = asRecord(existingAgent.adapterConfig) ?? {};
+        if (normalizeOpenClawGatewayUrl(existingConfig.url) !== targetUrl) continue;
+        const sharedDeviceKey = asNonEmptyString(existingConfig.devicePrivateKeyPem);
+        if (!sharedDeviceKey) continue;
+        return { ...adapterConfig, devicePrivateKeyPem: sharedDeviceKey };
+      }
+    }
+
     return { ...adapterConfig, devicePrivateKeyPem: generateEd25519PrivateKeyPem() };
   }
 
@@ -780,17 +810,17 @@ export function agentRoutes(db: Db) {
       if (!hasBypassFlag) {
         next.dangerouslyBypassApprovalsAndSandbox = DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX;
       }
-      return ensureGatewayDeviceKey(adapterType, next);
+      return next;
     }
     if (adapterType === "gemini_local" && !asNonEmptyString(next.model)) {
       next.model = DEFAULT_GEMINI_LOCAL_MODEL;
-      return ensureGatewayDeviceKey(adapterType, next);
+      return next;
     }
     // OpenCode requires explicit model selection — no default
     if (adapterType === "cursor" && !asNonEmptyString(next.model)) {
       next.model = DEFAULT_CURSOR_LOCAL_MODEL;
     }
-    return ensureGatewayDeviceKey(adapterType, next);
+    return next;
   }
 
   async function assertAdapterConfigConstraints(
@@ -1720,9 +1750,13 @@ export function agentRoutes(db: Db) {
       req,
       (hireInput.adapterConfig ?? {}) as Record<string, unknown>,
     );
-    const requestedAdapterConfig = applyCreateDefaultsByAdapterType(
+    const requestedAdapterConfig = await ensureGatewayDeviceKey(
+      companyId,
       hireInput.adapterType,
-      ((hireInput.adapterConfig ?? {}) as Record<string, unknown>),
+      applyCreateDefaultsByAdapterType(
+        hireInput.adapterType,
+        ((hireInput.adapterConfig ?? {}) as Record<string, unknown>),
+      ),
     );
     const persistedRequestedAdapterConfig =
       hireInput.adapterType === "openclaw_gateway"
@@ -1918,9 +1952,13 @@ export function agentRoutes(db: Db) {
       req,
       (createInput.adapterConfig ?? {}) as Record<string, unknown>,
     );
-    const requestedAdapterConfig = applyCreateDefaultsByAdapterType(
+    const requestedAdapterConfig = await ensureGatewayDeviceKey(
+      companyId,
       createInput.adapterType,
-      ((createInput.adapterConfig ?? {}) as Record<string, unknown>),
+      applyCreateDefaultsByAdapterType(
+        createInput.adapterType,
+        ((createInput.adapterConfig ?? {}) as Record<string, unknown>),
+      ),
     );
     const persistedRequestedAdapterConfig =
       createInput.adapterType === "openclaw_gateway"
@@ -3004,6 +3042,45 @@ export function agentRoutes(db: Db) {
     }
 
     res.json(liveRuns);
+  });
+
+  router.post("/companies/:companyId/clickup-bridges/:bridgeId/retry", async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    const bridgeId = req.params.bridgeId as string;
+    assertCompanyAccess(req, companyId);
+
+    const [bridge] = await db
+      .select({ id: clickupBridges.id })
+      .from(clickupBridges)
+      .where(and(eq(clickupBridges.id, bridgeId), eq(clickupBridges.companyId, companyId)))
+      .limit(1);
+
+    if (!bridge) {
+      res.status(404).json({ error: "ClickUp bridge not found" });
+      return;
+    }
+
+    const retried = await clickupBridgeService(db).retryBridge(bridgeId);
+    if (!retried) {
+      res.status(409).json({ error: "ClickUp bridge is not failed or closed" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "clickup_bridge.retried",
+      entityType: "clickup_bridge",
+      entityId: bridgeId,
+      details: { status: retried.status },
+    });
+
+    res.json({ ok: true, bridge: retried });
   });
 
   router.get("/heartbeat-runs/:runId", async (req, res) => {
