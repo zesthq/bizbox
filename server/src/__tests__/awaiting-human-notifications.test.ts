@@ -370,6 +370,27 @@ describe("sendAwaitingHumanNotification", () => {
     });
   });
 
+  it("treats punctuated approval replies as approval", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [{ id: "reply-1", content: "LGTM! Approved, thanks." }],
+      }),
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "approved",
+      detail: "positive-reply-detected",
+      resolutionSource: "clickup_reply",
+    });
+  });
+
   it("treats only configured positive reactions as approval", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";

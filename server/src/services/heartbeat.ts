@@ -5157,6 +5157,7 @@ export function heartbeatService(db: Db) {
       approved: 0,
       failed: 0,
       skipped: 0,
+      noApproval: 0,
       issueIds: [] as string[],
       interactionIds: [] as string[],
     };
@@ -5192,24 +5193,41 @@ export function heartbeatService(db: Db) {
       return `ClickUp reply received:\n\n${replyBody}`;
     }
 
-    for (const candidate of candidates) {
-      const handoff = await db
+    const candidateIssueIds = [...new Set(candidates.map((candidate) => candidate.issueId))];
+    const candidateInteractionKeys = new Set(
+      candidates.map((candidate) => `${candidate.companyId}:${candidate.issueId}:${candidate.interactionId}`),
+    );
+    const handoffRows = candidateIssueIds.length > 0
+      ? await db
         .select({
+          companyId: activityLog.companyId,
+          issueId: activityLog.entityId,
           details: activityLog.details,
         })
         .from(activityLog)
         .where(
           and(
-            eq(activityLog.companyId, candidate.companyId),
             eq(activityLog.action, "issue.awaiting_human.entered"),
             eq(activityLog.entityType, "issue"),
-            eq(activityLog.entityId, candidate.issueId),
-            sql`${activityLog.details} ->> 'interactionId' = ${candidate.interactionId}`,
+            inArray(activityLog.entityId, candidateIssueIds),
           ),
         )
         .orderBy(desc(activityLog.createdAt))
-        .limit(1)
-        .then((rows) => rows[0] ?? null);
+      : [];
+    const latestHandoffsByCandidateKey = new Map<string, { details: typeof activityLog.$inferSelect.details }>();
+    for (const handoff of handoffRows) {
+      const details = parseObject(handoff.details);
+      const interactionId = readNonEmptyString(details.interactionId);
+      if (!interactionId) continue;
+      const candidateKey = `${handoff.companyId}:${handoff.issueId}:${interactionId}`;
+      if (!candidateInteractionKeys.has(candidateKey) || latestHandoffsByCandidateKey.has(candidateKey)) continue;
+      latestHandoffsByCandidateKey.set(candidateKey, { details: handoff.details });
+    }
+
+    for (const candidate of candidates) {
+      const handoff = latestHandoffsByCandidateKey.get(
+        `${candidate.companyId}:${candidate.issueId}:${candidate.interactionId}`,
+      ) ?? null;
 
       const details = parseObject(handoff?.details);
       const delivery = parseObject(details.notificationDelivery);
@@ -5322,6 +5340,7 @@ export function heartbeatService(db: Db) {
       }
       if (approval.status === "skipped" || approval.status === "no_approval") {
         if (approval.status === "skipped") result.skipped += 1;
+        if (approval.status === "no_approval") result.noApproval += 1;
         continue;
       }
 

@@ -139,7 +139,7 @@ function normalizeReactionName(value: unknown) {
 
 function normalizeReplyContent(value: string | null | undefined) {
   if (!value) return "";
-  return compactWhitespace(value.toLowerCase());
+  return compactWhitespace(value.toLowerCase().replace(/[^\p{L}\p{N}\s+]+/gu, " "));
 }
 
 function replySignalsApproval(reply: ClickUpChatMessageReply, config: ClickUpChatConfig) {
