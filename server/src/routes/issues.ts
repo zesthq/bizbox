@@ -1120,6 +1120,7 @@ export function issueRoutes(
           latestRevisionNumber: doc.latestRevisionNumber,
         },
         {
+          actorType: actor.actorType,
           agentId: actor.agentId,
           userId: actor.actorType === "user" ? actor.actorId : null,
         },
@@ -1218,6 +1219,7 @@ export function issueRoutes(
           latestRevisionNumber: result.document.latestRevisionNumber,
         },
         {
+          actorType: actor.actorType,
           agentId: actor.agentId,
           userId: actor.actorType === "user" ? actor.actorId : null,
         },
@@ -1289,6 +1291,7 @@ export function issueRoutes(
         latestRevisionNumber: null,
       },
       {
+        actorType: actor.actorType,
         agentId: actor.agentId,
         userId: actor.actorType === "user" ? actor.actorId : null,
       },
@@ -2247,6 +2250,7 @@ export function issueRoutes(
         issue,
         comment,
         {
+          actorType: actor.actorType,
           agentId: actor.agentId,
           userId: actor.actorType === "user" ? actor.actorId : null,
         },
@@ -3226,6 +3230,7 @@ export function issueRoutes(
       currentIssue,
       comment,
       {
+        actorType: actor.actorType,
         agentId: actor.agentId,
         userId: actor.actorType === "user" ? actor.actorId : null,
       },

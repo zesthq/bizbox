@@ -5289,7 +5289,7 @@ export function heartbeatService(db: Db) {
                 .set({ updatedAt: new Date() })
                 .where(eq(issues.id, candidate.issueId));
 
-              await logActivity(tx as Db, {
+              await logActivity(tx as unknown as Db, {
                 companyId: candidate.companyId,
                 actorType: "system",
                 actorId: "clickup_approval_poller",
