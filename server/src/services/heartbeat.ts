@@ -6535,8 +6535,8 @@ export function heartbeatService(db: Db) {
         const livenessRun = finalizedRun;
         await refreshContinuationSummaryForRun(livenessRun, agent);
         if (issueId && outcome === "succeeded") {
-          try {
-            for (const promotion of extractHeartbeatRunIssueDocumentPromotions(persistedResultJson)) {
+          for (const promotion of extractHeartbeatRunIssueDocumentPromotions(persistedResultJson)) {
+            try {
               const existingDocument = await documentsSvc.getIssueDocumentByKey(issueId, promotion.key);
               const result = await documentsSvc.upsertIssueDocument({
                 issueId,
@@ -6567,7 +6567,14 @@ export function heartbeatService(db: Db) {
                   source: "heartbeat_run_summary_promotion",
                 },
               });
+            } catch (err) {
+              await onLog(
+                "stderr",
+                `[paperclip] Failed to promote heartbeat run summary document "${promotion.key}": ${err instanceof Error ? err.message : String(err)}\n`,
+              );
             }
+          }
+          try {
             const existingRunComment = await findRunIssueComment(livenessRun.id, livenessRun.companyId, issueId);
             if (!existingRunComment) {
               const issueComment = buildHeartbeatRunIssueComment(persistedResultJson);

@@ -43,7 +43,9 @@ function dedupePromotions(
 ): HeartbeatRunIssueDocumentPromotion[] {
   const byKey = new Map<string, HeartbeatRunIssueDocumentPromotion>();
   for (const promotion of promotions) {
-    byKey.set(promotion.key, promotion);
+    if (!byKey.has(promotion.key)) {
+      byKey.set(promotion.key, promotion);
+    }
   }
   return [...byKey.values()];
 }

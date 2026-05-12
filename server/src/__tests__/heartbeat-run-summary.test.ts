@@ -109,6 +109,28 @@ describe("extractHeartbeatRunIssueDocumentPromotions", () => {
       body: "# Market Map\n\n- Segment A",
     }]);
   });
+
+  it("keeps tagged issue documents when a legacy Deliverable section resolves to the same key", () => {
+    const promotions = extractHeartbeatRunIssueDocumentPromotions({
+      summary: [
+        "## Summary",
+        "",
+        "<issue-document title=\"Deliverable\">",
+        "Tagged body",
+        "</issue-document>",
+        "",
+        "## Deliverable",
+        "",
+        "Legacy body",
+      ].join("\n"),
+    });
+
+    expect(promotions).toEqual([{
+      key: "deliverable",
+      title: "Deliverable",
+      body: "Tagged body",
+    }]);
+  });
 });
 
 describe("mergeHeartbeatRunResultJson", () => {

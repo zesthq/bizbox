@@ -44,6 +44,17 @@ vi.mock("../telemetry.ts", () => ({
   getTelemetryClient: () => mockTelemetryClient,
 }));
 
+vi.mock("../otel.ts", () => ({
+  clearIssueStatusCountsForCompany: vi.fn(),
+  recordComment: vi.fn(),
+  recordHumanIntervened: vi.fn(),
+  recordIssueCreated: vi.fn(),
+  recordIssueStatusChanged: vi.fn(),
+  recordIssueStatusCounts: vi.fn(),
+  recordRunStatus: vi.fn(),
+  traceHumanCommentPosted: vi.fn(),
+}));
+
 vi.mock("@paperclipai/shared/telemetry", async () => {
   const actual = await vi.importActual<typeof import("@paperclipai/shared/telemetry")>(
     "@paperclipai/shared/telemetry",
@@ -67,6 +78,7 @@ vi.mock("../adapters/index.ts", async () => {
 
 import { heartbeatService } from "../services/heartbeat.ts";
 import { issueService } from "../services/issues.ts";
+import * as documentsModule from "../services/documents.ts";
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
@@ -1416,6 +1428,120 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, agentId));
     expect(wakes.some((row) => row.reason === "run_liveness_continuation")).toBe(false);
   });
+
+  it("continues promoting later documents and posts the run comment when one promotion fails", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const issueId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {
+        heartbeat: {
+          wakeOnDemand: true,
+          maxConcurrentRuns: 1,
+        },
+      },
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Promote deliverables from heartbeat summary",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: agentId,
+      issueNumber: 1,
+      identifier: `${issuePrefix}-1`,
+    });
+
+    mockAdapterExecute.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      errorMessage: null,
+      summary: [
+        "## Summary",
+        "",
+        "Finished both deliverables.",
+        "",
+        "<issue-document key=\"first-doc\" title=\"First Doc\">",
+        "First body",
+        "</issue-document>",
+        "",
+        "<issue-document key=\"second-doc\" title=\"Second Doc\">",
+        "Second body",
+        "</issue-document>",
+      ].join("\n"),
+      provider: "test",
+      model: "test-model",
+    });
+
+    const baseDocumentService = documentsModule.documentService;
+    const documentServiceSpy = vi.spyOn(documentsModule, "documentService").mockImplementation((serviceDb) => {
+      const svc = baseDocumentService(serviceDb);
+      return {
+        ...svc,
+        async upsertIssueDocument(params) {
+          if (params.key === "first-doc") {
+            throw new Error("synthetic promotion failure");
+          }
+          return svc.upsertIssueDocument(params);
+        },
+      };
+    });
+
+    const heartbeat = heartbeatService(db);
+    const wake = await heartbeat.wakeup(agentId, {
+      source: "assignment",
+      triggerDetail: "system",
+      reason: "issue_assigned",
+      payload: { issueId },
+      contextSnapshot: {
+        issueId,
+        taskId: issueId,
+        wakeReason: "issue_assigned",
+      },
+    });
+    expect(wake?.id).toBeTruthy();
+    if (wake?.id) {
+      await waitForRunToSettle(heartbeat, wake.id, 5_000);
+    }
+
+    documentServiceSpy.mockRestore();
+
+    const promotedDocs = await db
+      .select({
+        key: issueDocuments.key,
+      })
+      .from(issueDocuments)
+      .where(eq(issueDocuments.issueId, issueId));
+    expect(promotedDocs).toContainEqual({ key: "second-doc" });
+    expect(promotedDocs).not.toContainEqual({ key: "first-doc" });
+
+    const comments = await db
+      .select({
+        body: issueComments.body,
+      })
+      .from(issueComments)
+      .where(eq(issueComments.issueId, issueId));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.body).toContain("Finished both deliverables.");
+  });
+
   it("blocks stranded in-progress work after the continuation retry was already used", async () => {
     const { issueId } = await seedStrandedIssueFixture({
       status: "in_progress",
