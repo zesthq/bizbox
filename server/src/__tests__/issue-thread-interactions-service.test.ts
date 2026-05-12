@@ -28,6 +28,7 @@ vi.mock("../otel.js", () => ({
   recordIssueStatusCounts: vi.fn(),
   clearIssueStatusCountsForCompany: vi.fn(),
   traceHumanCommentPosted: vi.fn(),
+  recordRunStatus: vi.fn(),
 }));
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { issueService } from "../services/issues.js";

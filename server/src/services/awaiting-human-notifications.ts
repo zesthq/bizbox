@@ -6,6 +6,19 @@ const MAX_DETAIL_BULLETS = 5;
 const MAX_BULLET_LENGTH = 220;
 const CLICKUP_CHANNEL_LOOKUP_PAGE_SIZE = 100;
 const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS = ["thumbsup", "white_check_mark", "heavy_check_mark"] as const;
+const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS = [
+  "approve",
+  "approved",
+  "approving",
+  "yes",
+  "ok",
+  "okay",
+  "ship it",
+  "lgtm",
+  "looks good",
+  "go ahead",
+  "+1",
+] as const;
 
 export interface AwaitingHumanNotificationPayload {
   title: string;
@@ -38,6 +51,7 @@ type ClickUpChatConfig = {
   channelId: string;
   channelName: string;
   approvalPositiveReactions: string[];
+  approvalPositiveReplyKeywords: string[];
 };
 
 type ClickUpApiStatus = "sent" | "skipped" | "failed" | "no_approval";
@@ -94,6 +108,10 @@ function readClickUpChatConfig(): ClickUpChatConfig {
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
+  const positiveReplyKeywords = (process.env.CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS ?? "")
+    .split(",")
+    .map((value) => compactWhitespace(value.trim().toLowerCase()))
+    .filter(Boolean);
   return {
     personalToken: process.env.CLICKUP_PERSONAL_TOKEN?.trim() ?? "",
     workspaceId: process.env.CLICKUP_WORKSPACE_ID?.trim() ?? "",
@@ -102,6 +120,9 @@ function readClickUpChatConfig(): ClickUpChatConfig {
     approvalPositiveReactions: positiveReactions.length > 0
       ? [...new Set(positiveReactions)]
       : [...DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS],
+    approvalPositiveReplyKeywords: positiveReplyKeywords.length > 0
+      ? [...new Set(positiveReplyKeywords)]
+      : [...DEFAULT_CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS],
   };
 }
 
@@ -113,6 +134,20 @@ function normalizeReactionName(value: unknown) {
   const raw = readString(value);
   if (!raw) return null;
   return raw.toLowerCase().replaceAll(" ", "_");
+}
+
+function normalizeReplyContent(value: string | null | undefined) {
+  if (!value) return "";
+  return compactWhitespace(value.toLowerCase());
+}
+
+function replySignalsApproval(reply: ClickUpChatMessageReply, config: ClickUpChatConfig) {
+  const content = normalizeReplyContent(reply.content);
+  if (!content) return false;
+  return config.approvalPositiveReplyKeywords.some((keyword) => {
+    if (content === keyword) return true;
+    return content.startsWith(`${keyword} `) || content.includes(` ${keyword} `) || content.endsWith(` ${keyword}`);
+  });
 }
 
 async function fetchClickUpJson(
@@ -445,10 +480,11 @@ export async function detectClickUpAwaitingHumanApproval(
       detail: repliesResult.detail,
     };
   }
-  if (repliesResult.replies.length > 0) {
+  const approvingReply = repliesResult.replies.find((reply) => replySignalsApproval(reply, config));
+  if (approvingReply) {
     return {
       status: "approved",
-      detail: "reply-detected",
+      detail: "positive-reply-detected",
       resolutionSource: "clickup_reply",
     };
   }
