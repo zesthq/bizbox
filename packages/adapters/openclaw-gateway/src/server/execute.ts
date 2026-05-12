@@ -136,6 +136,11 @@ function parseOptionalPositiveInteger(value: unknown): number | null {
   return null;
 }
 
+function nonEmptyPreservingWhitespace(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return value.trim().length > 0 ? value : null;
+}
+
 function parseBoolean(value: unknown, fallback = false): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
@@ -1366,8 +1371,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       );
 
       if (stream === "assistant") {
-        const delta = nonEmpty(data.delta);
-        const text = nonEmpty(data.text);
+        const delta = nonEmptyPreservingWhitespace(data.delta);
+        const text = nonEmptyPreservingWhitespace(data.text);
         if (delta) {
           assistantChunks.push(delta);
         } else if (text) {
@@ -1543,7 +1548,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         }
       }
 
-      const summaryFromEvents = assistantChunks.toString().trim();
+      const summaryFromEvents = assistantChunks.join("").trim();
       const summaryFromPayload =
         extractResultText(asRecord(acceptedPayload?.result)) ??
         extractResultText(acceptedPayload) ??

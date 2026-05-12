@@ -60,6 +60,7 @@ async function createMockGatewayServer(options?: {
   waitPayload?: Record<string, unknown>;
   artifactListPayload?: Record<string, unknown> | unknown[];
   artifactDownloads?: Record<string, Record<string, unknown>>;
+  assistantEvents?: Array<Record<string, unknown>>;
 }) {
   const server = createServer();
   const wss = new WebSocketServer({ server });
@@ -113,6 +114,10 @@ async function createMockGatewayServer(options?: {
           typeof frame.params?.idempotencyKey === "string"
             ? frame.params.idempotencyKey
             : "run-123";
+        const assistantEvents = options?.assistantEvents ?? [
+          { delta: "cha" },
+          { delta: "chacha" },
+        ];
 
         socket.send(
           JSON.stringify({
@@ -127,32 +132,21 @@ async function createMockGatewayServer(options?: {
           }),
         );
 
-        socket.send(
-          JSON.stringify({
-            type: "event",
-            event: "agent",
-            payload: {
-              runId,
-              seq: 1,
-              stream: "assistant",
-              ts: Date.now(),
-              data: { delta: "cha" },
-            },
-          }),
-        );
-        socket.send(
-          JSON.stringify({
-            type: "event",
-            event: "agent",
-            payload: {
-              runId,
-              seq: 2,
-              stream: "assistant",
-              ts: Date.now(),
-              data: { delta: "chacha" },
-            },
-          }),
-        );
+        assistantEvents.forEach((data, index) => {
+          socket.send(
+            JSON.stringify({
+              type: "event",
+              event: "agent",
+              payload: {
+                runId,
+                seq: index + 1,
+                stream: "assistant",
+                ts: Date.now(),
+                data,
+              },
+            }),
+          );
+        });
         return;
       }
 
@@ -471,9 +465,52 @@ describe("openclaw gateway ui stdout parser", () => {
       },
     ]);
   });
+
+  it("preserves leading spaces in assistant deltas", () => {
+    const ts = "2026-03-06T15:00:00.000Z";
+    const line =
+      '[openclaw-gateway:event] run=run-1 stream=assistant data={"delta":" ready"}';
+
+    expect(parseOpenClawGatewayStdoutLine(line, ts)).toEqual([
+      {
+        kind: "assistant",
+        ts,
+        text: " ready",
+        delta: true,
+      },
+    ]);
+  });
 });
 
 describe("openclaw gateway adapter execute", () => {
+  it("preserves assistant chunk spaces in the final summary", async () => {
+    const gateway = await createMockGatewayServer({
+      assistantEvents: [
+        { delta: "I'm" },
+        { delta: " ready." },
+        { delta: " What would" },
+        { delta: " you like" },
+        { delta: " to do?" },
+      ],
+    });
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          headers: {
+            "x-openclaw-token": "gateway-token",
+          },
+          waitTimeoutMs: 2000,
+        }),
+      );
+
+      expect(result.summary).toBe("I'm ready. What would you like to do?");
+    } finally {
+      await gateway.close();
+    }
+  });
+
   it("runs connect -> agent -> agent.wait and forwards wake payload", async () => {
     const gateway = await createMockGatewayServer();
     const logs: string[] = [];
