@@ -2746,6 +2746,7 @@ export function issueRoutes(
       ...req.body,
       sourceRunId: req.actor.type === "agent" ? agentSourceRunId : req.body.sourceRunId ?? null,
     }, {
+      actorType: actor.actorType,
       agentId: actor.agentId,
       userId: actor.actorType === "user" ? actor.actorId : null,
     });
@@ -2827,6 +2828,7 @@ export function issueRoutes(
 
       const actor = getActorInfo(req);
       const interaction = await issueThreadInteractionService(db).rejectInteraction(issue, interactionId, req.body, {
+        actorType: actor.actorType,
         agentId: actor.agentId,
         userId: actor.actorType === "user" ? actor.actorId : null,
       });
@@ -2883,6 +2885,7 @@ export function issueRoutes(
 
       const actor = getActorInfo(req);
       const interaction = await issueThreadInteractionService(db).answerQuestions(issue, interactionId, req.body, {
+        actorType: actor.actorType,
         agentId: actor.agentId,
         userId: actor.actorType === "user" ? actor.actorId : null,
       });

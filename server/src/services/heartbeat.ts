@@ -5271,28 +5271,44 @@ export function heartbeatService(db: Db) {
           }
 
           try {
-            const comment = await issuesSvc.addComment(
-              candidate.issueId,
-              buildForwardedClickUpReplyComment(replyBody),
-              {},
-            );
-            await logActivity(db, {
-              companyId: candidate.companyId,
-              actorType: "system",
-              actorId: "clickup_approval_poller",
-              action: "issue.comment_added",
-              entityType: "issue",
-              entityId: candidate.issueId,
-              details: {
-                commentId: comment.id,
-                bodySnippet: comment.body.slice(0, 120),
-                identifier: candidate.identifier,
-                issueTitle: candidate.title,
-                interactionId: candidate.interactionId,
-                forwardingOrigin: "clickup.awaiting_human.reply_forwarded",
-                clickupMessageId: messageId,
-                clickupReplyId: replyId,
-              },
+            const comment = await db.transaction(async (tx) => {
+              const [createdComment] = await tx
+                .insert(issueComments)
+                .values({
+                  companyId: candidate.companyId,
+                  issueId: candidate.issueId,
+                  authorAgentId: null,
+                  authorUserId: null,
+                  createdByRunId: null,
+                  body: buildForwardedClickUpReplyComment(replyBody),
+                })
+                .returning();
+
+              await tx
+                .update(issues)
+                .set({ updatedAt: new Date() })
+                .where(eq(issues.id, candidate.issueId));
+
+              await logActivity(tx as Db, {
+                companyId: candidate.companyId,
+                actorType: "system",
+                actorId: "clickup_approval_poller",
+                action: "issue.comment_added",
+                entityType: "issue",
+                entityId: candidate.issueId,
+                details: {
+                  commentId: createdComment.id,
+                  bodySnippet: createdComment.body.slice(0, 120),
+                  identifier: candidate.identifier,
+                  issueTitle: candidate.title,
+                  interactionId: candidate.interactionId,
+                  forwardingOrigin: "clickup.awaiting_human.reply_forwarded",
+                  clickupMessageId: messageId,
+                  clickupReplyId: replyId,
+                },
+              });
+
+              return createdComment;
             });
 
             if (wakeAgentId && candidate.status !== "backlog") {

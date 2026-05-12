@@ -39,7 +39,7 @@ import { maybeLogAwaitingHumanHandoff } from "./awaiting-human-handoff.js";
 import { issueService } from "./issues.js";
 
 type InteractionActor = {
-  actorType?: "agent" | "user" | "system";
+  actorType: "agent" | "user" | "system";
   agentId?: string | null;
   userId?: string | null;
 };
