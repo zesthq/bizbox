@@ -1126,11 +1126,22 @@ export function Inbox() {
     return filtered;
   }, [approvals, tab, allApprovalFilter, currentUserId, dismissedAtByKey]);
   const pendingInteractionsToRender = useMemo(() => {
-    if (tab !== "unread") return pendingInboxInteractions;
-    return pendingInboxInteractions.filter(
+    let filtered = pendingInboxInteractions;
+    if (tab === "mine") {
+      filtered = filtered.filter(
+        (interaction) =>
+          !isInboxEntityDismissed(
+            dismissedAtByKey,
+            `interaction:${interaction.id}`,
+            interaction.updatedAt,
+          ),
+      );
+    }
+    if (tab !== "unread") return filtered;
+    return filtered.filter(
       (interaction) => !readItems.has(`interaction:${interaction.id}`),
     );
-  }, [pendingInboxInteractions, readItems, tab]);
+  }, [pendingInboxInteractions, readItems, tab, dismissedAtByKey]);
   const showJoinRequestsCategory =
     allCategoryFilter === "everything" || allCategoryFilter === "join_requests";
   const showTouchedCategory =

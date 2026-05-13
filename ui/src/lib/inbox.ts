@@ -756,6 +756,26 @@ export function pendingInteractionActivityTimestamp(
   return normalizeTimestamp(interaction.createdAt);
 }
 
+function inboxWorkItemSortRank(kind: InboxWorkItem["kind"]): number {
+  switch (kind) {
+    case "issue":
+      return 0;
+    case "approval":
+    case "interaction":
+      return 1;
+    case "failed_run":
+      return 2;
+    case "join_request":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function normalizeWorkItemGroupKind(kind: InboxWorkItem["kind"]): Exclude<InboxWorkItem["kind"], "interaction"> {
+  return kind === "interaction" ? "approval" : kind;
+}
+
 export function getInboxWorkItems({
   issues,
   approvals,
@@ -810,14 +830,13 @@ export function getInboxWorkItems({
         - pendingInteractionActivityTimestamp(a.interaction);
     }
 
-    return a.kind === "approval" ? -1 : 1;
+    return inboxWorkItemSortRank(a.kind) - inboxWorkItemSortRank(b.kind);
   });
 }
 
-const inboxWorkItemKindOrder: InboxWorkItem["kind"][] = [
+const inboxGroupedKindOrder: Array<Exclude<InboxWorkItem["kind"], "interaction">> = [
   "issue",
   "approval",
-  "interaction",
   "failed_run",
   "join_request",
 ];
@@ -844,7 +863,10 @@ export function groupInboxWorkItems(
     for (const item of items) {
       const resolvedGroup = item.kind === "issue"
         ? resolveIssueWorkspaceGroup(item.issue, options)
-        : { key: `kind:${item.kind}`, label: inboxWorkItemKindLabels[item.kind] };
+        : {
+            key: `kind:${normalizeWorkItemGroupKind(item.kind)}`,
+            label: inboxWorkItemKindLabels[normalizeWorkItemGroupKind(item.kind)],
+          };
       const existing = groups.get(resolvedGroup.key);
       if (existing) {
         existing.items.push(item);
@@ -877,15 +899,16 @@ export function groupInboxWorkItems(
       }));
   }
 
-  const groups = new Map<InboxWorkItem["kind"], InboxWorkItem[]>();
+  const groups = new Map<Exclude<InboxWorkItem["kind"], "interaction">, InboxWorkItem[]>();
   for (const item of items) {
-    const existing = groups.get(item.kind) ?? [];
+    const groupKind = normalizeWorkItemGroupKind(item.kind);
+    const existing = groups.get(groupKind) ?? [];
     existing.push(item);
-    groups.set(item.kind, existing);
+    groups.set(groupKind, existing);
   }
 
   const orderedGroups: InboxWorkItemGroup[] = [];
-  for (const kind of inboxWorkItemKindOrder) {
+  for (const kind of inboxGroupedKindOrder) {
     const groupItems = groups.get(kind) ?? [];
     if (groupItems.length === 0) continue;
     orderedGroups.push({
