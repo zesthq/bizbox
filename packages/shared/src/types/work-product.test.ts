@@ -32,4 +32,18 @@ describe("issue artifact work product metadata types", () => {
       byteSize: 0,
     });
   });
+
+  it("drops redundant audience values from stored artifact metadata", () => {
+    expect(parseIssueArtifactWorkProductMetadata({
+      type: "artifact",
+      metadata: {
+        ...baseMetadata,
+        byteSize: 12,
+        audience: "internal",
+      },
+    })).toEqual({
+      ...baseMetadata,
+      byteSize: 12,
+    });
+  });
 });

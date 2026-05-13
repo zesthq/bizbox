@@ -51,7 +51,6 @@ const issueArtifactWorkProductMetadataFieldsSchema = z.object({
   contentType: z.string().trim().min(1),
   byteSize: z.number().int().positive(),
   originalFilename: z.string().trim().min(1).nullable().optional().transform((v) => v ?? null),
-  audience: z.enum(DELIVERABLE_AUDIENCES).optional(),
 });
 
 const issueArtifactWorkProductStoredMetadataFieldsSchema = issueArtifactWorkProductMetadataFieldsSchema.extend({

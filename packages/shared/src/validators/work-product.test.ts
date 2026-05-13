@@ -110,8 +110,10 @@ describe("work product validators", () => {
     const sanitized = sanitizeStoredIssueArtifactWorkProductMetadata({
       ...validArtifactMetadata,
       contentBase64: "IyBGaW5hbCBwYWNrZXQK",
+      audience: "internal",
     });
 
+    expect(sanitized).toEqual(validArtifactMetadata);
     expect(getIssueArtifactWorkProductValidationIssues({
       type: "artifact",
       url: validArtifactMetadata.contentPath,

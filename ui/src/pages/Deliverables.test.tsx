@@ -201,6 +201,34 @@ describe("Deliverables page", () => {
     expect(container.querySelector('input[type="search"]')).toBeTruthy();
   });
 
+  it("keeps the audience filter visible when audience filtering returns zero results", async () => {
+    listMock.mockImplementation(async (_companyId: string, filters?: { audience?: string }) => {
+      if (filters?.audience === "internal") {
+        return { items: [], limit: 50, offset: 0 };
+      }
+      return { items: [sampleItem()], limit: 50, offset: 0 };
+    });
+
+    await renderDeliverables(container);
+    await flushReact();
+    await flushReact();
+
+    const select = container.querySelector('select[aria-label="Filter by audience"]') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+
+    await act(async () => {
+      select.selectedIndex = 2;
+      select.value = "internal";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await flushReact();
+    await flushReact();
+
+    expect(container.querySelector('select[aria-label="Filter by audience"]')).toBeTruthy();
+    expect((container.querySelector('select[aria-label="Filter by audience"]') as HTMLSelectElement).value).toBe("internal");
+  });
+
   it("renders an empty state when there are no deliverables", async () => {
     listMock.mockResolvedValue({ items: [], limit: 50, offset: 0 });
 

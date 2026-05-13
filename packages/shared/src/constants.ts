@@ -221,6 +221,7 @@ export function getDefaultIssueDocumentAudience(key: string): DeliverableAudienc
     ? "internal"
     : "human";
 }
+
 export const ISSUE_REFERENCE_SOURCE_KINDS = ["title", "description", "comment", "document"] as const;
 export type IssueReferenceSourceKind = (typeof ISSUE_REFERENCE_SOURCE_KINDS)[number];
 

@@ -655,11 +655,23 @@ function canInlinePreview(contentType: string): boolean {
   return DELIVERABLE_PREVIEW_TYPES.has(normalizeContentType(contentType));
 }
 
+function truncateUtf8ByBytes(value: string, maxBytes: number): string {
+  let byteLength = 0;
+  let truncated = "";
+  for (const char of value) {
+    const nextByteLength = Buffer.byteLength(char, "utf8");
+    if (byteLength + nextByteLength > maxBytes) break;
+    truncated += char;
+    byteLength += nextByteLength;
+  }
+  return truncated;
+}
+
 function buildPreviewFromBody(contentType: string, body: string, byteSize: number): DeliverablePreview | null {
   if (!canInlinePreview(contentType)) return null;
   const truncated = byteSize > DELIVERABLE_PREVIEW_MAX_BYTES;
   const safeBody = truncated
-    ? body.slice(0, DELIVERABLE_PREVIEW_MAX_BYTES)
+    ? truncateUtf8ByBytes(body, DELIVERABLE_PREVIEW_MAX_BYTES)
     : body;
   return {
     kind: normalizeContentType(contentType) === "text/markdown" ? "markdown" : "text",

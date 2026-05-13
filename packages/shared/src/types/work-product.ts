@@ -1,5 +1,3 @@
-import type { DeliverableAudience } from "../constants.js";
-
 export type IssueWorkProductType =
   | "preview_url"
   | "runtime_service"
@@ -40,7 +38,6 @@ export interface IssueArtifactWorkProductMetadata {
   contentType: string;
   byteSize: number;
   originalFilename: string | null;
-  audience?: DeliverableAudience;
 }
 
 export interface IssueWorkProduct {
@@ -145,6 +142,20 @@ export function parseIssueArtifactWorkProductMetadata(
 
   const originalFilename =
     typeof metadata.originalFilename === "string" ? metadata.originalFilename : null;
+  const {
+    attachmentId,
+    contentPath,
+    sourcePath,
+    contentType,
+    byteSize,
+  } = metadata;
 
-  return { ...(metadata as IssueArtifactWorkProductMetadata), originalFilename };
+  return {
+    attachmentId: attachmentId as string,
+    contentPath: contentPath as string,
+    sourcePath: sourcePath as string,
+    contentType: contentType as string,
+    byteSize: byteSize as number,
+    originalFilename,
+  };
 }

@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Package } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Link, useParams } from "@/lib/router";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { deliverablesApi } from "../api/deliverables";
+import { AudienceBadge } from "../components/AudienceBadge";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Button } from "@/components/ui/button";
@@ -278,13 +278,5 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
       </div>
       <div className="text-sm">{children}</div>
     </div>
-  );
-}
-
-function AudienceBadge({ audience }: { audience: DeliverableDetailType["audience"] }) {
-  return (
-    <Badge variant={audience === "internal" ? "outline" : "secondary"}>
-      {audience === "internal" ? "Internal" : "Human"}
-    </Badge>
   );
 }

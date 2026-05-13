@@ -220,4 +220,27 @@ describe("workProductService", () => {
     expect(items[0]?.byteSize).toBe(15);
     expect(items[0]?.originalFilename).toBe("company-requirements.md");
   });
+
+  it("truncates inline document previews by UTF-8 byte length", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce([
+        createDeliverableQueryRow({
+          deliverable_source: "document",
+          metadata: null,
+          document_key: "plan",
+          document_format: "markdown",
+          document_body: `${"a".repeat((64 * 1024) - 1)}🙂`,
+          document_byte_size: (64 * 1024) + 3,
+        }),
+      ])
+      .mockResolvedValueOnce([]);
+
+    const svc = workProductService({ execute } as any);
+    const deliverable = await svc.getDeliverableById("deliverable-1");
+
+    expect(deliverable?.preview?.truncated).toBe(true);
+    expect(deliverable?.preview?.body.endsWith("🙂")).toBe(false);
+    expect(Buffer.byteLength(deliverable?.preview?.body ?? "", "utf8")).toBeLessThanOrEqual(64 * 1024);
+  });
 });

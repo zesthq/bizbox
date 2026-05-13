@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Package } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Link } from "@/lib/router";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { deliverablesApi } from "../api/deliverables";
+import { AudienceBadge } from "../components/AudienceBadge";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Input } from "@/components/ui/input";
@@ -64,7 +64,7 @@ export function Deliverables() {
             {items.length > 0 ? ` (${items.length})` : null}
           </p>
         </div>
-        {items.length > 0 || searchTerm ? (
+        {items.length > 0 || searchTerm || audience !== "all" ? (
           <div className="flex w-full max-w-md gap-2">
             <Input
               type="search"
@@ -204,13 +204,5 @@ function DeliverableRow({ item }: { item: DeliverableListItem }) {
         </a>
       </td>
     </tr>
-  );
-}
-
-function AudienceBadge({ audience }: { audience: DeliverableAudience }) {
-  return (
-    <Badge variant={audience === "internal" ? "outline" : "secondary"}>
-      {audience === "internal" ? "Internal" : "Human"}
-    </Badge>
   );
 }
