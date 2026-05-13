@@ -34,6 +34,7 @@ export const issueWorkProducts = pgTable(
     url: text("url"),
     status: text("status").notNull(),
     reviewState: text("review_state").notNull().default("none"),
+    audience: text("audience").notNull().default("human"),
     isPrimary: boolean("is_primary").notNull().default(false),
     healthStatus: text("health_status").notNull().default("unknown"),
     summary: text("summary"),

@@ -775,6 +775,7 @@ export function startWorkerRpcHost(options: WorkerRpcHostOptions): WorkerRpcHost
               title: input.title,
               format: input.format,
               changeSummary: input.changeSummary,
+              audience: input.audience,
             });
           },
 

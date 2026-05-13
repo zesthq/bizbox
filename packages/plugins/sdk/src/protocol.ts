@@ -776,6 +776,7 @@ export interface WorkerToHostMethods {
       title?: string;
       format?: string;
       changeSummary?: string;
+      audience?: "human" | "internal";
     },
     result: IssueDocument,
   ];

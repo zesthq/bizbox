@@ -32,6 +32,10 @@ describeEmbeddedPostgres("documentService system issue documents", () => {
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-documents-service-");
     db = createDb(tempDb.connectionString);
+    await db.execute(`
+      alter table issue_documents
+      add column if not exists audience text not null default 'human'
+    `);
     svc = documentService(db);
   }, 20_000);
 

@@ -3934,6 +3934,7 @@ export function heartbeatService(db: Db) {
         url: metadata.contentPath,
         status: "ready_for_review",
         reviewState: "none",
+        audience: "human",
         isPrimary: index === primaryIndex,
         healthStatus: "healthy",
         summary: artifact.summary ?? null,
@@ -6546,6 +6547,7 @@ export function heartbeatService(db: Db) {
                 body: promotion.body,
                 changeSummary: "Promoted from heartbeat run summary",
                 baseRevisionId: existingDocument?.latestRevisionId ?? null,
+                audience: "internal",
                 createdByAgentId: agent.id,
                 createdByRunId: livenessRun.id,
               });

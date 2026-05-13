@@ -29,6 +29,7 @@ function createHandoffDocument(): IssueDocument {
     companyId: "company-1",
     issueId: "issue-1",
     key: ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
+    audience: "internal",
     title: "Continuation Summary",
     format: "markdown",
     body: "# Handoff\n\nResume from the activity tab.",

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DELIVERABLE_AUDIENCES } from "../constants.js";
 import {
   ISSUE_EXECUTION_DECISION_OUTCOMES,
   ISSUE_EXECUTION_POLICY_MODES,
@@ -458,6 +459,7 @@ export const upsertIssueDocumentSchema = z.object({
   body: z.string().max(524288),
   changeSummary: z.string().trim().max(500).nullable().optional(),
   baseRevisionId: z.string().uuid().nullable().optional(),
+  audience: z.enum(DELIVERABLE_AUDIENCES).nullable().optional(),
 });
 
 export const restoreIssueDocumentRevisionSchema = z.object({});

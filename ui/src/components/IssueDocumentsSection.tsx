@@ -115,6 +115,7 @@ function toDocumentSummary(document: IssueDocument) {
     companyId: document.companyId,
     issueId: document.issueId,
     key: document.key,
+    audience: document.audience,
     title: document.title,
     format: document.format,
     latestRevisionId: document.latestRevisionId,

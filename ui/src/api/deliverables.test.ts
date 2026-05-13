@@ -22,12 +22,13 @@ describe("deliverablesApi", () => {
       projectId: "project-1",
       agentId: "agent-1",
       q: "report",
+      audience: "internal",
       limit: 20,
       offset: 40,
     });
 
     expect(mockApi.get).toHaveBeenCalledWith(
-      "/companies/company-1/deliverables?limit=20&offset=40&projectId=project-1&agentId=agent-1&q=report",
+      "/companies/company-1/deliverables?limit=20&offset=40&projectId=project-1&agentId=agent-1&q=report&audience=internal",
     );
   });
 

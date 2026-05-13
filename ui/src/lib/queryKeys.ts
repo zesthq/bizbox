@@ -89,7 +89,7 @@ export const queryKeys = {
   deliverables: {
     list: (
       companyId: string,
-      filters?: { projectId?: string; agentId?: string; q?: string; limit?: number; offset?: number },
+      filters?: { projectId?: string; agentId?: string; q?: string; audience?: string; limit?: number; offset?: number },
     ) =>
       [
         "deliverables",
@@ -97,6 +97,7 @@ export const queryKeys = {
         filters?.projectId ?? "__all-projects__",
         filters?.agentId ?? "__all-agents__",
         filters?.q ?? "",
+        filters?.audience ?? "__all-audiences__",
         filters?.limit ?? "__no-limit__",
         filters?.offset ?? 0,
       ] as const,

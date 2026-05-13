@@ -1,4 +1,5 @@
 import type {
+  DeliverableAudience,
   IssueExecutionDecisionOutcome,
   IssueExecutionPolicyMode,
   IssueReferenceSourceKind,
@@ -70,6 +71,7 @@ export interface IssueDocumentSummary {
   companyId: string;
   issueId: string;
   key: string;
+  audience: DeliverableAudience;
   title: string | null;
   format: DocumentFormat;
   latestRevisionId: string | null;

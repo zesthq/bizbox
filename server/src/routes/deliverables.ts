@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
+import { DELIVERABLE_AUDIENCES, type DeliverableAudience } from "@paperclipai/shared";
 import { workProductService, clampDeliverableLimit } from "../services/index.js";
 import { assertBoard, assertCompanyAccess } from "./authz.js";
 
@@ -29,6 +30,9 @@ export function deliverableRoutes(db: Db) {
     const q = typeof req.query.q === "string" && req.query.q.trim().length > 0
       ? req.query.q.trim()
       : undefined;
+    const audience = typeof req.query.audience === "string" && DELIVERABLE_AUDIENCES.includes(req.query.audience as DeliverableAudience)
+      ? req.query.audience as DeliverableAudience
+      : undefined;
 
     const items = await workProductsSvc.listDeliverablesForCompany(companyId, {
       limit,
@@ -36,6 +40,7 @@ export function deliverableRoutes(db: Db) {
       projectId,
       agentId,
       q,
+      audience,
     });
     res.json({ items, limit, offset });
   });

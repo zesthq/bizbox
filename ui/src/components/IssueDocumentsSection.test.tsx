@@ -169,6 +169,7 @@ function createIssueDocument(overrides: Partial<IssueDocument> = {}): IssueDocum
     companyId: "company-1",
     issueId: "issue-1",
     key: "plan",
+    audience: "internal",
     title: "Plan",
     format: "markdown",
     body: "",

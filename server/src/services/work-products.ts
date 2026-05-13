@@ -1,15 +1,19 @@
+import { Readable } from "node:stream";
 import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { documents, documentRevisions, issueDocuments, issueWorkProducts, issues } from "@paperclipai/db";
+import { documents, issueDocuments, issueWorkProducts } from "@paperclipai/db";
 import {
   ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
   type DeliverableDetail,
   type DeliverableIssueRef,
   type DeliverableListItem,
+  type DeliverablePreview,
+  type DeliverableAudience,
   type IssueWorkProduct,
   parseIssueArtifactWorkProductMetadata,
   deriveAgentUrlKey,
 } from "@paperclipai/shared";
+import { getStorageService } from "../storage/index.js";
 
 type IssueWorkProductRow = typeof issueWorkProducts.$inferSelect;
 
@@ -28,6 +32,7 @@ function toIssueWorkProduct(row: IssueWorkProductRow): IssueWorkProduct {
     url: row.url ?? null,
     status: row.status,
     reviewState: row.reviewState as IssueWorkProduct["reviewState"],
+    audience: (row.audience as DeliverableAudience | null) ?? "human",
     isPrimary: row.isPrimary,
     healthStatus: row.healthStatus as IssueWorkProduct["healthStatus"],
     summary: row.summary ?? null,
@@ -113,6 +118,7 @@ export function workProductService(db: Db) {
               status: data.status,
               healthStatus: data.healthStatus ?? "healthy",
               reviewState: data.reviewState ?? "none",
+              audience: data.audience ?? "human",
               summary: data.summary ?? null,
               metadata: data.metadata,
               isPrimary: data.isPrimary,
@@ -218,6 +224,10 @@ export function workProductService(db: Db) {
         artifactFilters.push(sql`wp.title ILIKE ${like} ESCAPE '\\'`);
         documentFilters.push(sql`COALESCE(d.title, idoc.key) ILIKE ${like} ESCAPE '\\'`);
       }
+      if (opts.audience) {
+        artifactFilters.push(sql`wp.audience = ${opts.audience}`);
+        documentFilters.push(sql`idoc.audience = ${opts.audience}`);
+      }
       const artifactWhere = artifactFilters.length > 0 ? sql` AND ${sql.join(artifactFilters, sql` AND `)}` : sql``;
       const documentWhere = documentFilters.length > 0 ? sql` AND ${sql.join(documentFilters, sql` AND `)}` : sql``;
 
@@ -266,6 +276,7 @@ export function workProductService(db: Db) {
             wp.is_primary,
             wp.health_status,
             wp.summary,
+            wp.audience,
             wp.metadata,
             wp.created_by_run_id,
             wp.execution_workspace_id,
@@ -314,6 +325,7 @@ export function workProductService(db: Db) {
             true AS is_primary,
             'healthy'::text AS health_status,
             NULL::text AS summary,
+            idoc.audience,
             NULL::jsonb AS metadata,
             dr.created_by_run_id,
             NULL::uuid AS execution_workspace_id,
@@ -405,6 +417,7 @@ export function workProductService(db: Db) {
             wp.is_primary,
             wp.health_status,
             wp.summary,
+            wp.audience,
             wp.metadata,
             wp.created_by_run_id,
             wp.execution_workspace_id,
@@ -414,6 +427,7 @@ export function workProductService(db: Db) {
             NULL::text AS document_key,
             NULL::text AS document_format,
             NULL::text AS document_body,
+            NULL::integer AS document_byte_size,
             ci.id AS ci_id,
             ci.identifier AS ci_identifier,
             ci.title AS ci_title,
@@ -452,6 +466,7 @@ export function workProductService(db: Db) {
             true AS is_primary,
             'healthy'::text AS health_status,
             NULL::text AS summary,
+            idoc.audience,
             NULL::jsonb AS metadata,
             dr.created_by_run_id,
             NULL::uuid AS execution_workspace_id,
@@ -461,6 +476,7 @@ export function workProductService(db: Db) {
             idoc.key AS document_key,
             d.format AS document_format,
             d.latest_body AS document_body,
+            COALESCE(octet_length(d.latest_body), 0)::integer AS document_byte_size,
             ci.id AS ci_id,
             ci.identifier AS ci_identifier,
             ci.title AS ci_title,
@@ -492,7 +508,10 @@ export function workProductService(db: Db) {
       if (!base) return null;
 
       const ancestors = await loadAncestorChain(db, base.childIssue.id);
-      return { ...base, ancestors };
+      const preview = row.deliverable_source === "document"
+        ? buildPreviewFromBody(base.contentType, row.document_body ?? "", base.byteSize)
+        : await loadArtifactPreview(db, row);
+      return { ...base, ancestors, preview };
     },
 
     getDeliverableDocumentContentById: async (id: string): Promise<DeliverableDocumentContent | null> => {
@@ -550,6 +569,7 @@ export interface ListDeliverablesOptions {
   projectId?: string;
   agentId?: string;
   q?: string;
+  audience?: DeliverableAudience;
 }
 
 export function clampDeliverableLimit(value: unknown): number {
@@ -574,6 +594,7 @@ interface DeliverableQueryRow extends Record<string, unknown> {
   is_primary: boolean;
   health_status: string;
   summary: string | null;
+  audience: string | null;
   metadata: Record<string, unknown> | null;
   created_by_run_id: string | null;
   execution_workspace_id: string | null;
@@ -606,6 +627,9 @@ interface DeliverableDocumentContent {
   body: string;
 }
 
+const DELIVERABLE_PREVIEW_MAX_BYTES = 64 * 1024;
+const DELIVERABLE_PREVIEW_TYPES = new Set(["text/markdown", "text/plain", "application/json"]);
+
 function toRowArray<T>(result: unknown): T[] {
   // drizzle-orm/postgres-js returns the array directly; node-postgres returns { rows }.
   if (Array.isArray(result)) return result as T[];
@@ -621,6 +645,35 @@ function escapeLikePattern(value: string): string {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function normalizeContentType(value: string): string {
+  return value.split(";")[0]!.trim().toLowerCase();
+}
+
+function canInlinePreview(contentType: string): boolean {
+  return DELIVERABLE_PREVIEW_TYPES.has(normalizeContentType(contentType));
+}
+
+function buildPreviewFromBody(contentType: string, body: string, byteSize: number): DeliverablePreview | null {
+  if (!canInlinePreview(contentType)) return null;
+  const truncated = byteSize > DELIVERABLE_PREVIEW_MAX_BYTES;
+  const safeBody = truncated
+    ? body.slice(0, DELIVERABLE_PREVIEW_MAX_BYTES)
+    : body;
+  return {
+    kind: normalizeContentType(contentType) === "text/markdown" ? "markdown" : "text",
+    body: safeBody,
+    truncated,
+  };
+}
+
+async function readStreamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
 
 function rowToDeliverableListItem(row: DeliverableQueryRow): DeliverableListItem | null {
@@ -664,6 +717,7 @@ function rowToDeliverableListItem(row: DeliverableQueryRow): DeliverableListItem
     projectId: row.project_id,
     title: row.title,
     summary: row.summary,
+    audience: (row.audience as DeliverableAudience | null) ?? "human",
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
     contentPath,
@@ -691,6 +745,35 @@ function rowToDeliverableListItem(row: DeliverableQueryRow): DeliverableListItem
         : null,
     runId: row.created_by_run_id,
   };
+}
+
+async function loadArtifactPreview(db: Db, row: DeliverableQueryRow): Promise<DeliverablePreview | null> {
+  if (row.deliverable_source !== "artifact") return null;
+  const metadata = parseIssueArtifactWorkProductMetadata({
+    type: row.type as IssueWorkProduct["type"],
+    metadata: row.metadata,
+  });
+  if (!metadata || !canInlinePreview(metadata.contentType) || metadata.byteSize > DELIVERABLE_PREVIEW_MAX_BYTES) {
+    return null;
+  }
+
+  const attachmentId = metadata.attachmentId;
+  const rows = await db.execute<{
+    company_id: string;
+    object_key: string;
+  }>(sql`
+    SELECT ia.company_id, a.object_key
+    FROM issue_attachments ia
+    INNER JOIN assets a ON a.id = ia.asset_id
+    WHERE ia.id = ${attachmentId}
+    LIMIT 1
+  `);
+  const attachment = toRowArray<{ company_id: string; object_key: string }>(rows)[0];
+  if (!attachment) return null;
+
+  const object = await getStorageService().getObject(attachment.company_id, attachment.object_key);
+  const body = (await readStreamToBuffer(object.stream)).toString("utf8");
+  return buildPreviewFromBody(metadata.contentType, body, metadata.byteSize);
 }
 
 async function loadAncestorChain(db: Db, startIssueId: string): Promise<DeliverableIssueRef[]> {

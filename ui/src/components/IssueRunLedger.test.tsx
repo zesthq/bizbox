@@ -318,6 +318,7 @@ describe("IssueRunLedger", () => {
       externalId: "openclaw_gateway:deliverables/final-packet.md",
       title: "Final packet",
       url: "/api/attachments/attachment-1/content",
+      audience: "human",
       status: "ready_for_review",
       reviewState: "none",
       isPrimary: true,

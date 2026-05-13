@@ -207,10 +207,19 @@ export const ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY = "continuation-summary" as
 export const SYSTEM_ISSUE_DOCUMENT_KEYS = [ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY] as const;
 export type SystemIssueDocumentKey = (typeof SYSTEM_ISSUE_DOCUMENT_KEYS)[number];
 
+export const DELIVERABLE_AUDIENCES = ["human", "internal"] as const;
+export type DeliverableAudience = (typeof DELIVERABLE_AUDIENCES)[number];
+
 const SYSTEM_ISSUE_DOCUMENT_KEY_SET = new Set<string>(SYSTEM_ISSUE_DOCUMENT_KEYS);
 
 export function isSystemIssueDocumentKey(key: string): key is SystemIssueDocumentKey {
   return SYSTEM_ISSUE_DOCUMENT_KEY_SET.has(key);
+}
+
+export function getDefaultIssueDocumentAudience(key: string): DeliverableAudience {
+  return key.trim().toLowerCase() === "plan" || isSystemIssueDocumentKey(key.trim().toLowerCase())
+    ? "internal"
+    : "human";
 }
 export const ISSUE_REFERENCE_SOURCE_KINDS = ["title", "description", "comment", "document"] as const;
 export type IssueReferenceSourceKind = (typeof ISSUE_REFERENCE_SOURCE_KINDS)[number];

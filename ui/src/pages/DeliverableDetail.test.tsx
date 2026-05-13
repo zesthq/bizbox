@@ -27,6 +27,12 @@ vi.mock("@/context/BreadcrumbContext", () => ({
   useBreadcrumbs: () => ({ setBreadcrumbs: setBreadcrumbsMock }),
 }));
 
+vi.mock("../components/MarkdownBody", () => ({
+  MarkdownBody: ({ children, className }: { children: string; className?: string }) => (
+    <div className={className}>{children}</div>
+  ),
+}));
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,6 +65,7 @@ const baseDetail = {
   projectId: null,
   title: "Final report",
   summary: "Produced for the board.",
+  audience: "human",
   createdAt: "2026-05-01T00:00:00.000Z",
   updatedAt: "2026-05-01T00:00:00.000Z",
   contentPath: "/api/attachments/abc/content",
@@ -71,6 +78,7 @@ const baseDetail = {
   ancestors: [
     { id: "root-1", identifier: "PAP-1", title: "Quarterly review", status: "in_progress" },
   ],
+  preview: null,
 };
 
 describe("DeliverableDetail page", () => {
@@ -124,6 +132,27 @@ describe("DeliverableDetail page", () => {
 
     const img = container.querySelector("img");
     expect(img?.getAttribute("src")).toBe("/api/attachments/abc/content");
+  });
+
+  it("renders markdown previews inline for text deliverables", async () => {
+    getMock.mockResolvedValue({
+      ...baseDetail,
+      audience: "internal",
+      contentType: "text/markdown; charset=utf-8",
+      originalFilename: "plan.md",
+      preview: {
+        kind: "markdown",
+        body: "# Execution Plan\n\n- Step 1",
+        truncated: false,
+      },
+    });
+
+    await renderAt(container, "/deliverables/deliverable-1");
+    await flushReact();
+    await flushReact();
+
+    expect(container.textContent).toContain("Execution Plan");
+    expect(container.textContent).toContain("Internal");
   });
 
   it("hides the original-request row when the deliverable's child IS the root", async () => {

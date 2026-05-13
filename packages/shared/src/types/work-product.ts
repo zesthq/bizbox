@@ -1,3 +1,5 @@
+import type { DeliverableAudience } from "../constants.js";
+
 export type IssueWorkProductType =
   | "preview_url"
   | "runtime_service"
@@ -38,6 +40,7 @@ export interface IssueArtifactWorkProductMetadata {
   contentType: string;
   byteSize: number;
   originalFilename: string | null;
+  audience?: DeliverableAudience;
 }
 
 export interface IssueWorkProduct {
@@ -54,6 +57,7 @@ export interface IssueWorkProduct {
   url: string | null;
   status: IssueWorkProductStatus | string;
   reviewState: IssueWorkProductReviewState;
+  audience: DeliverableAudience;
   isPrimary: boolean;
   healthStatus: "unknown" | "healthy" | "unhealthy";
   summary: string | null;

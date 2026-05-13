@@ -60,6 +60,7 @@ function sampleItem(overrides: Record<string, unknown> = {}) {
     projectId: null,
     title: "Final report",
     summary: null,
+    audience: "human",
     createdAt: "2026-05-01T00:00:00.000Z",
     updatedAt: "2026-05-01T00:00:00.000Z",
     contentPath: "/api/attachments/abc/content",
@@ -90,7 +91,7 @@ describe("Deliverables page", () => {
 
   it("renders deliverables in a table with download links", async () => {
     listMock.mockResolvedValue({
-      items: [sampleItem(), sampleItem({ id: "deliverable-2", title: "Draft", originalFilename: "draft.md" })],
+      items: [sampleItem(), sampleItem({ id: "deliverable-2", title: "Draft", originalFilename: "draft.md", audience: "internal" })],
       limit: 50,
       offset: 0,
     });
@@ -107,6 +108,8 @@ describe("Deliverables page", () => {
     expect(container.textContent).toContain("from");
     expect(container.textContent).toContain("PAP-12");
     expect(container.textContent).toContain("Astro");
+    expect(container.textContent).toContain("Human");
+    expect(container.textContent).toContain("Internal");
 
     const downloadLinks = Array.from(container.querySelectorAll("a")).filter(
       (a) => a.getAttribute("href") === "/api/attachments/abc/content",
@@ -116,11 +119,11 @@ describe("Deliverables page", () => {
     expect(firstDownload.getAttribute("download")).toBe("report.pdf");
   });
 
-  it("uses server-side search query parameter", async () => {
-    listMock.mockImplementation(async (_companyId: string, filters?: { q?: string }) => {
-      if (filters?.q === "draft") {
+  it("uses server-side search query parameter and audience filter", async () => {
+    listMock.mockImplementation(async (_companyId: string, filters?: { q?: string; audience?: string }) => {
+      if (filters?.q === "draft" || filters?.audience === "internal") {
         return {
-          items: [sampleItem({ id: "deliverable-2", title: "Draft" })],
+          items: [sampleItem({ id: "deliverable-2", title: "Draft", audience: "internal" })],
           limit: 50,
           offset: 0,
         };
@@ -153,6 +156,18 @@ describe("Deliverables page", () => {
 
     expect(listMock.mock.calls.some(([, filters]) => (filters as { q?: string } | undefined)?.q === "draft")).toBe(true);
     expect(container.textContent).toContain("Draft");
+
+    const select = container.querySelector('select[aria-label="Filter by audience"]') as HTMLSelectElement;
+    await act(async () => {
+      select.selectedIndex = 2;
+      select.value = "internal";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await flushReact();
+    await flushReact();
+
+    expect(listMock.mock.calls.some(([, filters]) => (filters as { audience?: string } | undefined)?.audience === "internal")).toBe(true);
   });
 
   it("keeps search input visible when search returns zero results", async () => {

@@ -1078,6 +1078,7 @@ export function issueRoutes(
       body: req.body.body,
       changeSummary: req.body.changeSummary ?? null,
       baseRevisionId: req.body.baseRevisionId ?? null,
+      audience: req.body.audience ?? null,
       createdByAgentId: actor.agentId ?? null,
       createdByUserId: actor.actorType === "user" ? actor.actorId : null,
       createdByRunId: actor.runId ?? null,

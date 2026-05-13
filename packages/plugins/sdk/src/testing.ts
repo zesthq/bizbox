@@ -620,6 +620,7 @@ export function createTestHarness(options: TestHarnessOptions): TestHarness {
             companyId: input.companyId,
             issueId: input.issueId,
             key: input.key,
+            audience: existing?.audience ?? input.audience ?? "human",
             title: input.title ?? existing?.title ?? null,
             format: "markdown",
             latestRevisionId: randomUUID(),

@@ -1,7 +1,12 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { documentRevisions, documents, issueDocuments, issues } from "@paperclipai/db";
-import { isSystemIssueDocumentKey, issueDocumentKeySchema } from "@paperclipai/shared";
+import {
+  getDefaultIssueDocumentAudience,
+  isSystemIssueDocumentKey,
+  issueDocumentKeySchema,
+  type DeliverableAudience,
+} from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
 
 function normalizeDocumentKey(key: string) {
@@ -31,6 +36,7 @@ function mapIssueDocumentRow(
     companyId: string;
     issueId: string;
     key: string;
+    audience: string;
     title: string | null;
     format: string;
     latestBody: string;
@@ -50,6 +56,7 @@ function mapIssueDocumentRow(
     companyId: row.companyId,
     issueId: row.issueId,
     key: row.key,
+    audience: row.audience as DeliverableAudience,
     title: row.title,
     format: row.format,
     ...(includeBody ? { body: row.latestBody } : {}),
@@ -69,6 +76,7 @@ const issueDocumentSelect = {
   companyId: documents.companyId,
   issueId: issueDocuments.issueId,
   key: issueDocuments.key,
+  audience: issueDocuments.audience,
   title: documents.title,
   format: documents.format,
   latestBody: documents.latestBody,
@@ -176,11 +184,13 @@ export function documentService(db: Db) {
       body: string;
       changeSummary?: string | null;
       baseRevisionId?: string | null;
+      audience?: DeliverableAudience | null;
       createdByAgentId?: string | null;
       createdByUserId?: string | null;
       createdByRunId?: string | null;
     }) => {
       const key = normalizeDocumentKey(input.key);
+      const audience = input.audience ?? getDefaultIssueDocumentAudience(key);
       const issue = await db
         .select({ id: issues.id, companyId: issues.companyId })
         .from(issues)
@@ -260,7 +270,7 @@ export function documentService(db: Db) {
 
             await tx
               .update(issueDocuments)
-              .set({ updatedAt: now })
+              .set({ audience, updatedAt: now })
               .where(eq(issueDocuments.documentId, existing.id));
 
             return {
@@ -270,6 +280,7 @@ export function documentService(db: Db) {
                 title: input.title ?? null,
                 format: input.format,
                 body: input.body,
+                audience,
                 latestRevisionId: revision.id,
                 latestRevisionNumber: nextRevisionNumber,
                 updatedByAgentId: input.createdByAgentId ?? null,
@@ -328,6 +339,7 @@ export function documentService(db: Db) {
             issueId: issue.id,
             documentId: document.id,
             key,
+            audience,
             createdAt: now,
             updatedAt: now,
           });
@@ -339,6 +351,7 @@ export function documentService(db: Db) {
               companyId: issue.companyId,
               issueId: issue.id,
               key,
+              audience,
               title: document.title,
               format: document.format,
               body: document.latestBody,

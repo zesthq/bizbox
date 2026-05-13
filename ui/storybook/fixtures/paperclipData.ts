@@ -899,6 +899,7 @@ export const storybookIssueDocuments: IssueDocument[] = [
     companyId: "company-storybook",
     issueId: "issue-storybook-1",
     key: "plan",
+    audience: "internal",
     title: "Plan",
     format: "markdown",
     body: [
@@ -922,6 +923,7 @@ export const storybookIssueDocuments: IssueDocument[] = [
     companyId: "company-storybook",
     issueId: "issue-storybook-1",
     key: "notes",
+    audience: "human",
     title: "Review Notes",
     format: "markdown",
     body: [
@@ -947,6 +949,7 @@ export const storybookContinuationHandoff: IssueDocument = {
   companyId: "company-storybook",
   issueId: "issue-storybook-1",
   key: "continuation_summary",
+  audience: "internal",
   title: "Continuation handoff",
   format: "markdown",
   body: [

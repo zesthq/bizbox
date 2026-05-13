@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Package } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Link } from "@/lib/router";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -10,12 +11,19 @@ import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Input } from "@/components/ui/input";
 import { issueUrl, agentUrl, relativeTime, formatDateTime, formatFileSize } from "../lib/utils";
-import type { DeliverableListItem } from "@paperclipai/shared";
+import type { DeliverableAudience, DeliverableListItem } from "@paperclipai/shared";
+
+const AUDIENCE_FILTERS: Array<{ value: "all" | DeliverableAudience; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "human", label: "Human" },
+  { value: "internal", label: "Internal" },
+];
 
 export function Deliverables() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const [search, setSearch] = useState("");
+  const [audience, setAudience] = useState<"all" | DeliverableAudience>("all");
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Deliverables" }]);
@@ -25,10 +33,12 @@ export function Deliverables() {
   const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.deliverables.list(selectedCompanyId!, {
       q: searchTerm || undefined,
+      audience: audience === "all" ? undefined : audience,
     }),
     queryFn: () =>
       deliverablesApi.list(selectedCompanyId!, {
         q: searchTerm || undefined,
+        audience: audience === "all" ? undefined : audience,
         limit: 200,
       }),
     enabled: !!selectedCompanyId,
@@ -55,7 +65,7 @@ export function Deliverables() {
           </p>
         </div>
         {items.length > 0 || searchTerm ? (
-          <div className="w-full max-w-xs">
+          <div className="flex w-full max-w-md gap-2">
             <Input
               type="search"
               placeholder="Search deliverables..."
@@ -63,6 +73,16 @@ export function Deliverables() {
               onChange={(event) => setSearch(event.target.value)}
               aria-label="Search deliverables"
             />
+            <select
+              value={audience}
+              onChange={(event) => setAudience(event.target.value as "all" | DeliverableAudience)}
+              aria-label="Filter by audience"
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              {AUDIENCE_FILTERS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
           </div>
         ) : null}
       </div>
@@ -86,6 +106,7 @@ export function Deliverables() {
             <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">Title</th>
+                <th className="px-3 py-2 text-left font-medium">Audience</th>
                 <th className="px-3 py-2 text-left font-medium">Issue</th>
                 <th className="px-3 py-2 text-left font-medium">Agent</th>
                 <th className="px-3 py-2 text-right font-medium">Size</th>
@@ -110,7 +131,7 @@ function DeliverableRow({ item }: { item: DeliverableListItem }) {
   const showChildSeparately = item.rootIssue !== null && item.rootIssue.id !== item.childIssue.id;
 
   return (
-    <tr className="border-t border-border hover:bg-muted/30">
+    <tr className={`border-t border-border hover:bg-muted/30 ${item.audience === "internal" ? "bg-muted/10" : ""}`}>
       <td className="px-3 py-2 align-top">
         <Link
           to={`/deliverables/${item.id}`}
@@ -123,6 +144,9 @@ function DeliverableRow({ item }: { item: DeliverableListItem }) {
             {item.originalFilename}
           </div>
         ) : null}
+      </td>
+      <td className="px-3 py-2 align-top">
+        <AudienceBadge audience={item.audience} />
       </td>
       <td className="px-3 py-2 align-top">
         <Link
@@ -180,5 +204,13 @@ function DeliverableRow({ item }: { item: DeliverableListItem }) {
         </a>
       </td>
     </tr>
+  );
+}
+
+function AudienceBadge({ audience }: { audience: DeliverableAudience }) {
+  return (
+    <Badge variant={audience === "internal" ? "outline" : "secondary"}>
+      {audience === "internal" ? "Internal" : "Human"}
+    </Badge>
   );
 }

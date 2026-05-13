@@ -8,6 +8,7 @@ function createDocument(overrides: Partial<IssueDocument> = {}): IssueDocument {
     companyId: "company-1",
     issueId: "issue-1",
     key: "plan",
+    audience: "internal",
     title: "Plan",
     format: "markdown",
     body: "# Current plan",

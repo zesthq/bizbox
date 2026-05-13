@@ -118,6 +118,7 @@ export type {
   DeliverableDetail,
   DeliverableIssueRef,
   DeliverableListItem,
+  DeliverablePreview,
 } from "./deliverable.js";
 export type {
   Issue,

@@ -27,7 +27,9 @@ export {
   ISSUE_RELATION_TYPES,
   ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
   SYSTEM_ISSUE_DOCUMENT_KEYS,
+  DELIVERABLE_AUDIENCES,
   isSystemIssueDocumentKey,
+  getDefaultIssueDocumentAudience,
   ISSUE_REFERENCE_SOURCE_KINDS,
   ISSUE_EXECUTION_POLICY_MODES,
   ISSUE_EXECUTION_STAGE_TYPES,
@@ -129,6 +131,7 @@ export {
   type IssueOriginKind,
   type IssueRelationType,
   type SystemIssueDocumentKey,
+  type DeliverableAudience,
   type IssueReferenceSourceKind,
   type IssueExecutionPolicyMode,
   type IssueExecutionStageType,
@@ -501,6 +504,7 @@ export type {
   DeliverableDetail,
   DeliverableIssueRef,
   DeliverableListItem,
+  DeliverablePreview,
 } from "./types/index.js";
 export {
   isIssueArtifactWorkProductMetadata,

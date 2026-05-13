@@ -1,4 +1,4 @@
-import type { DeliverableDetail, DeliverableListItem } from "@paperclipai/shared";
+import type { DeliverableAudience, DeliverableDetail, DeliverableListItem } from "@paperclipai/shared";
 import { api } from "./client";
 
 export interface DeliverableListResponse {
@@ -13,6 +13,7 @@ export interface DeliverableListFilters {
   projectId?: string;
   agentId?: string;
   q?: string;
+  audience?: DeliverableAudience;
 }
 
 const DELIVERABLE_PAGE_LIMIT = 200;
@@ -24,6 +25,7 @@ function buildDeliverablesQuery(filters?: DeliverableListFilters) {
   if (filters?.projectId) params.set("projectId", filters.projectId);
   if (filters?.agentId) params.set("agentId", filters.agentId);
   if (filters?.q) params.set("q", filters.q);
+  if (filters?.audience) params.set("audience", filters.audience);
   return params.toString();
 }
 

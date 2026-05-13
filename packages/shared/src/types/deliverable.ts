@@ -1,3 +1,5 @@
+import type { DeliverableAudience } from "../constants.js";
+
 /**
  * Cross-issue deliverable view: a rolled-up presentation of an
  * `issue_work_products` row with `type = "artifact"`. These are downloadable
@@ -24,6 +26,12 @@ export interface DeliverableAgentRef {
   icon: string | null;
 }
 
+export interface DeliverablePreview {
+  kind: "markdown" | "text";
+  body: string;
+  truncated: boolean;
+}
+
 export interface DeliverableListItem {
   /** issue_work_products.id */
   id: string;
@@ -31,6 +39,7 @@ export interface DeliverableListItem {
   projectId: string | null;
   title: string;
   summary: string | null;
+  audience: DeliverableAudience;
   createdAt: string;
   updatedAt: string;
 
@@ -53,6 +62,7 @@ export interface DeliverableListItem {
 }
 
 export interface DeliverableDetail extends DeliverableListItem {
+  preview: DeliverablePreview | null;
   /**
    * Full ancestor chain from the immediate parent of `childIssue` up to the
    * root. Empty when the child issue has no parent. Order: nearest parent

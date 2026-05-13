@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Package } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Link, useParams } from "@/lib/router";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
@@ -8,6 +9,7 @@ import { deliverablesApi } from "../api/deliverables";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Button } from "@/components/ui/button";
+import { MarkdownBody } from "../components/MarkdownBody";
 import { agentUrl, formatDateTime, issueUrl, relativeTime, formatFileSize } from "../lib/utils";
 import type { DeliverableDetail as DeliverableDetailType } from "@paperclipai/shared";
 
@@ -68,7 +70,10 @@ function DeliverableDetailView({ data }: { data: DeliverableDetailType }) {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <h1 className="text-xl font-semibold text-foreground">{data.title}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-semibold text-foreground">{data.title}</h1>
+            <AudienceBadge audience={data.audience} />
+          </div>
           {data.originalFilename ? (
             <p className="font-mono text-xs text-muted-foreground">{data.originalFilename}</p>
           ) : null}
@@ -93,7 +98,33 @@ function DeliverableDetailView({ data }: { data: DeliverableDetailType }) {
 }
 
 function ArtifactPreview({ data }: { data: DeliverableDetailType }) {
-  const { contentPath, contentType, byteSize, originalFilename, title } = data;
+  const { contentPath, contentType, byteSize, originalFilename, title, preview } = data;
+
+  if (preview?.kind === "markdown") {
+    return (
+      <div className="rounded-md border border-border bg-card p-6">
+        <MarkdownBody className="prose prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0" softBreaks={false}>
+          {preview.body}
+        </MarkdownBody>
+        {preview.truncated ? (
+          <p className="mt-4 text-xs text-muted-foreground">Preview truncated. Download the file to inspect the full content.</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (preview?.kind === "text") {
+    return (
+      <div className="rounded-md border border-border bg-card p-4">
+        <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-foreground">
+          {preview.body}
+        </pre>
+        {preview.truncated ? (
+          <p className="mt-3 text-xs text-muted-foreground">Preview truncated. Download the file to inspect the full content.</p>
+        ) : null}
+      </div>
+    );
+  }
 
   if (isImage(contentType)) {
     return (
@@ -215,6 +246,10 @@ function DetailSidePanel({ data }: { data: DeliverableDetailType }) {
         </div>
       </DetailRow>
 
+      <DetailRow label="Audience">
+        <AudienceBadge audience={data.audience} />
+      </DetailRow>
+
       {data.ancestors.length > 1 ? (
         <DetailRow label="Issue chain">
           <ul className="space-y-1">
@@ -243,5 +278,13 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
       </div>
       <div className="text-sm">{children}</div>
     </div>
+  );
+}
+
+function AudienceBadge({ audience }: { audience: DeliverableDetailType["audience"] }) {
+  return (
+    <Badge variant={audience === "internal" ? "outline" : "secondary"}>
+      {audience === "internal" ? "Internal" : "Human"}
+    </Badge>
   );
 }
