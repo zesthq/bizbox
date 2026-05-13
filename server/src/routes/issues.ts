@@ -34,6 +34,7 @@ import {
   getClosedIsolatedExecutionWorkspaceMessage,
   isClosedIsolatedExecutionWorkspace,
   type ExecutionWorkspace,
+  type UpsertIssueDocument,
 } from "@paperclipai/shared";
 import { trackAgentTaskCompleted } from "@paperclipai/shared/telemetry";
 import { getTelemetryClient } from "../telemetry.js";
@@ -1067,18 +1068,19 @@ export function issueRoutes(
       res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
       return;
     }
+    const body = upsertIssueDocumentSchema.parse(req.body) as UpsertIssueDocument;
 
     const actor = getActorInfo(req);
     const referenceSummaryBefore = await issueReferencesSvc.listIssueReferenceSummary(issue.id);
     const result = await documentsSvc.upsertIssueDocument({
       issueId: issue.id,
       key: keyParsed.data,
-      title: req.body.title ?? null,
-      format: req.body.format,
-      body: req.body.body,
-      changeSummary: req.body.changeSummary ?? null,
-      baseRevisionId: req.body.baseRevisionId ?? null,
-      audience: req.body.audience ?? null,
+      title: body.title ?? null,
+      format: body.format,
+      body: body.body,
+      changeSummary: body.changeSummary ?? null,
+      baseRevisionId: body.baseRevisionId ?? null,
+      audience: body.audience ?? null,
       createdByAgentId: actor.agentId ?? null,
       createdByUserId: actor.actorType === "user" ? actor.actorId : null,
       createdByRunId: actor.runId ?? null,

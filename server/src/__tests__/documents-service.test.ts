@@ -116,4 +116,33 @@ describeEmbeddedPostgres("documentService system issue documents", () => {
       body: "# Handoff",
     }));
   });
+
+  it("preserves an existing audience when updating without an explicit audience override", async () => {
+    const { issueId } = await createIssueWithDocuments();
+    const existing = await svc.getIssueDocumentByKey(issueId, "plan");
+    const updatedToHuman = await svc.upsertIssueDocument({
+      issueId,
+      key: "plan",
+      title: "Plan for humans",
+      format: "markdown",
+      body: "# Human plan",
+      baseRevisionId: existing?.latestRevisionId ?? null,
+      audience: "human",
+    });
+
+    const updated = await svc.upsertIssueDocument({
+      issueId,
+      key: "plan",
+      title: "Plan for humans v2",
+      format: "markdown",
+      body: "# Human plan v2",
+      baseRevisionId: updatedToHuman.document.latestRevisionId,
+    });
+
+    expect(updated.created).toBe(false);
+    expect(updated.document.audience).toBe("human");
+
+    const stored = await svc.getIssueDocumentByKey(issueId, "plan");
+    expect(stored?.audience).toBe("human");
+  });
 });

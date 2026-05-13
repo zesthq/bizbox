@@ -190,7 +190,6 @@ export function documentService(db: Db) {
       createdByRunId?: string | null;
     }) => {
       const key = normalizeDocumentKey(input.key);
-      const audience = input.audience ?? getDefaultIssueDocumentAudience(key);
       const issue = await db
         .select({ id: issues.id, companyId: issues.companyId })
         .from(issues)
@@ -207,6 +206,7 @@ export function documentService(db: Db) {
               companyId: documents.companyId,
               issueId: issueDocuments.issueId,
               key: issueDocuments.key,
+              audience: issueDocuments.audience,
               title: documents.title,
               format: documents.format,
               latestBody: documents.latestBody,
@@ -235,6 +235,8 @@ export function documentService(db: Db) {
                 currentRevisionId: existing.latestRevisionId,
               });
             }
+            const audience =
+              input.audience ?? (existing.audience as DeliverableAudience | null) ?? getDefaultIssueDocumentAudience(key);
 
             const nextRevisionNumber = existing.latestRevisionNumber + 1;
             const [revision] = await tx
@@ -293,6 +295,7 @@ export function documentService(db: Db) {
           if (input.baseRevisionId) {
             throw conflict("Document does not exist yet", { key });
           }
+          const audience = input.audience ?? getDefaultIssueDocumentAudience(key);
 
           const [document] = await tx
             .insert(documents)

@@ -416,6 +416,18 @@ describe("agent issue mutation checkout ownership", () => {
     expect(mockDocumentService.upsertIssueDocument).toHaveBeenCalled();
   });
 
+  it("rejects invalid document audiences before calling the document service", async () => {
+    const app = await createApp(boardActor());
+
+    const res = await request(app)
+      .put(`/api/issues/${issueId}/documents/plan`)
+      .send({ format: "markdown", body: "# board", audience: "admin" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Validation error");
+    expect(mockDocumentService.upsertIssueDocument).not.toHaveBeenCalled();
+  });
+
   it("allows agents with the active-checkout management grant to mutate active checkouts", async () => {
     mockAccessService.hasPermission.mockImplementation(async (
       _companyId: string,
