@@ -90,13 +90,14 @@ import {
   UserPlus,
   Search,
   ListTree,
+  MessageSquareQuote,
 } from "lucide-react";
 
 const INBOX_HEARTBEAT_RUN_LIMIT = 200;
 const INBOX_ISSUE_LIST_LIMIT = 500;
 import { Input } from "@/components/ui/input";
 import { PageTabBar } from "../components/PageTabBar";
-import type { Approval, HeartbeatRun, Issue, JoinRequest } from "@paperclipai/shared";
+import type { Approval, HeartbeatRun, Issue, JoinRequest, PendingHumanInboxInteraction } from "@paperclipai/shared";
 import {
   ACTIONABLE_APPROVAL_STATUSES,
   DEFAULT_INBOX_ISSUE_COLUMNS,
@@ -523,6 +524,103 @@ function ApprovalInboxRow({
   );
 }
 
+function HumanInteractionInboxRow({
+  interaction,
+  unreadState = null,
+  onMarkRead,
+  onArchive,
+  archiveDisabled,
+  selected = false,
+  className,
+}: {
+  interaction: PendingHumanInboxInteraction;
+  unreadState?: NonIssueUnreadState;
+  onMarkRead?: () => void;
+  onArchive?: () => void;
+  archiveDisabled?: boolean;
+  selected?: boolean;
+  className?: string;
+}) {
+  const showUnreadSlot = unreadState !== null;
+  const showUnreadDot = unreadState === "visible" || unreadState === "fading";
+  const kindLabel = interaction.kind === "request_confirmation"
+    ? "Confirmation requested"
+    : "Questions requested";
+  const quicklookDescription =
+    interaction.previewText?.trim()
+    || interaction.summary?.trim()
+    || interaction.title?.trim()
+    || kindLabel;
+  const pathId = interaction.issue.identifier ?? interaction.issue.id;
+
+  return (
+    <div className={cn(
+      "group border-b border-border px-2 py-2.5 last:border-b-0 sm:px-1 sm:pr-3 sm:py-2",
+      className,
+    )}>
+      <div className="flex items-start gap-2 sm:items-center">
+        {showUnreadSlot ? (
+          <span className="hidden sm:inline-flex h-4 w-4 shrink-0 items-center justify-center self-center">
+            {showUnreadDot ? (
+              <button
+                type="button"
+                onClick={onMarkRead}
+                className={cn(
+                  "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                  "hover:bg-blue-500/20",
+                )}
+                aria-label="Mark as read"
+              >
+                <span className={cn(
+                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  "bg-blue-600 dark:bg-blue-400",
+                  unreadState === "fading" ? "opacity-0" : "opacity-100",
+                )} />
+              </button>
+            ) : onArchive ? (
+              <button
+                type="button"
+                onClick={onArchive}
+                disabled={archiveDisabled}
+                className="inline-flex h-4 w-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
+                aria-label="Dismiss from inbox"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <span className="inline-flex h-4 w-4" aria-hidden="true" />
+            )}
+          </span>
+        ) : null}
+        <Link
+          to={`${createIssueDetailPath(pathId)}#interaction-${interaction.id}`}
+          issueQuicklookDescriptionOverride={quicklookDescription}
+          className={cn(
+            "flex min-w-0 flex-1 items-start gap-2 no-underline text-inherit transition-colors",
+            selected ? "hover:bg-transparent" : "hover:bg-accent/50",
+          )}
+        >
+          {!showUnreadSlot && <span className="hidden h-2 w-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
+          <span className="hidden h-3.5 w-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
+          <span className="mt-0.5 shrink-0 rounded-md bg-muted p-1.5 sm:mt-0">
+            <MessageSquareQuote className="h-4 w-4 text-muted-foreground" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="line-clamp-2 text-sm font-medium sm:truncate sm:line-clamp-none">
+              {interaction.title ?? kindLabel}
+            </span>
+            <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="font-mono">{interaction.issue.identifier ?? interaction.issue.id}</span>
+              <span className="max-w-[40ch] truncate">{interaction.issue.title}</span>
+              <span>updated {timeAgo(interaction.updatedAt)}</span>
+            </span>
+          </span>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function JoinRequestInboxRow({
   joinRequest,
   onApprove,
@@ -747,6 +845,12 @@ export function Inbox() {
   } = useQuery({
     queryKey: queryKeys.approvals.list(selectedCompanyId!),
     queryFn: () => approvalsApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
+  const { data: pendingInboxInteractions = [] } = useQuery({
+    queryKey: queryKeys.issues.pendingInboxInteractions(selectedCompanyId!),
+    queryFn: () => issuesApi.listPendingInboxInteractions(selectedCompanyId!),
     enabled: !!selectedCompanyId,
   });
 
@@ -1021,6 +1125,12 @@ export function Inbox() {
     }
     return filtered;
   }, [approvals, tab, allApprovalFilter, currentUserId, dismissedAtByKey]);
+  const pendingInteractionsToRender = useMemo(() => {
+    if (tab !== "unread") return pendingInboxInteractions;
+    return pendingInboxInteractions.filter(
+      (interaction) => !readItems.has(`interaction:${interaction.id}`),
+    );
+  }, [pendingInboxInteractions, readItems, tab]);
   const showJoinRequestsCategory =
     allCategoryFilter === "everything" || allCategoryFilter === "join_requests";
   const showTouchedCategory =
@@ -1050,10 +1160,20 @@ export function Inbox() {
       getInboxWorkItems({
         issues: tab === "all" && !showTouchedCategory ? [] : issuesToRender,
         approvals: tab === "all" && !showApprovalsCategory ? [] : approvalsToRender,
+        interactions: tab === "all" && !showApprovalsCategory ? [] : pendingInteractionsToRender,
         failedRuns: failedRunsForTab,
         joinRequests: joinRequestsForTab,
       }),
-    [approvalsToRender, issuesToRender, showApprovalsCategory, showTouchedCategory, tab, failedRunsForTab, joinRequestsForTab],
+    [
+      approvalsToRender,
+      issuesToRender,
+      pendingInteractionsToRender,
+      showApprovalsCategory,
+      showTouchedCategory,
+      tab,
+      failedRunsForTab,
+      joinRequestsForTab,
+    ],
   );
 
   const filteredWorkItems = useMemo(() => {
@@ -1074,6 +1194,18 @@ export function Inbox() {
         if (label.toLowerCase().includes(q)) return true;
         if (a.type.toLowerCase().includes(q)) return true;
         return false;
+      }
+      if (item.kind === "interaction") {
+        const kindLabel = item.interaction.kind === "request_confirmation"
+          ? "confirmation requested"
+          : "questions requested";
+        return (
+          kindLabel.includes(q)
+          || (item.interaction.title?.toLowerCase().includes(q) ?? false)
+          || (item.interaction.summary?.toLowerCase().includes(q) ?? false)
+          || item.interaction.issue.title.toLowerCase().includes(q)
+          || (item.interaction.issue.identifier?.toLowerCase().includes(q) ?? false)
+        );
       }
       if (item.kind === "failed_run") {
         const run = item.run;
@@ -1802,6 +1934,9 @@ export function Inbox() {
               act.navigate(createIssueDetailPath(pathId), { state: detailState });
             } else if (item.kind === "approval") {
               act.navigate(`/approvals/${item.approval.id}`);
+            } else if (item.kind === "interaction") {
+              const pathId = item.interaction.issue.identifier ?? item.interaction.issue.id;
+              act.navigate(`${createIssueDetailPath(pathId)}#interaction-${item.interaction.id}`);
             } else if (item.kind === "failed_run") {
               act.navigate(`/agents/${item.run.agentId}/runs/${item.run.id}`);
             }
@@ -2355,6 +2490,38 @@ export function Inbox() {
                           selected={isSelected}
                           disabled={isArchiving}
                           onArchive={() => handleArchiveNonIssue(approvalKey)}
+                        >
+                          {row}
+                        </SwipeToArchive>
+                      ) : row));
+                      continue;
+                    }
+
+                    if (item.kind === "interaction") {
+                      const interactionKey = `interaction:${item.interaction.id}`;
+                      const isArchiving = archivingNonIssueIds.has(interactionKey);
+                      const row = (
+                        <HumanInteractionInboxRow
+                          key={interactionKey}
+                          interaction={item.interaction}
+                          selected={isSelected}
+                          unreadState={nonIssueUnreadState(interactionKey)}
+                          onMarkRead={() => handleMarkNonIssueRead(interactionKey)}
+                          onArchive={canArchiveFromTab ? () => handleArchiveNonIssue(interactionKey) : undefined}
+                          archiveDisabled={isArchiving}
+                          className={
+                            isArchiving
+                              ? "pointer-events-none -translate-x-4 scale-[0.98] opacity-0 transition-all duration-200 ease-out"
+                              : "transition-all duration-200 ease-out"
+                          }
+                        />
+                      );
+                      elements.push(wrapItem(interactionKey, isSelected, canArchiveFromTab ? (
+                        <SwipeToArchive
+                          key={interactionKey}
+                          selected={isSelected}
+                          disabled={isArchiving}
+                          onArchive={() => handleArchiveNonIssue(interactionKey)}
                         >
                           {row}
                         </SwipeToArchive>

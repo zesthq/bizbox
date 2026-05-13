@@ -152,6 +152,12 @@ export function useInboxBadge(companyId: string | null | undefined) {
     enabled: !!companyId,
   });
 
+  const { data: pendingInboxInteractions = [] } = useQuery({
+    queryKey: queryKeys.issues.pendingInboxInteractions(companyId!),
+    queryFn: () => issuesApi.listPendingInboxInteractions(companyId!),
+    enabled: !!companyId,
+  });
+
   const { data: joinRequests = [] } = useQuery({
     queryKey: queryKeys.access.joinRequests(companyId!),
     queryFn: async () => {
@@ -199,6 +205,7 @@ export function useInboxBadge(companyId: string | null | undefined) {
     () =>
       computeInboxBadgeData({
         approvals,
+        pendingInboxInteractions,
         joinRequests,
         dashboard,
         heartbeatRuns,
@@ -207,6 +214,16 @@ export function useInboxBadge(companyId: string | null | undefined) {
         dismissedAtByKey,
         currentUserId,
       }),
-    [approvals, joinRequests, dashboard, heartbeatRuns, mineIssues, dismissedAlerts, dismissedAtByKey, currentUserId],
+    [
+      approvals,
+      pendingInboxInteractions,
+      joinRequests,
+      dashboard,
+      heartbeatRuns,
+      mineIssues,
+      dismissedAlerts,
+      dismissedAtByKey,
+      currentUserId,
+    ],
   );
 }

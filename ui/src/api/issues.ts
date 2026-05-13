@@ -11,6 +11,7 @@ import type {
   IssueDocument,
   IssueLabel,
   IssueThreadInteraction,
+  PendingHumanInboxInteraction,
   IssueWorkProduct,
   UpsertIssueDocument,
 } from "@paperclipai/shared";
@@ -65,6 +66,8 @@ export const issuesApi = {
     return api.get<Issue[]>(`/companies/${companyId}/issues${qs ? `?${qs}` : ""}`);
   },
   listLabels: (companyId: string) => api.get<IssueLabel[]>(`/companies/${companyId}/labels`),
+  listPendingInboxInteractions: (companyId: string) =>
+    api.get<PendingHumanInboxInteraction[]>(`/companies/${companyId}/inbox-interactions`),
   createLabel: (companyId: string, data: { name: string; color: string }) =>
     api.post<IssueLabel>(`/companies/${companyId}/labels`, data),
   deleteLabel: (id: string) => api.delete<IssueLabel>(`/labels/${id}`),

@@ -33,13 +33,18 @@ export function IssueQuicklookCard({
   linkTo,
   linkState,
   compact = false,
+  descriptionOverride = null,
 }: {
   issue: Issue;
   linkTo: RouterDom.To;
   linkState?: unknown;
   compact?: boolean;
+  descriptionOverride?: string | null;
 }) {
-  const description = useMemo(() => summarizeIssueDescription(issue.description), [issue.description]);
+  const description = useMemo(
+    () => summarizeIssueDescription(descriptionOverride ?? issue.description),
+    [descriptionOverride, issue.description],
+  );
 
   return (
     <div className={cn("space-y-2", compact && "space-y-1.5")}>
@@ -75,6 +80,7 @@ export const IssueLinkQuicklook = React.forwardRef<
     issuePathId: string;
     disableIssueQuicklook?: boolean;
     issuePrefetch?: Issue | null;
+    issueQuicklookDescriptionOverride?: string | null;
   }
 >(function IssueLinkQuicklookImpl(
   {
@@ -85,6 +91,7 @@ export const IssueLinkQuicklook = React.forwardRef<
     state,
     disableIssueQuicklook = false,
     issuePrefetch = null,
+    issueQuicklookDescriptionOverride = null,
     onClick,
     onClickCapture,
     onMouseEnter,
@@ -164,7 +171,13 @@ export const IssueLinkQuicklook = React.forwardRef<
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
         {data ? (
-          <IssueQuicklookCard issue={data} linkTo={detailPath} linkState={prefetchedState} compact />
+          <IssueQuicklookCard
+            issue={data}
+            linkTo={detailPath}
+            linkState={prefetchedState}
+            compact
+            descriptionOverride={issueQuicklookDescriptionOverride}
+          />
         ) : (
           <div className="space-y-2">
             <div className="h-4 w-24 rounded bg-accent/50" />

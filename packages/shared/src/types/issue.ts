@@ -268,6 +268,25 @@ export interface IssueComment {
   updatedAt: Date;
 }
 
+export interface PendingHumanInboxInteractionIssue {
+  id: string;
+  identifier: string | null;
+  title: string;
+}
+
+export interface PendingHumanInboxInteraction {
+  id: string;
+  companyId: string;
+  issueId: string;
+  kind: "ask_user_questions" | "request_confirmation";
+  title: string | null;
+  summary: string | null;
+  previewText: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  issue: PendingHumanInboxInteractionIssue;
+}
+
 export interface IssueThreadInteractionActorFields {
   createdByAgentId?: string | null;
   createdByUserId?: string | null;

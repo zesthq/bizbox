@@ -5,6 +5,7 @@ import type {
   InboxDismissal,
   Issue,
   JoinRequest,
+  PendingHumanInboxInteraction,
 } from "@paperclipai/shared";
 import {
   applyIssueFilters,
@@ -61,6 +62,11 @@ export type InboxWorkItem =
       kind: "approval";
       timestamp: number;
       approval: Approval;
+    }
+  | {
+      kind: "interaction";
+      timestamp: number;
+      interaction: PendingHumanInboxInteraction;
     }
   | {
       kind: "failed_run";
@@ -742,14 +748,24 @@ export function approvalActivityTimestamp(approval: Approval): number {
   return normalizeTimestamp(approval.createdAt);
 }
 
+export function pendingInteractionActivityTimestamp(
+  interaction: PendingHumanInboxInteraction,
+): number {
+  const updatedAt = normalizeTimestamp(interaction.updatedAt);
+  if (updatedAt > 0) return updatedAt;
+  return normalizeTimestamp(interaction.createdAt);
+}
+
 export function getInboxWorkItems({
   issues,
   approvals,
+  interactions = [],
   failedRuns = [],
   joinRequests = [],
 }: {
   issues: Issue[];
   approvals: Approval[];
+  interactions?: PendingHumanInboxInteraction[];
   failedRuns?: HeartbeatRun[];
   joinRequests?: JoinRequest[];
 }): InboxWorkItem[] {
@@ -763,6 +779,11 @@ export function getInboxWorkItems({
       kind: "approval" as const,
       timestamp: approvalActivityTimestamp(approval),
       approval,
+    })),
+    ...interactions.map((interaction) => ({
+      kind: "interaction" as const,
+      timestamp: pendingInteractionActivityTimestamp(interaction),
+      interaction,
     })),
     ...failedRuns.map((run) => ({
       kind: "failed_run" as const,
@@ -784,6 +805,10 @@ export function getInboxWorkItems({
     if (a.kind === "approval" && b.kind === "approval") {
       return approvalActivityTimestamp(b.approval) - approvalActivityTimestamp(a.approval);
     }
+    if (a.kind === "interaction" && b.kind === "interaction") {
+      return pendingInteractionActivityTimestamp(b.interaction)
+        - pendingInteractionActivityTimestamp(a.interaction);
+    }
 
     return a.kind === "approval" ? -1 : 1;
   });
@@ -792,6 +817,7 @@ export function getInboxWorkItems({
 const inboxWorkItemKindOrder: InboxWorkItem["kind"][] = [
   "issue",
   "approval",
+  "interaction",
   "failed_run",
   "join_request",
 ];
@@ -799,6 +825,7 @@ const inboxWorkItemKindOrder: InboxWorkItem["kind"][] = [
 const inboxWorkItemKindLabels: Record<InboxWorkItem["kind"], string> = {
   issue: "Issues",
   approval: "Approvals",
+  interaction: "Approvals",
   failed_run: "Failed runs",
   join_request: "Join requests",
 };
@@ -960,6 +987,7 @@ export function buildGroupedInboxSections(
 export function getInboxWorkItemKey(item: InboxWorkItem): string {
   if (item.kind === "issue") return `issue:${item.issue.id}`;
   if (item.kind === "approval") return `approval:${item.approval.id}`;
+  if (item.kind === "interaction") return `interaction:${item.interaction.id}`;
   if (item.kind === "failed_run") return `run:${item.run.id}`;
   return `join:${item.joinRequest.id}`;
 }
@@ -1032,6 +1060,7 @@ export function shouldShowInboxSection({
 
 export function computeInboxBadgeData({
   approvals,
+  pendingInboxInteractions,
   joinRequests,
   dashboard,
   heartbeatRuns,
@@ -1041,6 +1070,7 @@ export function computeInboxBadgeData({
   currentUserId,
 }: {
   approvals: Approval[];
+  pendingInboxInteractions: PendingHumanInboxInteraction[];
   joinRequests: JoinRequest[];
   dashboard: DashboardSummary | undefined;
   heartbeatRuns: HeartbeatRun[];
@@ -1062,6 +1092,14 @@ export function computeInboxBadgeData({
     (jr) => !isInboxEntityDismissed(dismissedAtByKey, `join:${jr.id}`, jr.updatedAt ?? jr.createdAt),
   ).length;
   const visibleMineIssues = mineIssues.filter((issue) => issue.isUnreadForMe).length;
+  const actionableInteractions = pendingInboxInteractions.filter(
+    (interaction) =>
+      !isInboxEntityDismissed(
+        dismissedAtByKey,
+        `interaction:${interaction.id}`,
+        interaction.updatedAt,
+      ),
+  ).length;
   const agentErrorCount = dashboard?.agents.error ?? 0;
   const monthBudgetCents = dashboard?.costs.monthBudgetCents ?? 0;
   const monthUtilizationPercent = dashboard?.costs.monthUtilizationPercent ?? 0;
@@ -1077,8 +1115,8 @@ export function computeInboxBadgeData({
 
   return {
     // The inbox badge reflects personal/actionable work, not company-wide health alerts.
-    inbox: actionableApprovals + visibleJoinRequests + failedRuns + visibleMineIssues,
-    approvals: actionableApprovals,
+    inbox: actionableApprovals + actionableInteractions + visibleJoinRequests + failedRuns + visibleMineIssues,
+    approvals: actionableApprovals + actionableInteractions,
     failedRuns,
     joinRequests: visibleJoinRequests,
     mineIssues: visibleMineIssues,

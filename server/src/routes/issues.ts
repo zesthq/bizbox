@@ -813,6 +813,15 @@ export function issueRoutes(
     res.json(result);
   });
 
+  router.get("/companies/:companyId/inbox-interactions", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    const interactions = await issueThreadInteractionService(db)
+      .listPendingHumanInboxInteractionsForCompany(companyId);
+    res.json(interactions);
+  });
+
   router.post("/companies/:companyId/labels", validate(createIssueLabelSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);

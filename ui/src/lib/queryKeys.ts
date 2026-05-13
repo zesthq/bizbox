@@ -42,6 +42,8 @@ export const queryKeys = {
     listTouchedByMe: (companyId: string) => ["issues", companyId, "touched-by-me"] as const,
     listUnreadTouchedByMe: (companyId: string) => ["issues", companyId, "unread-touched-by-me"] as const,
     labels: (companyId: string) => ["issues", companyId, "labels"] as const,
+    pendingInboxInteractions: (companyId: string) =>
+      ["issues", companyId, "pending-inbox-interactions"] as const,
     listByProject: (companyId: string, projectId: string) =>
       ["issues", companyId, "project", projectId] as const,
     listByParent: (companyId: string, parentId: string) =>

@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   documents,
@@ -15,6 +15,7 @@ import type {
   AskUserQuestionsInteraction,
   CreateIssueThreadInteraction,
   IssueThreadInteraction,
+  PendingHumanInboxInteraction,
   RequestConfirmationInteraction,
   RequestConfirmationTarget,
   RejectIssueThreadInteraction,
@@ -141,6 +142,48 @@ function hydrateInteraction(
     default:
       throw unprocessable(`Unknown interaction kind: ${row.kind}`);
   }
+}
+
+function firstNonEmptyString(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function buildPendingInteractionPreview(args: {
+  kind: "ask_user_questions" | "request_confirmation";
+  payload: unknown;
+  title: string | null;
+  summary: string | null;
+}): string | null {
+  if (args.kind === "request_confirmation") {
+    const payload = requestConfirmationPayloadSchema.safeParse(args.payload);
+    if (payload.success) {
+      return firstNonEmptyString(
+        payload.data.prompt,
+        payload.data.detailsMarkdown ?? null,
+        args.summary,
+        args.title,
+      );
+    }
+    return firstNonEmptyString(args.summary, args.title);
+  }
+
+  const payload = askUserQuestionsPayloadSchema.safeParse(args.payload);
+  if (payload.success) {
+    const firstQuestion = payload.data.questions.find((question) => question.prompt.trim().length > 0);
+    return firstNonEmptyString(
+      payload.data.title ?? null,
+      firstQuestion?.prompt,
+      args.summary,
+      args.title,
+    );
+  }
+
+  return firstNonEmptyString(args.summary, args.title);
 }
 
 function buildAwaitingHumanInteraction<TKind extends AwaitingHumanInteractionKind>(
@@ -654,6 +697,56 @@ export function issueThreadInteractionService(db: Db) {
   }
 
   return {
+    listPendingHumanInboxInteractionsForCompany: async (
+      companyId: string,
+    ): Promise<PendingHumanInboxInteraction[]> => {
+      const rows = await db
+        .select({
+          id: issueThreadInteractions.id,
+          companyId: issueThreadInteractions.companyId,
+          issueId: issueThreadInteractions.issueId,
+          kind: issueThreadInteractions.kind,
+          title: issueThreadInteractions.title,
+          summary: issueThreadInteractions.summary,
+          payload: issueThreadInteractions.payload,
+          createdAt: issueThreadInteractions.createdAt,
+          updatedAt: issueThreadInteractions.updatedAt,
+          issueIdentifier: issues.identifier,
+          issueTitle: issues.title,
+        })
+        .from(issueThreadInteractions)
+        .innerJoin(issues, eq(issueThreadInteractions.issueId, issues.id))
+        .where(and(
+          eq(issueThreadInteractions.companyId, companyId),
+          eq(issueThreadInteractions.status, "pending"),
+          inArray(issueThreadInteractions.kind, ["request_confirmation", "ask_user_questions"]),
+          isNull(issues.hiddenAt),
+        ))
+        .orderBy(asc(issueThreadInteractions.createdAt), asc(issueThreadInteractions.id));
+
+      return rows.map((row) => ({
+        id: row.id,
+        companyId: row.companyId,
+        issueId: row.issueId,
+        kind: row.kind as "ask_user_questions" | "request_confirmation",
+        title: row.title ?? null,
+        summary: row.summary ?? null,
+        previewText: buildPendingInteractionPreview({
+          kind: row.kind as "ask_user_questions" | "request_confirmation",
+          payload: row.payload,
+          title: row.title ?? null,
+          summary: row.summary ?? null,
+        }),
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        issue: {
+          id: row.issueId,
+          identifier: row.issueIdentifier ?? null,
+          title: row.issueTitle,
+        },
+      }));
+    },
+
     listForIssue: async (issueId: string) => {
       const rows = await db
         .select()

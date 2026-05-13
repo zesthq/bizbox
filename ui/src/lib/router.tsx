@@ -46,10 +46,20 @@ export * from "react-router-dom";
 type CompanyLinkProps = React.ComponentProps<typeof RouterDom.Link> & {
   disableIssueQuicklook?: boolean;
   issuePrefetch?: Issue | null;
+  issueQuicklookDescriptionOverride?: string | null;
 };
 
 export const Link = React.forwardRef<HTMLAnchorElement, CompanyLinkProps>(
-  function CompanyLink({ to, disableIssueQuicklook = false, issuePrefetch = null, ...props }, ref) {
+  function CompanyLink(
+    {
+      to,
+      disableIssueQuicklook = false,
+      issuePrefetch = null,
+      issueQuicklookDescriptionOverride = null,
+      ...props
+    },
+    ref,
+  ) {
     const companyPrefix = useActiveCompanyPrefix();
     const resolvedTo = resolveTo(to, companyPrefix);
     const issuePathId = parseIssuePathIdFromPath(typeof resolvedTo === "string" ? resolvedTo : resolvedTo.pathname);
@@ -62,6 +72,7 @@ export const Link = React.forwardRef<HTMLAnchorElement, CompanyLinkProps>(
           issuePathId={issuePathId}
           disableIssueQuicklook={disableIssueQuicklook}
           issuePrefetch={issuePrefetch}
+          issueQuicklookDescriptionOverride={issueQuicklookDescriptionOverride}
           {...props}
         />
       );

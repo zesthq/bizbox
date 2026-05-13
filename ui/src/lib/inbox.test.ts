@@ -310,6 +310,7 @@ describe("inbox helpers", () => {
         { ...makeApproval("pending"), requestedByUserId: "user-1" },
         { ...makeApproval("approved"), requestedByUserId: "user-2" },
       ],
+      pendingInboxInteractions: [],
       joinRequests: [makeJoinRequest("join-1")],
       dashboard,
       heartbeatRuns: [
@@ -336,6 +337,7 @@ describe("inbox helpers", () => {
   it("drops dismissed runs and alerts from the computed badge", () => {
     const result = computeInboxBadgeData({
       approvals: [],
+      pendingInboxInteractions: [],
       joinRequests: [],
       dashboard,
       heartbeatRuns: [makeRun("run-1", "failed", "2026-03-11T00:00:00.000Z")],
@@ -358,6 +360,7 @@ describe("inbox helpers", () => {
   it("excludes read mine issues from the inbox badge count", () => {
     const result = computeInboxBadgeData({
       approvals: [],
+      pendingInboxInteractions: [],
       joinRequests: [],
       dashboard,
       heartbeatRuns: [],
@@ -461,6 +464,7 @@ describe("inbox helpers", () => {
 
     const result = computeInboxBadgeData({
       approvals,
+      pendingInboxInteractions: [],
       joinRequests: [],
       dashboard,
       heartbeatRuns: [],
@@ -476,6 +480,7 @@ describe("inbox helpers", () => {
   it("does not count company-wide alerts in the personal inbox badge", () => {
     const result = computeInboxBadgeData({
       approvals: [],
+      pendingInboxInteractions: [],
       joinRequests: [],
       dashboard,
       heartbeatRuns: [],
@@ -509,6 +514,7 @@ describe("inbox helpers", () => {
       }).map((item) => {
         if (item.kind === "issue") return `issue:${item.issue.id}`;
         if (item.kind === "approval") return `approval:${item.approval.id}`;
+        if (item.kind === "interaction") return `interaction:${item.interaction.id}`;
         if (item.kind === "join_request") return `join:${item.joinRequest.id}`;
         return `run:${item.run.id}`;
       }),
@@ -552,6 +558,7 @@ describe("inbox helpers", () => {
       }).map((item) => {
         if (item.kind === "issue") return `issue:${item.issue.id}`;
         if (item.kind === "approval") return `approval:${item.approval.id}`;
+        if (item.kind === "interaction") return `interaction:${item.interaction.id}`;
         if (item.kind === "join_request") return `join:${item.joinRequest.id}`;
         return `run:${item.run.id}`;
       }),
