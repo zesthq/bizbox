@@ -1,3 +1,5 @@
+import type { DeliverableAudience } from "../constants.js";
+
 export type IssueWorkProductType =
   | "preview_url"
   | "runtime_service"
