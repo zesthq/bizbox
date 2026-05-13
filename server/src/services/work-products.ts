@@ -783,9 +783,13 @@ async function loadArtifactPreview(db: Db, row: DeliverableQueryRow): Promise<De
   const attachment = toRowArray<{ company_id: string; object_key: string }>(rows)[0];
   if (!attachment) return null;
 
-  const object = await getStorageService().getObject(attachment.company_id, attachment.object_key);
-  const body = (await readStreamToBuffer(object.stream)).toString("utf8");
-  return buildPreviewFromBody(metadata.contentType, body, metadata.byteSize);
+  try {
+    const object = await getStorageService().getObject(attachment.company_id, attachment.object_key);
+    const body = (await readStreamToBuffer(object.stream)).toString("utf8");
+    return buildPreviewFromBody(metadata.contentType, body, metadata.byteSize);
+  } catch {
+    return null;
+  }
 }
 
 async function loadAncestorChain(db: Db, startIssueId: string): Promise<DeliverableIssueRef[]> {
