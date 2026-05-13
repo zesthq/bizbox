@@ -1523,21 +1523,27 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
 
     documentServiceSpy.mockRestore();
 
-    const promotedDocs = await db
-      .select({
-        key: issueDocuments.key,
-      })
-      .from(issueDocuments)
-      .where(eq(issueDocuments.issueId, issueId));
+    const promotedDocs = await waitForValue(async () => {
+      const rows = await db
+        .select({
+          key: issueDocuments.key,
+        })
+        .from(issueDocuments)
+        .where(eq(issueDocuments.issueId, issueId));
+      return rows.some((row) => row.key === "second-doc") ? rows : null;
+    }, 5_000);
     expect(promotedDocs).toContainEqual({ key: "second-doc" });
     expect(promotedDocs).not.toContainEqual({ key: "first-doc" });
 
-    const comments = await db
-      .select({
-        body: issueComments.body,
-      })
-      .from(issueComments)
-      .where(eq(issueComments.issueId, issueId));
+    const comments = await waitForValue(async () => {
+      const rows = await db
+        .select({
+          body: issueComments.body,
+        })
+        .from(issueComments)
+        .where(eq(issueComments.issueId, issueId));
+      return rows.length > 0 ? rows : null;
+    }, 5_000);
     expect(comments).toHaveLength(1);
     expect(comments[0]?.body).toContain("Finished both deliverables.");
     expect(comments[0]?.body).not.toContain("<issue-document");
