@@ -1225,7 +1225,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
   const connectTimeoutMs =
     parseOptionalPositiveInteger(parsedConfig.connectTimeoutMs) ??
-    (timeoutMs > 0 ? Math.min(timeoutMs, 60_000) : 10_000);
+    (timeoutMs > 0 ? Math.min(timeoutMs, 15_000) : 10_000);
   const waitTimeoutMs = parseOptionalPositiveInteger(parsedConfig.waitTimeoutMs) ?? (timeoutMs > 0 ? timeoutMs : 30_000);
   const agentAcceptTimeoutMs = parseOptionalPositiveInteger(parsedConfig.agentAcceptTimeoutMs) ?? waitTimeoutMs + connectTimeoutMs;
 

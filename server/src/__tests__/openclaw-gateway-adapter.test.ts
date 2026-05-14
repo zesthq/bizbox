@@ -530,7 +530,7 @@ describe("openclaw gateway adapter execute", () => {
     }
   });
 
-  it("allows delayed agent acceptance within the run wait budget", async () => {
+  it("allows delayed agent acceptance within the agent accept budget", async () => {
     const gateway = await createMockGatewayServer({
       agentResponseDelayMs: 1_250,
     });
@@ -550,6 +550,33 @@ describe("openclaw gateway adapter execute", () => {
       expect(result.exitCode).toBe(0);
       expect(result.timedOut).toBe(false);
       expect(gateway.getAgentPayload()?.timeout).toBe(2_000);
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("times out delayed agent acceptance beyond the agent accept budget", async () => {
+    const gateway = await createMockGatewayServer({
+      agentResponseDelayMs: 250,
+    });
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          headers: {
+            "x-openclaw-token": "gateway-token",
+          },
+          connectTimeoutMs: 1_000,
+          waitTimeoutMs: 2_000,
+          agentAcceptTimeoutMs: 50,
+        }),
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.timedOut).toBe(true);
+      expect(result.errorCode).toBe("openclaw_gateway_timeout");
+      expect(result.errorMessage).toBe("gateway request timeout (agent)");
     } finally {
       await gateway.close();
     }

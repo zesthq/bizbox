@@ -38,7 +38,7 @@ Request behavior fields:
 - payloadTemplate (object, optional): additional fields merged into gateway agent params
 - workspaceRuntime (object, optional): reserved workspace runtime metadata; workspace runtime services are manually controlled from the workspace UI and are not auto-started by heartbeats
 - timeoutSec (number, optional): adapter timeout in seconds (default 120)
-- connectTimeoutMs (number, optional): websocket open, connect challenge, and connect request timeout override (default min(timeoutSec * 1000, 60000), or 10000 when timeoutSec is disabled)
+- connectTimeoutMs (number, optional): websocket open, connect challenge, and connect request timeout override (default min(timeoutSec * 1000, 15000), or 10000 when timeoutSec is disabled)
 - waitTimeoutMs (number, optional): agent.wait timeout override (default timeoutSec * 1000, or 30000 when timeoutSec is disabled)
 - agentAcceptTimeoutMs (number, optional): gateway agent acceptance timeout override (default waitTimeoutMs + connectTimeoutMs)
 - autoPairOnFirstConnect (boolean, optional): on first "pairing required", attempt device.pair.list/device.pair.approve via shared auth, then retry once (default true when device auth is enabled)
