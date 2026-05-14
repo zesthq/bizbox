@@ -1223,8 +1223,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const parsedConfig = parseObject(ctx.config);
   const timeoutSec = Math.max(0, Math.floor(asNumber(parsedConfig.timeoutSec, 120)));
   const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
-  const connectTimeoutMs = timeoutMs > 0 ? Math.min(timeoutMs, 15_000) : 10_000;
+  const connectTimeoutMs =
+    parseOptionalPositiveInteger(parsedConfig.connectTimeoutMs) ??
+    (timeoutMs > 0 ? Math.min(timeoutMs, 60_000) : 10_000);
   const waitTimeoutMs = parseOptionalPositiveInteger(parsedConfig.waitTimeoutMs) ?? (timeoutMs > 0 ? timeoutMs : 30_000);
+  const agentAcceptTimeoutMs = parseOptionalPositiveInteger(parsedConfig.agentAcceptTimeoutMs) ?? waitTimeoutMs + connectTimeoutMs;
 
   const payloadTemplate = parseObject(parsedConfig.payloadTemplate);
   const artifactOutputs = parseArtifactOutputsConfig(parsedConfig.artifactOutputs);
@@ -1474,7 +1477,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       );
 
       const acceptedPayload = await client.request<Record<string, unknown>>("agent", agentParams, {
-        timeoutMs: connectTimeoutMs,
+        timeoutMs: agentAcceptTimeoutMs,
       });
 
       latestResultPayload = acceptedPayload;

@@ -1576,7 +1576,7 @@ function buildInviteOnboardingManifest(
         adapterType: "Use 'openclaw_gateway' for OpenClaw Gateway agents",
         capabilities: "Optional capability summary",
         agentDefaultsPayload:
-          "Adapter config for OpenClaw gateway. MUST include url (ws:// or wss://) and headers.x-openclaw-token (or legacy x-openclaw-auth). The standard cloud-first setup should set disableDeviceAuth=true. Optional fields: paperclipApiUrl, waitTimeoutMs, sessionKeyStrategy, sessionKey, role, scopes, devicePrivateKeyPem."
+          "Adapter config for OpenClaw gateway. MUST include url (ws:// or wss://) and headers.x-openclaw-token (or legacy x-openclaw-auth). The standard cloud-first setup should set disableDeviceAuth=true. Optional fields: paperclipApiUrl, connectTimeoutMs, waitTimeoutMs, agentAcceptTimeoutMs, sessionKeyStrategy, sessionKey, role, scopes, devicePrivateKeyPem."
       },
       registrationEndpoint: {
         method: "POST",

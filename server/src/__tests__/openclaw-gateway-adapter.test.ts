@@ -61,6 +61,8 @@ async function createMockGatewayServer(options?: {
   artifactListPayload?: Record<string, unknown> | unknown[];
   artifactDownloads?: Record<string, Record<string, unknown>>;
   assistantEvents?: Array<Record<string, unknown>>;
+  connectResponseDelayMs?: number;
+  agentResponseDelayMs?: number;
 }) {
   const server = createServer();
   const wss = new WebSocketServer({ server });
@@ -90,21 +92,29 @@ async function createMockGatewayServer(options?: {
 
       if (frame.method === "connect") {
         connectScopes = frame.params?.scopes ?? null;
-        socket.send(
-          JSON.stringify({
-            type: "res",
-            id: frame.id,
-            ok: true,
-            payload: {
-              type: "hello-ok",
-              protocol: 3,
-              server: { version: "test", connId: "conn-1" },
-              features: { methods: ["connect", "agent", "agent.wait"], events: ["agent"] },
-              snapshot: { version: 1, ts: Date.now() },
-              policy: { maxPayload: 1_000_000, maxBufferedBytes: 1_000_000, tickIntervalMs: 30_000 },
-            },
-          }),
-        );
+        const sendConnectResponse = () => {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: frame.id,
+              ok: true,
+              payload: {
+                type: "hello-ok",
+                protocol: 3,
+                server: { version: "test", connId: "conn-1" },
+                features: { methods: ["connect", "agent", "agent.wait"], events: ["agent"] },
+                snapshot: { version: 1, ts: Date.now() },
+                policy: { maxPayload: 1_000_000, maxBufferedBytes: 1_000_000, tickIntervalMs: 30_000 },
+              },
+            }),
+          );
+        };
+        const delayMs = options?.connectResponseDelayMs ?? 0;
+        if (delayMs > 0) {
+          setTimeout(sendConnectResponse, delayMs);
+        } else {
+          sendConnectResponse();
+        }
         return;
       }
 
@@ -119,34 +129,43 @@ async function createMockGatewayServer(options?: {
           { delta: "chacha" },
         ];
 
-        socket.send(
-          JSON.stringify({
-            type: "res",
-            id: frame.id,
-            ok: true,
-            payload: {
-              runId,
-              status: "accepted",
-              acceptedAt: Date.now(),
-            },
-          }),
-        );
-
-        assistantEvents.forEach((data, index) => {
+        const sendAgentResponse = () => {
           socket.send(
             JSON.stringify({
-              type: "event",
-              event: "agent",
+              type: "res",
+              id: frame.id,
+              ok: true,
               payload: {
                 runId,
-                seq: index + 1,
-                stream: "assistant",
-                ts: Date.now(),
-                data,
+                status: "accepted",
+                acceptedAt: Date.now(),
               },
             }),
           );
-        });
+
+          assistantEvents.forEach((data, index) => {
+            socket.send(
+              JSON.stringify({
+                type: "event",
+                event: "agent",
+                payload: {
+                  runId,
+                  seq: index + 1,
+                  stream: "assistant",
+                  ts: Date.now(),
+                  data,
+                },
+              }),
+            );
+          });
+        };
+
+        const delayMs = options?.agentResponseDelayMs ?? 0;
+        if (delayMs > 0) {
+          setTimeout(sendAgentResponse, delayMs);
+        } else {
+          sendAgentResponse();
+        }
         return;
       }
 
@@ -506,6 +525,57 @@ describe("openclaw gateway adapter execute", () => {
       );
 
       expect(result.summary).toBe("I'm ready. What would you like to do?");
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("allows delayed agent acceptance within the run wait budget", async () => {
+    const gateway = await createMockGatewayServer({
+      agentResponseDelayMs: 1_250,
+    });
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          headers: {
+            "x-openclaw-token": "gateway-token",
+          },
+          timeoutSec: 1,
+          waitTimeoutMs: 2_000,
+        }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.timedOut).toBe(false);
+      expect(gateway.getAgentPayload()?.timeout).toBe(2_000);
+    } finally {
+      await gateway.close();
+    }
+  });
+
+  it("allows delayed gateway connect responses within the configured connect budget", async () => {
+    const gateway = await createMockGatewayServer({
+      connectResponseDelayMs: 1_250,
+    });
+
+    try {
+      const result = await execute(
+        buildContext({
+          url: gateway.url,
+          headers: {
+            "x-openclaw-token": "gateway-token",
+          },
+          timeoutSec: 1,
+          connectTimeoutMs: 2_000,
+          waitTimeoutMs: 2_000,
+        }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.timedOut).toBe(false);
+      expect(gateway.getConnectScopes()).toEqual(["operator.admin", "operator.write"]);
     } finally {
       await gateway.close();
     }

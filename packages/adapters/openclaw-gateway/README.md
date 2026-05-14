@@ -63,7 +63,9 @@ If `payloadTemplate.paperclip` is configured, the adapter strips it before sendi
 ## Timeouts
 
 - `timeoutSec` controls adapter-level request budget
-- `waitTimeoutMs` controls `agent.wait.timeoutMs`
+- `connectTimeoutMs` controls WebSocket open, connect challenge, and connect request handoff timeouts. Defaults to `min(timeoutSec * 1000, 60000)` when `timeoutSec` is set, otherwise `10000`.
+- `waitTimeoutMs` controls `agent.wait.timeoutMs`. Defaults to `timeoutSec * 1000` when `timeoutSec` is set, otherwise `30000`.
+- `agentAcceptTimeoutMs` controls how long Bizbox waits for the gateway `agent` request to be accepted. Defaults to `waitTimeoutMs + connectTimeoutMs`.
 
 If `agent.wait` returns `timeout`, adapter returns `openclaw_gateway_wait_timeout`.
 

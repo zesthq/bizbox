@@ -42,7 +42,9 @@ Recommended fields:
 ```json
 {
   "paperclipApiUrl": "http://host.docker.internal:3100",
+  "connectTimeoutMs": 60000,
   "waitTimeoutMs": 120000,
+  "agentAcceptTimeoutMs": 180000,
   "sessionKeyStrategy": "issue",
   "role": "operator",
   "scopes": ["operator.admin", "operator.write"]
