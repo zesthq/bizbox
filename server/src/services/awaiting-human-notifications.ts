@@ -913,7 +913,7 @@ export async function processAwaitingHumanNotificationOutbox(
         ),
       ),
     )
-    .orderBy(awaitingHumanNotificationOutbox.nextAttemptAt, awaitingHumanNotificationOutbox.createdAt)
+    .orderBy(sql`${awaitingHumanNotificationOutbox.nextAttemptAt} ASC NULLS FIRST`, awaitingHumanNotificationOutbox.createdAt)
     .limit(limit);
 
   let processed = 0;
@@ -998,10 +998,39 @@ export async function processAwaitingHumanNotificationOutbox(
 
       if (uploadError) {
         const attempts = row.attempts + 1;
+        const isPermanentFailure = attempts >= MAX_OUTBOX_ATTEMPTS;
+
+        // On the final attempt, if the chat message was never sent, deliver it
+        // without the attachment so the human is still notified about the review task.
+        if (isPermanentFailure && !clickupMessageId) {
+          try {
+            const message = await sendAwaitingHumanNotification({
+              companyId: row.companyId,
+              issueId: row.issueId,
+              handoffKind: row.handoffKind,
+              notification: withClickUpTaskUrl(
+                row.notification as unknown as AwaitingHumanNotificationPayload,
+                null, // omit file link — attachment upload failed
+                clickupTaskUrl,
+                null,
+              ),
+            });
+            if (message.status === "sent") {
+              clickupMessageId = message.externalId ?? null;
+              await db
+                .update(awaitingHumanNotificationOutbox)
+                .set({ clickupMessageId, updatedAt: new Date() })
+                .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+            }
+          } catch {
+            // Best-effort fallback; original uploadError still drives the final status.
+          }
+        }
+
         await db
           .update(awaitingHumanNotificationOutbox)
           .set({
-            status: attempts >= MAX_OUTBOX_ATTEMPTS ? "failed" : "partial_failed",
+            status: isPermanentFailure ? "failed" : "partial_failed",
             attempts,
             clickupTaskId,
             clickupTaskUrl,
@@ -1009,7 +1038,7 @@ export async function processAwaitingHumanNotificationOutbox(
             clickupAttachmentUrl,
             clickupMessageId,
             lastError: uploadError.message,
-            nextAttemptAt: attempts >= MAX_OUTBOX_ATTEMPTS ? null : nextRetryAt(attempts),
+            nextAttemptAt: isPermanentFailure ? null : nextRetryAt(attempts),
             updatedAt: new Date(),
           })
           .where(eq(awaitingHumanNotificationOutbox.id, row.id));
