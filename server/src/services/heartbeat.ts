@@ -7147,12 +7147,22 @@ export function heartbeatService(db: Db) {
             updatedAt: new Date(),
           })
           .where(eq(issues.id, issue.id));
+        await tx
+          .insert(issueComments)
+          .values({
+            companyId: issue.companyId,
+            issueId: issue.id,
+            authorAgentId: null,
+            authorUserId: null,
+            createdByRunId: run.id,
+            body: comment,
+          })
+          .onConflictDoNothing();
         return {
           kind: "blocked" as const,
           issueId: issue.id,
           issueIdentifier: issue.identifier,
           previousStatus: issue.status,
-          comment,
         };
       }
 
@@ -7230,7 +7240,6 @@ export function heartbeatService(db: Db) {
     });
 
     if (promotionResult?.kind === "blocked") {
-      await issuesSvc.addComment(promotionResult.issueId, promotionResult.comment, {});
       await logActivity(db, {
         companyId: run.companyId,
         actorType: "system",

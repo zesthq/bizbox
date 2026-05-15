@@ -625,8 +625,20 @@ export async function enqueueAwaitingHumanNotification(
         handoffKind: input.handoffKind,
         notification,
         reviewFile: storedReviewFile,
-        status: sql`case when ${awaitingHumanNotificationOutbox.status} = 'sent' then 'sent' else 'pending' end`,
-        attempts: sql`case when ${awaitingHumanNotificationOutbox.status} = 'sent' then ${awaitingHumanNotificationOutbox.attempts} else 0 end`,
+        status: sql`
+          case
+            when ${awaitingHumanNotificationOutbox.status} in ('sent', 'processing')
+              then ${awaitingHumanNotificationOutbox.status}
+            else 'pending'
+          end
+        `,
+        attempts: sql`
+          case
+            when ${awaitingHumanNotificationOutbox.status} in ('sent', 'processing')
+              then ${awaitingHumanNotificationOutbox.attempts}
+            else 0
+          end
+        `,
         nextAttemptAt: null,
         lastError: null,
         updatedAt: new Date(),
@@ -870,6 +882,11 @@ export async function processAwaitingHumanNotificationOutbox(
   opts: { limit?: number; storage?: StorageService } = {},
 ) {
   const limit = opts.limit ?? 20;
+  const config = readClickUpChatConfig();
+  if (!config.personalToken || !config.workspaceId) {
+    return { processed: 0, sent: 0, failed: 0 };
+  }
+
   const storage = opts.storage ?? getStorageService();
   const now = new Date();
 
@@ -924,10 +941,6 @@ export async function processAwaitingHumanNotificationOutbox(
     let clickupMessageId = row.clickupMessageId;
 
     try {
-      const config = readClickUpChatConfig();
-      if (!config.personalToken) throw new Error("missing-credential: CLICKUP_PERSONAL_TOKEN");
-      if (!config.workspaceId) throw new Error("missing-target: CLICKUP_WORKSPACE_ID");
-
       const reviewFile = normalizeReviewFile(row.reviewFile);
       let deliveryNote: string | null = null;
       let uploadError: Error | null = null;
