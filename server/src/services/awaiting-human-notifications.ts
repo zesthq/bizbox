@@ -990,6 +990,10 @@ export async function processAwaitingHumanNotificationOutbox(
           throw new Error(message.detail);
         }
         clickupMessageId = message.externalId ?? null;
+        await db
+          .update(awaitingHumanNotificationOutbox)
+          .set({ clickupMessageId, updatedAt: new Date() })
+          .where(eq(awaitingHumanNotificationOutbox.id, row.id));
       }
 
       if (uploadError) {
