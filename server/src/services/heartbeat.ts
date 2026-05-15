@@ -76,7 +76,10 @@ import {
 } from "./issue-liveness.js";
 import { logActivity, publishPluginDomainEvent, type LogActivityInput } from "./activity-log.js";
 import { maybeLogAwaitingHumanHandoff } from "./awaiting-human-handoff.js";
-import { detectClickUpAwaitingHumanApproval } from "./awaiting-human-notifications.js";
+import {
+  detectClickUpAwaitingHumanApproval,
+  processAwaitingHumanNotificationOutbox,
+} from "./awaiting-human-notifications.js";
 import {
   buildWorkspaceReadyComment,
   cleanupExecutionWorkspaceArtifacts,
@@ -8371,6 +8374,7 @@ export function heartbeatService(db: Db) {
 
     processClickupOutbound: async () => {
       await clickupBridge.processOutbound();
+      await processAwaitingHumanNotificationOutbox(db, { storage });
     },
 
     pollClickupInbound: async () => {

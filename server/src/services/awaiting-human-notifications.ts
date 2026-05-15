@@ -1,3 +1,11 @@
+import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
+import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
+import type { Db } from "@paperclipai/db";
+import { awaitingHumanNotificationOutbox } from "@paperclipai/db";
+import type { StorageService } from "../storage/types.js";
+import { getStorageService } from "../storage/index.js";
+
 const CLICKUP_CHAT_MESSAGE_MAX_CHARS = 1_800;
 const DEFAULT_CLICKUP_CHANNEL_NAME = "engineering";
 const MAX_TITLE_LENGTH = 120;
@@ -5,6 +13,9 @@ const MAX_SUMMARY_LENGTH = 280;
 const MAX_DETAIL_BULLETS = 5;
 const MAX_BULLET_LENGTH = 220;
 const CLICKUP_CHANNEL_LOOKUP_PAGE_SIZE = 100;
+const MAX_OUTBOX_ATTEMPTS = 8;
+const STALE_OUTBOX_PROCESSING_MS = 5 * 60 * 1000;
+const DEFAULT_CLICKUP_TIMEOUT_SEC = 30;
 const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS = ["thumbsup", "white_check_mark", "heavy_check_mark"] as const;
 const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS = [
   "approve",
@@ -41,6 +52,7 @@ export interface AwaitingHumanNotificationPayload {
   kind?: string | null;
   audience?: string | null;
   body?: string | null;
+  reviewFile?: AwaitingHumanNotificationReviewFile | null;
 }
 
 export interface SendAwaitingHumanNotificationInput {
@@ -51,10 +63,30 @@ export interface SendAwaitingHumanNotificationInput {
 }
 
 export interface AwaitingHumanNotificationResult {
-  status: "sent" | "skipped" | "failed";
+  status: "sent" | "skipped" | "failed" | "enqueued";
   channel: "clickup-chat";
   detail: string;
   externalId?: string | null;
+}
+
+export interface EnqueueAwaitingHumanNotificationInput extends SendAwaitingHumanNotificationInput {
+  dedupeKey: string;
+}
+
+export interface AwaitingHumanNotificationReviewFile {
+  source: "artifact" | "document";
+  deliverableId: string;
+  title: string;
+  filename: string;
+  contentType: string;
+  byteSize: number;
+  contentPath: string;
+  deliverableUrl: string;
+  clickupTaskUrl?: string | null;
+  clickupAttachmentId?: string | null;
+  attachmentId?: string | null;
+  objectKey?: string | null;
+  sha256?: string | null;
 }
 
 type ClickUpChatConfig = {
@@ -62,6 +94,7 @@ type ClickUpChatConfig = {
   workspaceId: string;
   channelId: string;
   channelName: string;
+  reviewListId: string;
   approvalPositiveReactions: string[];
   approvalPositiveReplyKeywords: string[];
 };
@@ -116,6 +149,77 @@ function extractBullets(body: string | null | undefined) {
   return bullets;
 }
 
+function toRowArray<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (result && typeof result === "object" && Array.isArray((result as { rows?: unknown[] }).rows)) {
+    return (result as { rows: T[] }).rows;
+  }
+  return [];
+}
+
+async function readStreamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function sha256Hex(body: Buffer) {
+  return createHash("sha256").update(body).digest("hex");
+}
+
+function nextRetryAt(attempt: number, now = Date.now()): Date {
+  const seq = [5, 10, 20, 40, 80, 160, 320, 640];
+  const sec = seq[Math.min(Math.max(attempt - 1, 0), seq.length - 1)] ?? 640;
+  return new Date(now + sec * 1000);
+}
+
+function resolveAbsoluteUrl(pathOrUrl: string, sourceLink: string) {
+  try {
+    return new URL(pathOrUrl).toString();
+  } catch {
+    // Continue below.
+  }
+
+  try {
+    return new URL(pathOrUrl, sourceLink).toString();
+  } catch {
+    return pathOrUrl;
+  }
+}
+
+function normalizeReviewFile(value: unknown): AwaitingHumanNotificationReviewFile | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const source = row.source === "artifact" || row.source === "document" ? row.source : null;
+  const deliverableId = readString(row.deliverableId);
+  const title = readString(row.title);
+  const filename = readString(row.filename);
+  const contentType = readString(row.contentType);
+  const contentPath = readString(row.contentPath);
+  const deliverableUrl = readString(row.deliverableUrl);
+  const byteSize = typeof row.byteSize === "number" && Number.isFinite(row.byteSize) ? row.byteSize : null;
+  if (!source || !deliverableId || !title || !filename || !contentType || !contentPath || !deliverableUrl || byteSize === null) {
+    return null;
+  }
+  return {
+    source,
+    deliverableId,
+    title,
+    filename,
+    contentType,
+    byteSize,
+    contentPath,
+    deliverableUrl,
+    clickupTaskUrl: readString(row.clickupTaskUrl),
+    clickupAttachmentId: readString(row.clickupAttachmentId),
+    attachmentId: readString(row.attachmentId),
+    objectKey: readString(row.objectKey),
+    sha256: readString(row.sha256),
+  };
+}
+
 function readClickUpChatConfig(): ClickUpChatConfig {
   const positiveReactions = (process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS ?? "")
     .split(",")
@@ -130,6 +234,7 @@ function readClickUpChatConfig(): ClickUpChatConfig {
     workspaceId: process.env.CLICKUP_WORKSPACE_ID?.trim() ?? "",
     channelId: process.env.CLICKUP_ENGINEERING_CHANNEL_ID?.trim() ?? "",
     channelName: process.env.CLICKUP_ENGINEERING_CHANNEL_NAME?.trim() || DEFAULT_CLICKUP_CHANNEL_NAME,
+    reviewListId: process.env.CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID?.trim() ?? "",
     approvalPositiveReactions: positiveReactions.length > 0
       ? [...new Set(positiveReactions)]
       : [...DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS],
@@ -306,6 +411,18 @@ function renderClickUpMessage(notification: AwaitingHumanNotificationPayload) {
     lines.push(...bullets.map((bullet) => `- ${bullet}`));
   }
 
+  if (notification.reviewFile) {
+    lines.push("");
+    lines.push(`Review file: ${notification.reviewFile.filename}`);
+    lines.push(`Bizbox deliverable: ${notification.reviewFile.deliverableUrl}`);
+    if (notification.reviewFile.clickupTaskUrl) {
+      lines.push(`ClickUp review task: ${notification.reviewFile.clickupTaskUrl}`);
+      if (notification.reviewFile.clickupAttachmentId) {
+        lines.push("Review file attached on the ClickUp task.");
+      }
+    }
+  }
+
   lines.push("");
   lines.push(`Source: ${notification.link.trim()}`);
 
@@ -355,6 +472,176 @@ async function resolveClickUpChannelId(config: ClickUpChatConfig): Promise<strin
   }
 
   return null;
+}
+
+export async function resolveAwaitingHumanReviewFile(
+  db: Db,
+  input: { companyId: string; issueId: string; sourceLink: string },
+): Promise<AwaitingHumanNotificationReviewFile | null> {
+  const artifactRows = await db.execute<{
+    deliverable_id: string;
+    title: string;
+    content_path: string;
+    content_type: string;
+    byte_size: number;
+    original_filename: string | null;
+    attachment_id: string | null;
+    object_key: string | null;
+    sha256: string | null;
+  }>(sql`
+    SELECT
+      wp.id AS deliverable_id,
+      wp.title,
+      wp.metadata ->> 'contentPath' AS content_path,
+      wp.metadata ->> 'contentType' AS content_type,
+      COALESCE(NULLIF(wp.metadata ->> 'byteSize', '')::integer, a.byte_size, 0) AS byte_size,
+      COALESCE(wp.metadata ->> 'originalFilename', a.original_filename, 'deliverable') AS original_filename,
+      wp.metadata ->> 'attachmentId' AS attachment_id,
+      a.object_key,
+      a.sha256
+    FROM issue_work_products wp
+    LEFT JOIN issue_attachments ia ON ia.id::text = wp.metadata ->> 'attachmentId'
+    LEFT JOIN assets a ON a.id = ia.asset_id
+    WHERE wp.company_id = ${input.companyId}
+      AND wp.issue_id = ${input.issueId}
+      AND wp.type = 'artifact'
+      AND COALESCE(wp.audience, 'human') = 'human'
+      AND wp.metadata ->> 'contentPath' IS NOT NULL
+    ORDER BY
+      CASE
+        WHEN wp.review_state = 'needs_board_review' THEN 0
+        WHEN wp.status = 'ready_for_review' THEN 1
+        WHEN wp.status = 'active' THEN 2
+        ELSE 3
+      END,
+      wp.is_primary DESC,
+      wp.updated_at DESC
+    LIMIT 1
+  `);
+  const artifact = toRowArray<{
+    deliverable_id: string;
+    title: string;
+    content_path: string;
+    content_type: string;
+    byte_size: number;
+    original_filename: string | null;
+    attachment_id: string | null;
+    object_key: string | null;
+    sha256: string | null;
+  }>(artifactRows)[0];
+  if (artifact?.content_path && artifact.content_type) {
+    return {
+      source: "artifact",
+      deliverableId: artifact.deliverable_id,
+      title: artifact.title,
+      filename: artifact.original_filename?.trim() || "deliverable",
+      contentType: artifact.content_type,
+      byteSize: Number(artifact.byte_size) || 0,
+      contentPath: artifact.content_path,
+      deliverableUrl: resolveAbsoluteUrl(artifact.content_path, input.sourceLink),
+      attachmentId: artifact.attachment_id,
+      objectKey: artifact.object_key,
+      sha256: artifact.sha256,
+    };
+  }
+
+  const documentRows = await db.execute<{
+    deliverable_id: string;
+    key: string;
+    title: string | null;
+    format: string;
+    byte_size: number;
+  }>(sql`
+    SELECT
+      idoc.id AS deliverable_id,
+      idoc.key,
+      d.title,
+      d.format,
+      COALESCE(octet_length(d.latest_body), 0)::integer AS byte_size
+    FROM issue_documents idoc
+    JOIN documents d ON d.id = idoc.document_id
+    WHERE idoc.company_id = ${input.companyId}
+      AND idoc.issue_id = ${input.issueId}
+      AND COALESCE(idoc.audience, 'human') = 'human'
+      AND idoc.key <> 'continuation-summary'
+    ORDER BY d.updated_at DESC, idoc.updated_at DESC
+    LIMIT 1
+  `);
+  const document = toRowArray<{
+    deliverable_id: string;
+    key: string;
+    title: string | null;
+    format: string;
+    byte_size: number;
+  }>(documentRows)[0];
+  if (!document) return null;
+  const key = document.key?.trim() || "document";
+  const contentPath = `/api/deliverables/${document.deliverable_id}/content`;
+  return {
+    source: "document",
+    deliverableId: document.deliverable_id,
+    title: document.title?.trim() || key,
+    filename: `${key}.md`,
+    contentType: document.format === "markdown" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8",
+    byteSize: Number(document.byte_size) || 0,
+    contentPath,
+    deliverableUrl: resolveAbsoluteUrl(contentPath, input.sourceLink),
+  };
+}
+
+export async function enqueueAwaitingHumanNotification(
+  db: Db,
+  input: EnqueueAwaitingHumanNotificationInput,
+): Promise<AwaitingHumanNotificationResult> {
+  const reviewFile = await resolveAwaitingHumanReviewFile(db, {
+    companyId: input.companyId,
+    issueId: input.issueId,
+    sourceLink: input.notification.link,
+  });
+  const notification = {
+    ...input.notification,
+    ...(reviewFile ? { reviewFile } : {}),
+  };
+  const storedReviewFile = reviewFile ? { ...reviewFile } : null;
+  const [row] = await db
+    .insert(awaitingHumanNotificationOutbox)
+    .values({
+      companyId: input.companyId,
+      issueId: input.issueId,
+      dedupeKey: input.dedupeKey,
+      handoffKind: input.handoffKind,
+      status: "pending",
+      notification,
+      reviewFile: storedReviewFile,
+    })
+    .onConflictDoUpdate({
+      target: [
+        awaitingHumanNotificationOutbox.companyId,
+        awaitingHumanNotificationOutbox.issueId,
+        awaitingHumanNotificationOutbox.dedupeKey,
+      ],
+      set: {
+        handoffKind: input.handoffKind,
+        notification,
+        reviewFile: storedReviewFile,
+        status: sql`case when ${awaitingHumanNotificationOutbox.status} = 'sent' then 'sent' else 'pending' end`,
+        attempts: sql`case when ${awaitingHumanNotificationOutbox.status} = 'sent' then ${awaitingHumanNotificationOutbox.attempts} else 0 end`,
+        nextAttemptAt: null,
+        lastError: null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({
+      status: awaitingHumanNotificationOutbox.status,
+      clickupMessageId: awaitingHumanNotificationOutbox.clickupMessageId,
+    });
+
+  return {
+    status: row?.status === "sent" ? "sent" : "enqueued",
+    channel: "clickup-chat",
+    detail: row?.status === "sent" ? "already-sent" : "enqueued",
+    externalId: row?.clickupMessageId ?? null,
+  };
 }
 
 export async function sendAwaitingHumanNotification(
@@ -423,6 +710,318 @@ export async function sendAwaitingHumanNotification(
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function parseClickUpTaskResponse(rawText: string): { taskId: string; taskUrl: string | null } {
+  const payload = JSON.parse(rawText) as Record<string, unknown>;
+  const taskId = readString(payload.id);
+  if (!taskId) throw new Error("clickup review task response missing id");
+  return {
+    taskId,
+    taskUrl: readString(payload.url),
+  };
+}
+
+function findFirstAttachmentLike(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findFirstAttachmentLike(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  if (readString(row.id) || readString(row.url)) return row;
+  for (const child of Object.values(row)) {
+    const found = findFirstAttachmentLike(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function fetchText(url: string, init: RequestInit, timeoutSec = DEFAULT_CLICKUP_TIMEOUT_SEC) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutSec * 1000);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, text };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function createClickUpReviewTask(config: ClickUpChatConfig, notification: AwaitingHumanNotificationPayload) {
+  if (!config.reviewListId) {
+    throw new Error("missing-target: CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID");
+  }
+  const body = renderClickUpMessage(notification);
+  const response = await fetchText(
+    `https://api.clickup.com/api/v2/list/${encodeURIComponent(config.reviewListId)}/task`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: config.personalToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: truncateText(notification.title, 120),
+        description: body,
+        notify_all: false,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`clickup review task create failed:${response.status}:${truncateText(response.text, 240)}`);
+  }
+  return parseClickUpTaskResponse(response.text);
+}
+
+async function readReviewFileBody(
+  db: Db,
+  storage: StorageService,
+  companyId: string,
+  reviewFile: AwaitingHumanNotificationReviewFile,
+) {
+  if (reviewFile.source === "artifact") {
+    if (!reviewFile.objectKey) throw new Error("review artifact is missing object key");
+    const object = await storage.getObject(companyId, reviewFile.objectKey);
+    const body = await readStreamToBuffer(object.stream);
+    return {
+      body,
+      sha256: reviewFile.sha256 ?? sha256Hex(body),
+    };
+  }
+
+  const rows = await db.execute<{ body: string }>(sql`
+    SELECT d.latest_body AS body
+    FROM issue_documents idoc
+    JOIN documents d ON d.id = idoc.document_id
+    WHERE idoc.id = ${reviewFile.deliverableId}
+      AND idoc.company_id = ${companyId}
+    LIMIT 1
+  `);
+  const body = Buffer.from(toRowArray<{ body: string }>(rows)[0]?.body ?? "", "utf8");
+  return {
+    body,
+    sha256: sha256Hex(body),
+  };
+}
+
+async function uploadClickUpReviewFile(
+  config: ClickUpChatConfig,
+  taskId: string,
+  reviewFile: AwaitingHumanNotificationReviewFile,
+  body: Buffer,
+) {
+  const form = new FormData();
+  form.append("attachment[0]", new Blob([new Uint8Array(body)], { type: reviewFile.contentType }), reviewFile.filename);
+  const response = await fetchText(
+    `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/attachments/${encodeURIComponent(taskId)}/attachments`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: config.personalToken,
+      },
+      body: form,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`clickup review file upload failed:${response.status}:${truncateText(response.text, 240)}`);
+  }
+  const payload = response.text.trim().length > 0 ? JSON.parse(response.text) : {};
+  const attachment = findFirstAttachmentLike(payload) ?? {};
+  return {
+    attachmentId: readString(attachment.id),
+    attachmentUrl: readString(attachment.url) ?? readString(attachment.url_w_query),
+  };
+}
+
+function withClickUpTaskUrl(
+  notification: AwaitingHumanNotificationPayload,
+  reviewFile: AwaitingHumanNotificationReviewFile | null,
+  clickupTaskUrl: string | null,
+  clickupAttachmentId: string | null,
+) {
+  if (!reviewFile) return notification;
+  return {
+    ...notification,
+    reviewFile: {
+      ...reviewFile,
+      clickupTaskUrl,
+      clickupAttachmentId,
+    },
+  };
+}
+
+export async function processAwaitingHumanNotificationOutbox(
+  db: Db,
+  opts: { limit?: number; storage?: StorageService } = {},
+) {
+  const limit = opts.limit ?? 20;
+  const storage = opts.storage ?? getStorageService();
+  const now = new Date();
+
+  await db
+    .update(awaitingHumanNotificationOutbox)
+    .set({ status: "pending", updatedAt: now })
+    .where(
+      and(
+        eq(awaitingHumanNotificationOutbox.status, "processing"),
+        lt(awaitingHumanNotificationOutbox.updatedAt, new Date(now.getTime() - STALE_OUTBOX_PROCESSING_MS)),
+      ),
+    );
+
+  const rows = await db
+    .select()
+    .from(awaitingHumanNotificationOutbox)
+    .where(
+      and(
+        inArray(awaitingHumanNotificationOutbox.status, ["pending", "failed", "partial_failed"]),
+        lt(awaitingHumanNotificationOutbox.attempts, MAX_OUTBOX_ATTEMPTS),
+        or(
+          sql`${awaitingHumanNotificationOutbox.nextAttemptAt} is null`,
+          lte(awaitingHumanNotificationOutbox.nextAttemptAt, now),
+        ),
+      ),
+    )
+    .limit(limit);
+
+  let processed = 0;
+  let sent = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const [claimed] = await db
+      .update(awaitingHumanNotificationOutbox)
+      .set({ status: "processing", updatedAt: new Date() })
+      .where(
+        and(
+          eq(awaitingHumanNotificationOutbox.id, row.id),
+          inArray(awaitingHumanNotificationOutbox.status, ["pending", "failed", "partial_failed"]),
+        ),
+      )
+      .returning({ id: awaitingHumanNotificationOutbox.id });
+    if (!claimed) continue;
+    processed += 1;
+
+    try {
+      const config = readClickUpChatConfig();
+      if (!config.personalToken) throw new Error("missing-credential: CLICKUP_PERSONAL_TOKEN");
+      if (!config.workspaceId) throw new Error("missing-target: CLICKUP_WORKSPACE_ID");
+
+      const reviewFile = normalizeReviewFile(row.reviewFile);
+      let clickupTaskId = row.clickupTaskId;
+      let clickupTaskUrl = row.clickupTaskUrl;
+      let clickupAttachmentId = row.clickupAttachmentId;
+      let clickupAttachmentUrl = row.clickupAttachmentUrl;
+      let deliveryNote: string | null = null;
+      let uploadError: Error | null = null;
+
+      if (reviewFile && config.reviewListId) {
+        if (!clickupTaskId) {
+          const task = await createClickUpReviewTask(config, row.notification as unknown as AwaitingHumanNotificationPayload);
+          clickupTaskId = task.taskId;
+          clickupTaskUrl = task.taskUrl;
+          await db
+            .update(awaitingHumanNotificationOutbox)
+            .set({ clickupTaskId, clickupTaskUrl, updatedAt: new Date() })
+            .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+        }
+
+        if (!clickupAttachmentId && clickupTaskId) {
+          try {
+            const file = await readReviewFileBody(db, storage, row.companyId, reviewFile);
+            const upload = await uploadClickUpReviewFile(config, clickupTaskId, reviewFile, file.body);
+            clickupAttachmentId = upload.attachmentId ?? file.sha256;
+            clickupAttachmentUrl = upload.attachmentUrl;
+            await db
+              .update(awaitingHumanNotificationOutbox)
+              .set({ clickupAttachmentId, clickupAttachmentUrl, updatedAt: new Date() })
+              .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+          } catch (error) {
+            uploadError = error instanceof Error ? error : new Error(String(error));
+          }
+        }
+      } else if (reviewFile && !config.reviewListId) {
+        deliveryNote = "skipped_upload: missing CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID";
+      }
+
+      let clickupMessageId = row.clickupMessageId;
+      if (!clickupMessageId) {
+        const message = await sendAwaitingHumanNotification({
+          companyId: row.companyId,
+          issueId: row.issueId,
+          handoffKind: row.handoffKind,
+          notification: withClickUpTaskUrl(
+            row.notification as unknown as AwaitingHumanNotificationPayload,
+            reviewFile,
+            clickupTaskUrl,
+            clickupAttachmentId,
+          ),
+        });
+        if (message.status !== "sent") {
+          throw new Error(message.detail);
+        }
+        clickupMessageId = message.externalId ?? null;
+      }
+
+      if (uploadError) {
+        const attempts = row.attempts + 1;
+        await db
+          .update(awaitingHumanNotificationOutbox)
+          .set({
+            status: attempts >= MAX_OUTBOX_ATTEMPTS ? "failed" : "partial_failed",
+            attempts,
+            clickupTaskId,
+            clickupTaskUrl,
+            clickupAttachmentId,
+            clickupAttachmentUrl,
+            clickupMessageId,
+            lastError: uploadError.message,
+            nextAttemptAt: attempts >= MAX_OUTBOX_ATTEMPTS ? null : nextRetryAt(attempts),
+            updatedAt: new Date(),
+          })
+          .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+        failed += 1;
+        continue;
+      }
+
+      await db
+        .update(awaitingHumanNotificationOutbox)
+        .set({
+          status: "sent",
+          attempts: row.attempts + 1,
+          clickupTaskId,
+          clickupTaskUrl,
+          clickupAttachmentId,
+          clickupAttachmentUrl,
+          clickupMessageId,
+          lastError: deliveryNote,
+          nextAttemptAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+      sent += 1;
+    } catch (error) {
+      const attempts = row.attempts + 1;
+      const terminal = attempts >= MAX_OUTBOX_ATTEMPTS;
+      await db
+        .update(awaitingHumanNotificationOutbox)
+        .set({
+          status: terminal ? "failed" : row.clickupMessageId ? "partial_failed" : "failed",
+          attempts,
+          lastError: error instanceof Error ? error.message : String(error),
+          nextAttemptAt: terminal ? null : nextRetryAt(attempts),
+          updatedAt: new Date(),
+        })
+        .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+      failed += 1;
+    }
+  }
+
+  return { processed, sent, failed };
 }
 
 export async function getClickUpChatMessageReplies(messageId: string): Promise<{

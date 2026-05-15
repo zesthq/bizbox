@@ -6,7 +6,7 @@ import type {
   RequestConfirmationInteraction,
 } from "@paperclipai/shared";
 import {
-  sendAwaitingHumanNotification,
+  enqueueAwaitingHumanNotification,
   type AwaitingHumanNotificationPayload,
 } from "./awaiting-human-notifications.js";
 import { logActivity } from "./activity-log.js";
@@ -254,14 +254,15 @@ export async function maybeLogAwaitingHumanHandoff(
     });
   }
 
-  const delivery = await sendAwaitingHumanNotification({
+  const delivery = await enqueueAwaitingHumanNotification(db, {
     companyId: input.updatedIssue.companyId,
     issueId: input.updatedIssue.id,
+    dedupeKey,
     handoffKind: input.handoffKind,
     notification,
   });
 
-  if (delivery.status !== "sent") {
+  if (delivery.status !== "sent" && delivery.status !== "enqueued") {
     logger.warn(
       {
         companyId: input.updatedIssue.companyId,
@@ -301,7 +302,7 @@ export async function maybeLogAwaitingHumanHandoff(
       interactionKind: input.interaction?.kind ?? null,
       blockerIssueId: firstBlocker?.id ?? null,
       blockerIdentifier: firstBlocker?.identifier ?? null,
-      dedupeKey: delivery.status === "sent" ? dedupeKey : null,
+      dedupeKey: delivery.status === "sent" || delivery.status === "enqueued" ? dedupeKey : null,
       notification,
       notificationDelivery: {
         status: delivery.status,
@@ -312,5 +313,5 @@ export async function maybeLogAwaitingHumanHandoff(
     },
   });
 
-  return delivery.status === "sent";
+  return delivery.status === "sent" || delivery.status === "enqueued";
 }

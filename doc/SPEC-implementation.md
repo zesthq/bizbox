@@ -107,6 +107,7 @@ A lightweight scheduler/worker in the server process handles:
 - heartbeat trigger checks
 - stuck run detection
 - budget threshold checks
+- retryable awaiting-human ClickUp notification delivery
 
 Separate queue infrastructure is not required for V1.
 
@@ -354,6 +355,7 @@ Operational policy:
 - `issue_attachments(company_id, issue_id)`
 - `company_secrets(company_id, name)` unique
 - `company_secret_versions(secret_id, version)` unique
+- `awaiting_human_notification_outbox(company_id, issue_id, dedupe_key)` unique
 
 ## 7.14 `assets` + `issue_attachments`
 

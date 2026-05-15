@@ -6,16 +6,15 @@ vi.mock("../services/activity-log.js", () => ({
 }));
 
 vi.mock("../services/awaiting-human-notifications.js", () => ({
-  sendAwaitingHumanNotification: vi.fn().mockResolvedValue({
-    status: "sent",
+  enqueueAwaitingHumanNotification: vi.fn().mockResolvedValue({
+    status: "enqueued",
     channel: "clickup-chat",
-    detail: "sent",
-    externalId: "msg_123",
+    detail: "enqueued",
   }),
 }));
 
 const { logActivity } = await import("../services/activity-log.js");
-const { sendAwaitingHumanNotification } = await import("../services/awaiting-human-notifications.js");
+const { enqueueAwaitingHumanNotification } = await import("../services/awaiting-human-notifications.js");
 const { maybeLogAwaitingHumanHandoff } = await import("../services/awaiting-human-handoff.js");
 
 const basePreviousIssue = {
@@ -85,10 +84,12 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     });
 
     expect(created).toBe(true);
-    expect(sendAwaitingHumanNotification).toHaveBeenCalledWith(
+    expect(enqueueAwaitingHumanNotification).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         companyId: "company-1",
         issueId: "issue-1",
+        dedupeKey: "interaction:interaction-1",
         handoffKind: "request_confirmation",
         notification: expect.objectContaining({
           link: "https://bizbox.example/issues/BIZ-35",
@@ -122,7 +123,8 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     });
 
     expect(created).toBe(true);
-    expect(sendAwaitingHumanNotification).toHaveBeenCalledWith(
+    expect(enqueueAwaitingHumanNotification).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         handoffKind: "ask_user_questions",
         notification: expect.objectContaining({
@@ -151,7 +153,8 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     });
 
     expect(created).toBe(true);
-    expect(sendAwaitingHumanNotification).toHaveBeenCalledWith(
+    expect(enqueueAwaitingHumanNotification).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         handoffKind: "human_owned_blocker",
         notification: expect.objectContaining({
@@ -187,12 +190,12 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     });
 
     expect(created).toBe(false);
-    expect(sendAwaitingHumanNotification).not.toHaveBeenCalled();
+    expect(enqueueAwaitingHumanNotification).not.toHaveBeenCalled();
     expect(logActivity).not.toHaveBeenCalled();
   });
 
   it("retries delivery when the issue is still awaiting_human but no dedupe marker was logged", async () => {
-    vi.mocked(sendAwaitingHumanNotification)
+    vi.mocked(enqueueAwaitingHumanNotification)
       .mockResolvedValueOnce({
         status: "failed",
         channel: "clickup-chat",
@@ -245,11 +248,11 @@ describe("maybeLogAwaitingHumanHandoff", () => {
 
     expect(first).toBe(false);
     expect(second).toBe(true);
-    expect(sendAwaitingHumanNotification).toHaveBeenCalledTimes(2);
+    expect(enqueueAwaitingHumanNotification).toHaveBeenCalledTimes(2);
   });
 
   it("retries after a skipped delivery once notification config is restored", async () => {
-    vi.mocked(sendAwaitingHumanNotification)
+    vi.mocked(enqueueAwaitingHumanNotification)
       .mockResolvedValueOnce({
         status: "skipped",
         channel: "clickup-chat",
@@ -302,7 +305,7 @@ describe("maybeLogAwaitingHumanHandoff", () => {
 
     expect(first).toBe(false);
     expect(second).toBe(true);
-    expect(sendAwaitingHumanNotification).toHaveBeenCalledTimes(2);
+    expect(enqueueAwaitingHumanNotification).toHaveBeenCalledTimes(2);
   });
 
   it("does not suppress a new blocker cycle from an old-cycle dedupe log", async () => {
@@ -337,6 +340,6 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     });
 
     expect(created).toBe(true);
-    expect(sendAwaitingHumanNotification).toHaveBeenCalledTimes(1);
+    expect(enqueueAwaitingHumanNotification).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Db } from "@paperclipai/db";
 import {
   detectClickUpAwaitingHumanApproval,
   getClickUpChatMessageReactions,
   getClickUpChatMessageReplies,
+  resolveAwaitingHumanReviewFile,
   sendAwaitingHumanNotification,
 } from "../services/awaiting-human-notifications.js";
 
 const originalFetch = globalThis.fetch;
+
+function dbWithExecuteResults(results: unknown[][]): Db {
+  const queue = [...results];
+  return {
+    execute: vi.fn(async () => queue.shift() ?? []),
+  } as unknown as Db;
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -15,6 +24,7 @@ afterEach(() => {
   delete process.env.CLICKUP_WORKSPACE_ID;
   delete process.env.CLICKUP_ENGINEERING_CHANNEL_ID;
   delete process.env.CLICKUP_ENGINEERING_CHANNEL_NAME;
+  delete process.env.CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID;
   delete process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS;
   delete process.env.CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS;
 });
@@ -66,6 +76,51 @@ describe("sendAwaitingHumanNotification", () => {
       content_format: "text/md",
       content: expect.stringContaining("Source: https://bizbox.example/issues/BIZ-35"),
     });
+  });
+
+  it("includes the Bizbox deliverable and ClickUp review task when a review file is present", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+    process.env.CLICKUP_ENGINEERING_CHANNEL_ID = "channel-9";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { id: "message-42" } }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await sendAwaitingHumanNotification({
+      companyId: "company-1",
+      issueId: "issue-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title: "BIZ-35 is waiting on human input",
+        summary: "Please review the attached final report.",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Open BIZ-35 in Bizbox and respond there.",
+        labels: ["awaiting_human", "request_confirmation"],
+        reviewFile: {
+          source: "artifact",
+          deliverableId: "33333333-3333-4333-8333-333333333333",
+          title: "Final report",
+          filename: "final-report.md",
+          contentType: "text/markdown",
+          byteSize: 42,
+          contentPath: "/api/attachments/33333333-3333-4333-8333-333333333333/content",
+          deliverableUrl: "https://bizbox.example/api/attachments/33333333-3333-4333-8333-333333333333/content",
+          clickupTaskUrl: "https://app.clickup.com/t/task-123",
+          clickupAttachmentId: "attachment-123",
+        },
+      },
+    });
+
+    expect(result.status).toBe("sent");
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.content).toContain("Review file: final-report.md");
+    expect(body.content).toContain("Bizbox deliverable: https://bizbox.example/api/attachments/33333333-3333-4333-8333-333333333333/content");
+    expect(body.content).toContain("ClickUp review task: https://app.clickup.com/t/task-123");
+    expect(body.content).toContain("Review file attached on the ClickUp task.");
   });
 
   it("resolves the ClickUp channel id by channel name when no channel id is configured", async () => {
@@ -561,5 +616,73 @@ describe("sendAwaitingHumanNotification", () => {
       status: "no_approval",
       detail: "no-approval-signal",
     });
+  });
+});
+
+describe("resolveAwaitingHumanReviewFile", () => {
+  it("prefers a human artifact deliverable", async () => {
+    const db = dbWithExecuteResults([[
+      {
+        deliverable_id: "33333333-3333-4333-8333-333333333333",
+        title: "Final report",
+        content_path: "/api/attachments/33333333-3333-4333-8333-333333333333/content",
+        content_type: "text/markdown",
+        byte_size: 42,
+        original_filename: "final-report.md",
+        attachment_id: "33333333-3333-4333-8333-333333333333",
+        object_key: "companies/company-1/issues/issue-1/final-report.md",
+        sha256: "abc123",
+      },
+    ]]);
+
+    const file = await resolveAwaitingHumanReviewFile(db, {
+      companyId: "company-1",
+      issueId: "issue-1",
+      sourceLink: "https://bizbox.example/issues/BIZ-35",
+    });
+
+    expect(file).toMatchObject({
+      source: "artifact",
+      filename: "final-report.md",
+      deliverableUrl: "https://bizbox.example/api/attachments/33333333-3333-4333-8333-333333333333/content",
+      objectKey: "companies/company-1/issues/issue-1/final-report.md",
+      sha256: "abc123",
+    });
+  });
+
+  it("falls back to a human deliverable document", async () => {
+    const db = dbWithExecuteResults([
+      [],
+      [{
+        deliverable_id: "44444444-4444-4444-8444-444444444444",
+        key: "review-notes",
+        title: "Review notes",
+        format: "markdown",
+        byte_size: 12,
+      }],
+    ]);
+
+    const file = await resolveAwaitingHumanReviewFile(db, {
+      companyId: "company-1",
+      issueId: "issue-1",
+      sourceLink: "https://bizbox.example/issues/BIZ-35",
+    });
+
+    expect(file).toMatchObject({
+      source: "document",
+      filename: "review-notes.md",
+      contentType: "text/markdown; charset=utf-8",
+      deliverableUrl: "https://bizbox.example/api/deliverables/44444444-4444-4444-8444-444444444444/content",
+    });
+  });
+
+  it("returns null when no review deliverable exists", async () => {
+    const db = dbWithExecuteResults([[], []]);
+
+    await expect(resolveAwaitingHumanReviewFile(db, {
+      companyId: "company-1",
+      issueId: "issue-1",
+      sourceLink: "https://bizbox.example/issues/BIZ-35",
+    })).resolves.toBeNull();
   });
 });
