@@ -16,6 +16,7 @@ const CLICKUP_CHANNEL_LOOKUP_PAGE_SIZE = 100;
 const MAX_OUTBOX_ATTEMPTS = 8;
 const STALE_OUTBOX_PROCESSING_MS = 5 * 60 * 1000;
 const DEFAULT_CLICKUP_TIMEOUT_SEC = 30;
+const CLICKUP_ATTACHMENT_FILE_FIELD = "attachment[0]";
 const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS = ["thumbsup", "white_check_mark", "heavy_check_mark"] as const;
 const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS = [
   "approve",
@@ -816,7 +817,12 @@ async function uploadClickUpReviewFile(
   body: Buffer,
 ) {
   const form = new FormData();
-  form.append("attachment[0]", new Blob([new Uint8Array(body)], { type: reviewFile.contentType }), reviewFile.filename);
+  form.append(
+    CLICKUP_ATTACHMENT_FILE_FIELD,
+    new Blob([new Uint8Array(body)], { type: reviewFile.contentType }),
+    reviewFile.filename,
+  );
+  form.append("filename", reviewFile.filename);
   const response = await fetchText(
     `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/attachments/${encodeURIComponent(taskId)}/attachments`,
     {
@@ -831,10 +837,14 @@ async function uploadClickUpReviewFile(
     throw new Error(`clickup review file upload failed:${response.status}:${truncateText(response.text, 240)}`);
   }
   const payload = response.text.trim().length > 0 ? JSON.parse(response.text) : {};
-  const attachment = findFirstAttachmentLike(payload) ?? {};
+  const attachment = findFirstAttachmentLike(payload);
+  const attachmentId = readString(attachment?.id);
+  if (!attachmentId) {
+    throw new Error(`clickup review file upload response missing attachment id:${truncateText(response.text, 240)}`);
+  }
   return {
-    attachmentId: readString(attachment.id),
-    attachmentUrl: readString(attachment.url) ?? readString(attachment.url_w_query),
+    attachmentId,
+    attachmentUrl: readString(attachment?.url) ?? readString(attachment?.url_w_query),
   };
 }
 
@@ -886,6 +896,7 @@ export async function processAwaitingHumanNotificationOutbox(
         ),
       ),
     )
+    .orderBy(awaitingHumanNotificationOutbox.nextAttemptAt, awaitingHumanNotificationOutbox.createdAt)
     .limit(limit);
 
   let processed = 0;
@@ -906,16 +917,18 @@ export async function processAwaitingHumanNotificationOutbox(
     if (!claimed) continue;
     processed += 1;
 
+    let clickupTaskId = row.clickupTaskId;
+    let clickupTaskUrl = row.clickupTaskUrl;
+    let clickupAttachmentId = row.clickupAttachmentId;
+    let clickupAttachmentUrl = row.clickupAttachmentUrl;
+    let clickupMessageId = row.clickupMessageId;
+
     try {
       const config = readClickUpChatConfig();
       if (!config.personalToken) throw new Error("missing-credential: CLICKUP_PERSONAL_TOKEN");
       if (!config.workspaceId) throw new Error("missing-target: CLICKUP_WORKSPACE_ID");
 
       const reviewFile = normalizeReviewFile(row.reviewFile);
-      let clickupTaskId = row.clickupTaskId;
-      let clickupTaskUrl = row.clickupTaskUrl;
-      let clickupAttachmentId = row.clickupAttachmentId;
-      let clickupAttachmentUrl = row.clickupAttachmentUrl;
       let deliveryNote: string | null = null;
       let uploadError: Error | null = null;
 
@@ -934,7 +947,7 @@ export async function processAwaitingHumanNotificationOutbox(
           try {
             const file = await readReviewFileBody(db, storage, row.companyId, reviewFile);
             const upload = await uploadClickUpReviewFile(config, clickupTaskId, reviewFile, file.body);
-            clickupAttachmentId = upload.attachmentId ?? file.sha256;
+            clickupAttachmentId = upload.attachmentId;
             clickupAttachmentUrl = upload.attachmentUrl;
             await db
               .update(awaitingHumanNotificationOutbox)
@@ -948,7 +961,6 @@ export async function processAwaitingHumanNotificationOutbox(
         deliveryNote = "skipped_upload: missing CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID";
       }
 
-      let clickupMessageId = row.clickupMessageId;
       if (!clickupMessageId) {
         const message = await sendAwaitingHumanNotification({
           companyId: row.companyId,
@@ -1010,8 +1022,13 @@ export async function processAwaitingHumanNotificationOutbox(
       await db
         .update(awaitingHumanNotificationOutbox)
         .set({
-          status: terminal ? "failed" : row.clickupMessageId ? "partial_failed" : "failed",
+          status: terminal ? "failed" : clickupMessageId ? "partial_failed" : "failed",
           attempts,
+          clickupTaskId,
+          clickupTaskUrl,
+          clickupAttachmentId,
+          clickupAttachmentUrl,
+          clickupMessageId,
           lastError: error instanceof Error ? error.message : String(error),
           nextAttemptAt: terminal ? null : nextRetryAt(attempts),
           updatedAt: new Date(),
