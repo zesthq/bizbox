@@ -12,7 +12,7 @@ export const awaitingHumanNotificationOutbox = pgTable(
     handoffKind: text("handoff_kind").notNull().$type<"request_confirmation" | "ask_user_questions" | "human_owned_blocker">(),
     status: text("status")
       .notNull()
-      .$type<"pending" | "processing" | "sent" | "failed" | "partial_failed" | "skipped">()
+      .$type<"pending" | "processing" | "retrying" | "sent" | "failed" | "partial_failed" | "skipped">()
       .default("pending"),
     attempts: integer("attempts").notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),

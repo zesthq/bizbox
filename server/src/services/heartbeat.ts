@@ -96,7 +96,7 @@ import { agentThreadService } from "./agent-threads.js";
 import { clickupBridgeService } from "./clickup-bridge.js";
 import { documentService } from "./documents.js";
 import { workProductService } from "./work-products.js";
-import { recordRunStatus } from "../otel.js";
+import { recordComment, recordRunStatus } from "../otel.js";
 import {
   getIssueContinuationSummaryDocument,
   refreshIssueContinuationSummary,
@@ -6912,6 +6912,7 @@ export function heartbeatService(db: Db) {
         .select({
           id: issues.id,
           companyId: issues.companyId,
+          projectId: issues.projectId,
           identifier: issues.identifier,
           status: issues.status,
           assigneeAgentId: issues.assigneeAgentId,
@@ -7147,7 +7148,7 @@ export function heartbeatService(db: Db) {
             updatedAt: new Date(),
           })
           .where(eq(issues.id, issue.id));
-        await tx
+        const [insertedComment] = await tx
           .insert(issueComments)
           .values({
             companyId: issue.companyId,
@@ -7155,9 +7156,26 @@ export function heartbeatService(db: Db) {
             authorAgentId: null,
             authorUserId: null,
             createdByRunId: run.id,
+            source: "native",
             body: comment,
           })
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ id: issueComments.id });
+        if (insertedComment) {
+          await tx
+            .update(issues)
+            .set({ updatedAt: new Date() })
+            .where(eq(issues.id, issue.id));
+          recordComment({
+            company_id: issue.companyId,
+            project_id: issue.projectId ?? undefined,
+            issue_status: issue.status,
+            actor_type: "system",
+            commenter_id: run.id,
+            assignee_agent_id: issue.assigneeAgentId ?? undefined,
+            assignee_user_id: issue.assigneeUserId ?? undefined,
+          });
+        }
         return {
           kind: "blocked" as const,
           issueId: issue.id,

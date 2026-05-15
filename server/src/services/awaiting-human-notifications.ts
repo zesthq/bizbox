@@ -627,20 +627,38 @@ export async function enqueueAwaitingHumanNotification(
         reviewFile: storedReviewFile,
         status: sql`
           case
-            when ${awaitingHumanNotificationOutbox.status} in ('sent', 'processing')
+            when ${awaitingHumanNotificationOutbox.status} in ('sent', 'processing', 'retrying', 'partial_failed')
+              then ${awaitingHumanNotificationOutbox.status}
+            when ${awaitingHumanNotificationOutbox.status} = 'failed'
+              and ${awaitingHumanNotificationOutbox.attempts} < ${MAX_OUTBOX_ATTEMPTS}
+              and ${awaitingHumanNotificationOutbox.nextAttemptAt} is not null
+              then 'retrying'
+            when ${awaitingHumanNotificationOutbox.status} = 'failed'
               then ${awaitingHumanNotificationOutbox.status}
             else 'pending'
           end
         `,
         attempts: sql`
           case
-            when ${awaitingHumanNotificationOutbox.status} in ('sent', 'processing')
+            when ${awaitingHumanNotificationOutbox.status} in ('sent', 'processing', 'retrying', 'partial_failed', 'failed')
               then ${awaitingHumanNotificationOutbox.attempts}
             else 0
           end
         `,
-        nextAttemptAt: null,
-        lastError: null,
+        nextAttemptAt: sql`
+          case
+            when ${awaitingHumanNotificationOutbox.status} in ('retrying', 'partial_failed', 'failed')
+              then ${awaitingHumanNotificationOutbox.nextAttemptAt}
+            else null
+          end
+        `,
+        lastError: sql`
+          case
+            when ${awaitingHumanNotificationOutbox.status} in ('sent', 'processing', 'retrying', 'partial_failed', 'failed')
+              then ${awaitingHumanNotificationOutbox.lastError}
+            else null
+          end
+        `,
         updatedAt: new Date(),
       },
     })
@@ -900,12 +918,23 @@ export async function processAwaitingHumanNotificationOutbox(
       ),
     );
 
+  await db
+    .update(awaitingHumanNotificationOutbox)
+    .set({ status: "retrying", updatedAt: now })
+    .where(
+      and(
+        eq(awaitingHumanNotificationOutbox.status, "failed"),
+        lt(awaitingHumanNotificationOutbox.attempts, MAX_OUTBOX_ATTEMPTS),
+        sql`${awaitingHumanNotificationOutbox.nextAttemptAt} is not null`,
+      ),
+    );
+
   const rows = await db
     .select()
     .from(awaitingHumanNotificationOutbox)
     .where(
       and(
-        inArray(awaitingHumanNotificationOutbox.status, ["pending", "failed", "partial_failed"]),
+        inArray(awaitingHumanNotificationOutbox.status, ["pending", "retrying", "partial_failed"]),
         lt(awaitingHumanNotificationOutbox.attempts, MAX_OUTBOX_ATTEMPTS),
         or(
           sql`${awaitingHumanNotificationOutbox.nextAttemptAt} is null`,
@@ -927,7 +956,7 @@ export async function processAwaitingHumanNotificationOutbox(
       .where(
         and(
           eq(awaitingHumanNotificationOutbox.id, row.id),
-          inArray(awaitingHumanNotificationOutbox.status, ["pending", "failed", "partial_failed"]),
+          inArray(awaitingHumanNotificationOutbox.status, ["pending", "retrying", "partial_failed"]),
         ),
       )
       .returning({ id: awaitingHumanNotificationOutbox.id });
@@ -1068,7 +1097,7 @@ export async function processAwaitingHumanNotificationOutbox(
       await db
         .update(awaitingHumanNotificationOutbox)
         .set({
-          status: terminal ? "failed" : clickupMessageId ? "partial_failed" : "failed",
+          status: terminal ? "failed" : clickupMessageId ? "partial_failed" : "retrying",
           attempts,
           clickupTaskId,
           clickupTaskUrl,

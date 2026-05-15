@@ -81,6 +81,7 @@ vi.mock("../adapters/index.ts", async () => {
 import { heartbeatService } from "../services/heartbeat.ts";
 import { issueService } from "../services/issues.ts";
 import * as documentsModule from "../services/documents.ts";
+import { recordComment } from "../otel.ts";
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
@@ -862,6 +863,14 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, issueId));
     expect(comments).toHaveLength(1);
     expect(comments[0]?.body).toContain("retried continuation");
+    expect(comments[0]?.source).toBe("native");
+    expect(recordComment).toHaveBeenCalledWith(expect.objectContaining({
+      company_id: blockedIssue?.companyId,
+      issue_status: "in_progress",
+      actor_type: "system",
+      commenter_id: continuationRun?.id,
+      assignee_agent_id: agentId,
+    }));
   });
 
   it("schedules a bounded retry for codex transient upstream failures instead of blocking the issue immediately", async () => {
