@@ -252,6 +252,50 @@ describe("workProductService", () => {
     expect(items[0]?.originalFilename).toBe("quarterly-closeout.md");
   });
 
+  it("falls back to the markdown H1 for generic document filenames when the stored title is null", async () => {
+    const now = new Date("2026-05-02T00:00:00.000Z");
+    const execute = vi.fn().mockResolvedValue([
+      createDeliverableQueryRow({
+        id: "doc-deliverable-3",
+        deliverable_source: "document",
+        title: null,
+        metadata: null,
+        document_key: "deliverable",
+        document_format: "markdown",
+        document_body: "# Legacy Closeout\n\nBody copy",
+        document_byte_size: 26,
+        created_at: now,
+        updated_at: now,
+      }),
+    ]);
+
+    const svc = workProductService({ execute } as any);
+    const items = await svc.listDeliverablesForCompany("company-1", { limit: 50, offset: 0 });
+
+    expect(items[0]?.originalFilename).toBe("legacy-closeout.md");
+  });
+
+  it("uses the markdown H1 for generic document download filenames when the stored title is null", async () => {
+    const now = new Date("2026-05-02T00:00:00.000Z");
+    const execute = vi.fn().mockResolvedValue([{
+      id: "doc-deliverable-4",
+      company_id: "company-1",
+      key: "document",
+      format: "markdown",
+      body: "# Legacy Download\n\nBody copy",
+      title: null,
+    }]);
+
+    const svc = workProductService({ execute } as any);
+    const document = await svc.getDeliverableDocumentContentById("doc-deliverable-4");
+
+    expect(document).toMatchObject({
+      id: "doc-deliverable-4",
+      filename: "legacy-download.md",
+      title: null,
+    });
+  });
+
   it("truncates inline document previews by UTF-8 byte length", async () => {
     const execute = vi
       .fn()

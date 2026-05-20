@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { desc, eq } from "drizzle-orm";
 import {
   companies,
   createDb,
@@ -144,5 +145,84 @@ describeEmbeddedPostgres("documentService system issue documents", () => {
 
     const stored = await svc.getIssueDocumentByKey(issueId, "plan");
     expect(stored?.audience).toBe("human");
+  });
+
+  it("infers the stored title from the first markdown H1 when creating with a null title", async () => {
+    const { issueId } = await createIssueWithDocuments();
+
+    const created = await svc.upsertIssueDocument({
+      issueId,
+      key: "deliverable",
+      title: null,
+      format: "markdown",
+      body: "# Quarterly Closeout\n\nBody copy",
+    });
+
+    expect(created.document.title).toBe("Quarterly Closeout");
+
+    const storedDocument = await svc.getIssueDocumentByKey(issueId, "deliverable");
+    expect(storedDocument?.title).toBe("Quarterly Closeout");
+
+    const [revision] = await db
+      .select({ title: documentRevisions.title })
+      .from(documentRevisions)
+      .where(eq(documentRevisions.documentId, created.document.id))
+      .orderBy(desc(documentRevisions.revisionNumber))
+      .limit(1);
+    expect(revision?.title).toBe("Quarterly Closeout");
+  });
+
+  it("infers the stored title from the first markdown H1 when updating with a null title", async () => {
+    const { issueId } = await createIssueWithDocuments();
+    const existing = await svc.getIssueDocumentByKey(issueId, "plan");
+
+    const updated = await svc.upsertIssueDocument({
+      issueId,
+      key: "plan",
+      title: null,
+      format: "markdown",
+      body: "# Refined Plan\n\nNext steps",
+      baseRevisionId: existing?.latestRevisionId ?? null,
+    });
+
+    expect(updated.document.title).toBe("Refined Plan");
+
+    const storedDocument = await svc.getIssueDocumentByKey(issueId, "plan");
+    expect(storedDocument?.title).toBe("Refined Plan");
+
+    const [revision] = await db
+      .select({ title: documentRevisions.title })
+      .from(documentRevisions)
+      .where(eq(documentRevisions.id, updated.document.latestRevisionId))
+      .limit(1);
+    expect(revision?.title).toBe("Refined Plan");
+  });
+
+  it("does not infer a title for markdown documents without an H1", async () => {
+    const { issueId } = await createIssueWithDocuments();
+
+    const created = await svc.upsertIssueDocument({
+      issueId,
+      key: "notes",
+      title: null,
+      format: "markdown",
+      body: "No heading here\n\nJust body copy",
+    });
+
+    expect(created.document.title).toBeNull();
+  });
+
+  it("does not infer a title for non-markdown documents", async () => {
+    const { issueId } = await createIssueWithDocuments();
+
+    const created = await svc.upsertIssueDocument({
+      issueId,
+      key: "notes",
+      title: null,
+      format: "text",
+      body: "# Looks like a heading but is plain text",
+    });
+
+    expect(created.document.title).toBeNull();
   });
 });

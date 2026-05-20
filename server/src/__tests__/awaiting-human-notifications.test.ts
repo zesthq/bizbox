@@ -658,6 +658,7 @@ describe("resolveAwaitingHumanReviewFile", () => {
         key: "review-notes",
         title: "Review notes",
         format: "markdown",
+        body: "# Review notes",
         byte_size: 12,
       }],
     ]);
@@ -673,6 +674,32 @@ describe("resolveAwaitingHumanReviewFile", () => {
       filename: "review-notes.md",
       contentType: "text/markdown; charset=utf-8",
       deliverableUrl: "https://bizbox.example/api/deliverables/44444444-4444-4444-8444-444444444444/content",
+    });
+  });
+
+  it("uses the markdown H1 for human deliverable document filenames when the stored title is null", async () => {
+    const db = dbWithExecuteResults([
+      [],
+      [{
+        deliverable_id: "55555555-5555-4555-8555-555555555555",
+        key: "deliverable",
+        title: null,
+        format: "markdown",
+        body: "# Review Packet",
+        byte_size: 14,
+      }],
+    ]);
+
+    const file = await resolveAwaitingHumanReviewFile(db, {
+      companyId: "company-1",
+      issueId: "issue-1",
+      sourceLink: "https://bizbox.example/issues/BIZ-35",
+    });
+
+    expect(file).toMatchObject({
+      source: "document",
+      filename: "review-packet.md",
+      deliverableUrl: "https://bizbox.example/api/deliverables/55555555-5555-4555-8555-555555555555/content",
     });
   });
 

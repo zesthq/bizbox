@@ -547,7 +547,7 @@ export function workProductService(db: Db) {
       }>(rows)[0];
       if (!row) return null;
       const body = row.body ?? "";
-      const filename = buildDocumentDeliverableFilename(row.key, row.title);
+      const filename = buildDocumentDeliverableFilename(row.key, row.title, row.format, body);
       return {
         id: row.id,
         companyId: row.company_id,
@@ -688,8 +688,13 @@ async function readStreamToBuffer(stream: Readable): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function buildDocumentDeliverableFilename(key: string | null | undefined, title: string | null | undefined) {
-  return buildDocumentFilename(key, title);
+function buildDocumentDeliverableFilename(
+  key: string | null | undefined,
+  title: string | null | undefined,
+  format?: string | null | undefined,
+  body?: string | null | undefined,
+) {
+  return buildDocumentFilename(key, title, format, body);
 }
 
 function rowToDeliverableListItem(row: DeliverableQueryRow): DeliverableListItem | null {
@@ -721,7 +726,7 @@ function rowToDeliverableListItem(row: DeliverableQueryRow): DeliverableListItem
       ? "text/markdown; charset=utf-8"
       : "text/plain; charset=utf-8";
     byteSize = Number.isFinite(sqlByteSize) ? sqlByteSize : Buffer.byteLength(body, "utf8");
-    originalFilename = buildDocumentDeliverableFilename(row.document_key, row.title);
+    originalFilename = buildDocumentDeliverableFilename(row.document_key, row.title, row.document_format, body);
   }
 
   const rootIsSelf = row.ri_id === null || row.ri_id === row.ci_id;

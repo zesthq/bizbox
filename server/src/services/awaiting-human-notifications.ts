@@ -113,10 +113,6 @@ export interface ClickUpChatMessageReaction {
   count: number;
 }
 
-function buildDocumentReviewFilename(key: string | null | undefined, title: string | null | undefined) {
-  return buildDocumentFilename(key, title);
-}
-
 export interface ClickUpAwaitingHumanApprovalResult {
   status: ClickUpApiStatus | "approved" | "forward_reply";
   detail: string;
@@ -563,6 +559,7 @@ export async function resolveAwaitingHumanReviewFile(
       idoc.key,
       d.title,
       d.format,
+      d.latest_body AS body,
       COALESCE(octet_length(d.latest_body), 0)::integer AS byte_size
     FROM issue_documents idoc
     JOIN documents d ON d.id = idoc.document_id
@@ -578,6 +575,7 @@ export async function resolveAwaitingHumanReviewFile(
     key: string;
     title: string | null;
     format: string;
+    body: string | null;
     byte_size: number;
   }>(documentRows)[0];
   if (!document) return null;
@@ -587,7 +585,7 @@ export async function resolveAwaitingHumanReviewFile(
     source: "document",
     deliverableId: document.deliverable_id,
     title: document.title?.trim() || key,
-    filename: buildDocumentReviewFilename(document.key, document.title),
+    filename: buildDocumentFilename(document.key, document.title, document.format, document.body),
     contentType: document.format === "markdown" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8",
     byteSize: Number(document.byte_size) || 0,
     contentPath,

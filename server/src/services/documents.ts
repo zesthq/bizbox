@@ -8,6 +8,7 @@ import {
   type DeliverableAudience,
 } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
+import { resolveDocumentTitle } from "../lib/document-titles.js";
 
 function normalizeDocumentKey(key: string) {
   const normalized = key.trim().toLowerCase();
@@ -190,6 +191,7 @@ export function documentService(db: Db) {
       createdByRunId?: string | null;
     }) => {
       const key = normalizeDocumentKey(input.key);
+      const effectiveTitle = resolveDocumentTitle(input.title ?? null, input.format, input.body);
       const issue = await db
         .select({ id: issues.id, companyId: issues.companyId })
         .from(issues)
@@ -245,7 +247,7 @@ export function documentService(db: Db) {
                 companyId: issue.companyId,
                 documentId: existing.id,
                 revisionNumber: nextRevisionNumber,
-                title: input.title ?? null,
+                title: effectiveTitle,
                 format: input.format,
                 body: input.body,
                 changeSummary: input.changeSummary ?? null,
@@ -259,7 +261,7 @@ export function documentService(db: Db) {
             await tx
               .update(documents)
               .set({
-                title: input.title ?? null,
+                title: effectiveTitle,
                 format: input.format,
                 latestBody: input.body,
                 latestRevisionId: revision.id,
@@ -279,7 +281,7 @@ export function documentService(db: Db) {
               created: false as const,
               document: {
                 ...existing,
-                title: input.title ?? null,
+                title: effectiveTitle,
                 format: input.format,
                 body: input.body,
                 audience,
@@ -301,7 +303,7 @@ export function documentService(db: Db) {
             .insert(documents)
             .values({
               companyId: issue.companyId,
-              title: input.title ?? null,
+              title: effectiveTitle,
               format: input.format,
               latestBody: input.body,
               latestRevisionId: null,
@@ -321,7 +323,7 @@ export function documentService(db: Db) {
               companyId: issue.companyId,
               documentId: document.id,
               revisionNumber: 1,
-              title: input.title ?? null,
+              title: effectiveTitle,
               format: input.format,
               body: input.body,
               changeSummary: input.changeSummary ?? null,

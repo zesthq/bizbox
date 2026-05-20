@@ -1,3 +1,5 @@
+import { normalizeDocumentTitle } from "../lib/document-titles.js";
+
 export const HEARTBEAT_RUN_RESULT_SUMMARY_MAX_CHARS = 500;
 export const HEARTBEAT_RUN_RESULT_OUTPUT_MAX_CHARS = 4_096;
 export const HEARTBEAT_RUN_SAFE_RESULT_JSON_MAX_BYTES = 64 * 1024;
@@ -34,12 +36,6 @@ function slugifyDocumentKey(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || "deliverable";
-}
-
-function normalizeDocumentTitle(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 function looksLikeDocumentTitleLine(line: string) {
