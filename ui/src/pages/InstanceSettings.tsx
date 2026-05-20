@@ -395,7 +395,7 @@ export function InstanceSettings() {
                 Full Server Shutdown
               </CardTitle>
               <CardDescription className="text-destructive/80">
-                Cancels all runs and completely terminates the Paperclip server process. You will need CLI access to restart it.
+                Cancels all runs and completely terminates the Bizbox server process. You will need CLI access to restart it.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -409,7 +409,7 @@ export function InstanceSettings() {
                   <DialogHeader>
                     <DialogTitle className="text-destructive">Initiate Full Server Shutdown?</DialogTitle>
                     <DialogDescription>
-                      This action cannot be undone from the UI. The Paperclip server will immediately terminate all agents and exit. Connect to the host machine to restart it.
+                      This action cannot be undone from the UI. The Bizbox server will immediately terminate all agents and exit. Connect to the host machine to restart it.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-4">

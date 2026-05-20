@@ -80,7 +80,7 @@ describe("company-members helpers", () => {
         childIssue: { id: "issue-1", identifier: "PAP-12", title: "Tighten wake context", status: "done" },
         rootIssue: null,
       }],
-      projects: [{ id: "project-1", name: "Paperclip App", color: "#336699" }],
+      projects: [{ id: "project-1", name: "Bizbox App", color: "#336699" }],
     });
 
     expect(options).toEqual([
@@ -103,7 +103,7 @@ describe("company-members helpers", () => {
         deliverableFilename: "report.pdf",
         searchText: "Final Report report.pdf PAP-12 Tighten wake context",
       },
-      { id: "project:project-1", name: "Paperclip App", kind: "project", projectId: "project-1", projectColor: "#336699" },
+      { id: "project:project-1", name: "Bizbox App", kind: "project", projectId: "project-1", projectColor: "#336699" },
     ]);
   });
 

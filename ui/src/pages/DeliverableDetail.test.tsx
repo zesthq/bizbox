@@ -19,7 +19,7 @@ vi.mock("@/api/deliverables", () => ({
 vi.mock("@/context/CompanyContext", () => ({
   useCompany: () => ({
     selectedCompanyId: "company-1",
-    selectedCompany: { id: "company-1", name: "Paperclip", issuePrefix: "PAP" },
+    selectedCompany: { id: "company-1", name: "Bizbox", issuePrefix: "PAP" },
   }),
 }));
 

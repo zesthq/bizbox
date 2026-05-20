@@ -110,9 +110,9 @@ vi.mock("../context/PanelContext", () => ({
 
 vi.mock("../context/CompanyContext", () => ({
   useCompany: () => ({
-    companies: [{ id: "company-1", issuePrefix: "PAP", name: "Paperclip" }],
+    companies: [{ id: "company-1", issuePrefix: "PAP", name: "Bizbox" }],
     loading: false,
-    selectedCompany: { id: "company-1", issuePrefix: "PAP", name: "Paperclip" },
+    selectedCompany: { id: "company-1", issuePrefix: "PAP", name: "Bizbox" },
     selectedCompanyId: "company-1",
     selectionSource: "manual",
     setSelectedCompanyId: mockSetSelectedCompanyId,

@@ -217,7 +217,7 @@ See [doc/DOCKER.md](doc/DOCKER.md) for production Docker deployments and [doc/DE
 
 ## Deploy To Fly
 
-This fork includes a Fly configuration for the `bizbox` app in [fly.toml](fly.toml). Fly needs Paperclip to run in authenticated mode because the server binds to `0.0.0.0`; `local_trusted` is only valid for loopback/local desktop use.
+This fork includes a Fly configuration for the `bizbox` app in [fly.toml](fly.toml). Fly needs Bizbox to run in authenticated mode because the server binds to `0.0.0.0`; `local_trusted` is only valid for loopback/local desktop use.
 
 If you want a private Fly deployment with no public HTTP service and plan to reach it via `fly proxy`, use [fly.private.toml](fly.private.toml) instead. It keeps the same app/runtime settings but omits `[http_service]`.
 
@@ -279,7 +279,7 @@ If deploy reports that the app was not found, the Fly app has not been created i
 
 The checked-in Fly configs use `https://bizbox.fly.dev` as an example `BIZBOX_PUBLIC_URL`. Change that value in [fly.toml](fly.toml) or [fly.private.toml](fly.private.toml) if your real Fly hostname or custom domain differs.
 
-On first boot, Fly mounts the persistent `/paperclip` volume as root-owned storage. The Docker entrypoint fixes ownership before starting Paperclip as the unprivileged `node` user; if you see `EACCES` errors under `/paperclip`, rebuild and redeploy so the latest entrypoint is in the image.
+On first boot, Fly mounts the persistent `/paperclip` volume as root-owned storage. The Docker entrypoint fixes ownership before starting Bizbox as the unprivileged `node` user; if you see `EACCES` errors under `/paperclip`, rebuild and redeploy so the latest entrypoint is in the image.
 
 Useful operational commands:
 
@@ -307,7 +307,7 @@ Required Fly runtime settings:
 | `BIZBOX_PUBLIC_URL` | Canonical public URL, for example `https://bizbox.fly.dev`. Used for auth callbacks, invite links, and hostname allowlisting. |
 | `BIZBOX_DEPLOYMENT_MODE` | Must be `authenticated` on Fly. |
 | `BIZBOX_DEPLOYMENT_EXPOSURE` | Keep `private` unless you are intentionally configuring a public authenticated deployment. |
-| `BIZBOX_HOME` | Persistent Paperclip data root. In Fly this is mounted at `/paperclip`. |
+| `BIZBOX_HOME` | Persistent Bizbox data root. In Fly this is mounted at `/paperclip`. |
 | `BIZBOX_MIGRATION_AUTO_APPLY` | Applies pending migrations at startup. Set to `true` for this single-app Fly deployment. |
 | `BIZBOX_DB_POOL_MAX` | Runtime Postgres pool cap per app process. The Fly config defaults to `3` to avoid exhausting small Fly Postgres instances. |
 | `BIZBOX_DB_IDLE_TIMEOUT_SECONDS` | Closes idle runtime Postgres connections after this many seconds. The Fly config defaults to `30`. |

@@ -12,7 +12,7 @@ describe("issue-reference", () => {
     expect(parseIssuePathIdFromPath("http://localhost:3100/PAP/issues/PAP-1179")).toBe("PAP-1179");
   });
 
-  it("does not treat GitHub issue URLs as internal Paperclip issue links", () => {
+  it("does not treat GitHub issue URLs as internal Bizbox issue links", () => {
     expect(parseIssuePathIdFromPath("https://github.com/paperclipai/paperclip/issues/1778")).toBeNull();
     expect(parseIssueReferenceFromHref("https://github.com/paperclipai/paperclip/issues/1778")).toBeNull();
   });

@@ -116,13 +116,13 @@ function StorybookGuide() {
             <div className="max-w-3xl">
               <div className="paperclip-story__label flex items-center gap-2">
                 <BookOpen className="h-4 w-4" />
-                Paperclip Storybook
+                Bizbox Storybook
               </div>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
                 Board UI stories for real control-plane states
               </h1>
               <p className="mt-4 text-sm leading-6 text-muted-foreground sm:text-base">
-                This Storybook is organized as a review workspace for Paperclip's operator UI: primitives first,
+                This Storybook is organized as a review workspace for Bizbox's operator UI: primitives first,
                 product surfaces second, and the former UX test routes as isolated fixture-backed stories.
               </p>
             </div>
@@ -190,7 +190,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "The overview story explains the local organization and the coverage contract for Paperclip's Storybook.",
+          "The overview story explains the local organization and the coverage contract for Bizbox's Storybook.",
       },
     },
   },

@@ -38,7 +38,7 @@ const storybookGoals: Goal[] = [
   {
     id: "goal-company",
     companyId: COMPANY_ID,
-    title: "Build Paperclip",
+    title: "Build Bizbox",
     description: "Make autonomous companies easier to run and govern.",
     level: "company",
     status: "active",
@@ -674,7 +674,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Open-state stories for Paperclip creation dialogs, workspace confirmations, document diffing, image attachments, and path helper modals.",
+          "Open-state stories for Bizbox creation dialogs, workspace confirmations, document diffing, image attachments, and path helper modals.",
       },
     },
   },

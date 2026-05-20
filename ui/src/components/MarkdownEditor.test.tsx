@@ -395,14 +395,14 @@ describe("MarkdownEditor", () => {
   });
 
   it("keeps mention queries active across spaces", () => {
-    expect(findMentionMatch("Ping @Paperclip App", "Ping @Paperclip App".length)).toEqual({
+    expect(findMentionMatch("Ping @Bizbox App", "Ping @Bizbox App".length)).toEqual({
       trigger: "mention",
       marker: "@",
       mentionKind: "agent",
       markerCount: 1,
-      query: "Paperclip App",
+      query: "Bizbox App",
       atPos: 5,
-      endPos: "Ping @Paperclip App".length,
+      endPos: "Ping @Bizbox App".length,
     });
   });
 
@@ -597,13 +597,13 @@ describe("MarkdownEditor", () => {
     await act(async () => {
       root.render(
         <MarkdownEditor
-          value="@@@@Pap"
+          value="@@@@Biz"
           onChange={handleChange}
           mentions={[
             {
               id: "project:project-123",
               kind: "project",
-              name: "Paperclip App",
+              name: "Bizbox App",
               projectId: "project-123",
               projectColor: "#336699",
             },
@@ -622,7 +622,7 @@ describe("MarkdownEditor", () => {
 
     const selection = window.getSelection();
     const range = document.createRange();
-    range.setStart(textNode!, "@@@@Pap".length);
+    range.setStart(textNode!, "@@@@Biz".length);
     range.collapse(true);
     selection?.removeAllRanges();
     selection?.addRange(range);
@@ -634,7 +634,7 @@ describe("MarkdownEditor", () => {
     await flush();
 
     const option = Array.from(document.body.querySelectorAll('button[type="button"]'))
-      .find((node) => node.textContent?.includes("Paperclip App"));
+      .find((node) => node.textContent?.includes("Bizbox App"));
     expect(option).toBeTruthy();
 
     act(() => {
@@ -642,7 +642,7 @@ describe("MarkdownEditor", () => {
     });
 
     expect(handleChange).toHaveBeenCalledWith(
-      `[Paperclip App](${buildProjectMentionHref("project-123", "#336699")}) `,
+      `[Bizbox App](${buildProjectMentionHref("project-123", "#336699")}) `,
     );
 
     await act(async () => {
@@ -833,7 +833,7 @@ describe("MarkdownEditor", () => {
             {
               id: "project:project-123",
               kind: "project",
-              name: "Paperclip App",
+              name: "Bizbox App",
               projectId: "project-123",
               projectColor: "#336699",
             },
