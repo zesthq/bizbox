@@ -42,6 +42,10 @@ function normalizeDocumentTitle(value: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function looksLikeDocumentTitleLine(line: string) {
+  return !/^(?:[#>*-]|\d+\.\s|\|)/.test(line);
+}
+
 function extractDocumentBodyTitle(body: string) {
   const headingMatch = body.match(/^\s*#\s+(.+?)\s*$/m);
   if (headingMatch?.[1]) {
@@ -51,7 +55,7 @@ function extractDocumentBodyTitle(body: string) {
   const firstContentLine = body
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find(Boolean);
+    .find((line) => line.length > 0 && looksLikeDocumentTitleLine(line));
   return normalizeDocumentTitle(firstContentLine ?? null);
 }
 

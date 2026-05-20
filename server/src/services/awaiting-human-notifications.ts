@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { awaitingHumanNotificationOutbox } from "@paperclipai/db";
+import { buildDocumentFilename } from "../lib/document-filenames.js";
 import type { StorageService } from "../storage/types.js";
 import { getStorageService } from "../storage/index.js";
 
@@ -112,21 +113,8 @@ export interface ClickUpChatMessageReaction {
   count: number;
 }
 
-function slugifyFilenamePart(value: string | null | undefined): string | null {
-  if (typeof value !== "string") return null;
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug.length > 0 ? slug : null;
-}
-
 function buildDocumentReviewFilename(key: string | null | undefined, title: string | null | undefined) {
-  const normalizedKey = key?.trim() || "document";
-  const titleSlug = slugifyFilenamePart(title);
-  const shouldPreferTitle = (normalizedKey === "document" || normalizedKey === "deliverable") && titleSlug;
-  return `${shouldPreferTitle ? titleSlug : normalizedKey}.md`;
+  return buildDocumentFilename(key, title);
 }
 
 export interface ClickUpAwaitingHumanApprovalResult {

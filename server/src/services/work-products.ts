@@ -13,6 +13,7 @@ import {
   parseIssueArtifactWorkProductMetadata,
   deriveAgentUrlKey,
 } from "@paperclipai/shared";
+import { buildDocumentFilename } from "../lib/document-filenames.js";
 import { getStorageService } from "../storage/index.js";
 
 type IssueWorkProductRow = typeof issueWorkProducts.$inferSelect;
@@ -687,21 +688,8 @@ async function readStreamToBuffer(stream: Readable): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function slugifyDeliverableFilenamePart(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug.length > 0 ? slug : null;
-}
-
 function buildDocumentDeliverableFilename(key: string | null | undefined, title: string | null | undefined) {
-  const normalizedKey = key?.trim() || "document";
-  const titleSlug = slugifyDeliverableFilenamePart(title);
-  const shouldPreferTitle = (normalizedKey === "document" || normalizedKey === "deliverable") && titleSlug;
-  return `${shouldPreferTitle ? titleSlug : normalizedKey}.md`;
+  return buildDocumentFilename(key, title);
 }
 
 function rowToDeliverableListItem(row: DeliverableQueryRow): DeliverableListItem | null {

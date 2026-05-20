@@ -198,6 +198,36 @@ describe("extractHeartbeatRunIssueDocumentPromotions", () => {
       body: "# Quarterly Closeout\n\nBody copy",
     }]);
   });
+
+  it("ignores non-prose leading lines when deriving a fallback document title", () => {
+    const promotions = extractHeartbeatRunIssueDocumentPromotions({
+      summary: [
+        "## Summary",
+        "",
+        "<issue-document>",
+        "- Bullet that should stay body content",
+        "> Quoted note",
+        "| Col | Val |",
+        "Quarterly Closeout",
+        "",
+        "Body copy",
+        "</issue-document>",
+      ].join("\n"),
+    });
+
+    expect(promotions).toEqual([{
+      key: "quarterly-closeout",
+      title: "Quarterly Closeout",
+      body: [
+        "- Bullet that should stay body content",
+        "> Quoted note",
+        "| Col | Val |",
+        "Quarterly Closeout",
+        "",
+        "Body copy",
+      ].join("\n"),
+    }]);
+  });
 });
 
 describe("mergeHeartbeatRunResultJson", () => {
