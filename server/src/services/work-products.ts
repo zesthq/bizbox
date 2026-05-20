@@ -546,8 +546,7 @@ export function workProductService(db: Db) {
       }>(rows)[0];
       if (!row) return null;
       const body = row.body ?? "";
-      const normalizedKey = row.key.trim().length > 0 ? row.key.trim() : "document";
-      const filename = `${normalizedKey}.md`;
+      const filename = buildDocumentDeliverableFilename(row.key, row.title);
       return {
         id: row.id,
         companyId: row.company_id,
@@ -688,6 +687,23 @@ async function readStreamToBuffer(stream: Readable): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+function slugifyDeliverableFilenamePart(value: string | null | undefined) {
+  if (typeof value !== "string") return null;
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : null;
+}
+
+function buildDocumentDeliverableFilename(key: string | null | undefined, title: string | null | undefined) {
+  const normalizedKey = key?.trim() || "document";
+  const titleSlug = slugifyDeliverableFilenamePart(title);
+  const shouldPreferTitle = (normalizedKey === "document" || normalizedKey === "deliverable") && titleSlug;
+  return `${shouldPreferTitle ? titleSlug : normalizedKey}.md`;
+}
+
 function rowToDeliverableListItem(row: DeliverableQueryRow): DeliverableListItem | null {
   let contentPath: string;
   let contentType: string;
@@ -717,8 +733,7 @@ function rowToDeliverableListItem(row: DeliverableQueryRow): DeliverableListItem
       ? "text/markdown; charset=utf-8"
       : "text/plain; charset=utf-8";
     byteSize = Number.isFinite(sqlByteSize) ? sqlByteSize : Buffer.byteLength(body, "utf8");
-    const key = (row.document_key ?? "document").trim() || "document";
-    originalFilename = `${key}.md`;
+    originalFilename = buildDocumentDeliverableFilename(row.document_key, row.title);
   }
 
   const rootIsSelf = row.ri_id === null || row.ri_id === row.ci_id;

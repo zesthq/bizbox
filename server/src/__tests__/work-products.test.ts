@@ -229,6 +229,29 @@ describe("workProductService", () => {
     expect(items[0]?.originalFilename).toBe("company-requirements.md");
   });
 
+  it("prefers the deliverable title for generic document filenames", async () => {
+    const now = new Date("2026-05-02T00:00:00.000Z");
+    const execute = vi.fn().mockResolvedValue([
+      createDeliverableQueryRow({
+        id: "doc-deliverable-2",
+        deliverable_source: "document",
+        title: "Quarterly Closeout",
+        metadata: null,
+        document_key: "deliverable",
+        document_format: "markdown",
+        document_body: "# Quarterly Closeout",
+        document_byte_size: 20,
+        created_at: now,
+        updated_at: now,
+      }),
+    ]);
+
+    const svc = workProductService({ execute } as any);
+    const items = await svc.listDeliverablesForCompany("company-1", { limit: 50, offset: 0 });
+
+    expect(items[0]?.originalFilename).toBe("quarterly-closeout.md");
+  });
+
   it("truncates inline document previews by UTF-8 byte length", async () => {
     const execute = vi
       .fn()

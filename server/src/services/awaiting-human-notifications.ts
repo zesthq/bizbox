@@ -112,6 +112,23 @@ export interface ClickUpChatMessageReaction {
   count: number;
 }
 
+function slugifyFilenamePart(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : null;
+}
+
+function buildDocumentReviewFilename(key: string | null | undefined, title: string | null | undefined) {
+  const normalizedKey = key?.trim() || "document";
+  const titleSlug = slugifyFilenamePart(title);
+  const shouldPreferTitle = (normalizedKey === "document" || normalizedKey === "deliverable") && titleSlug;
+  return `${shouldPreferTitle ? titleSlug : normalizedKey}.md`;
+}
+
 export interface ClickUpAwaitingHumanApprovalResult {
   status: ClickUpApiStatus | "approved" | "forward_reply";
   detail: string;
@@ -582,7 +599,7 @@ export async function resolveAwaitingHumanReviewFile(
     source: "document",
     deliverableId: document.deliverable_id,
     title: document.title?.trim() || key,
-    filename: `${key}.md`,
+    filename: buildDocumentReviewFilename(document.key, document.title),
     contentType: document.format === "markdown" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8",
     byteSize: Number(document.byte_size) || 0,
     contentPath,

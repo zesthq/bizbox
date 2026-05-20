@@ -178,6 +178,22 @@ describe("deliverables routes", () => {
       expect(mockWorkProductService.getDeliverableById).not.toHaveBeenCalled();
     });
 
+    it("uses a title-derived filename for generic document deliverables", async () => {
+      mockWorkProductService.getDeliverableDocumentContentById.mockResolvedValue({
+        id: deliverableId,
+        companyId,
+        filename: "quarterly-closeout.md",
+        title: "Quarterly Closeout",
+        contentType: "text/markdown; charset=utf-8",
+        body: "# Quarterly Closeout",
+      });
+
+      const res = await request(createApp()).get(`/api/deliverables/${deliverableId}/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers["content-disposition"]).toContain("quarterly-closeout.md");
+    });
+
     it("sanitizes document filename before setting content-disposition", async () => {
       mockWorkProductService.getDeliverableDocumentContentById.mockResolvedValue({
         id: deliverableId,

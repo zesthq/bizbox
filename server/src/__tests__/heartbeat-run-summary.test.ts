@@ -178,6 +178,26 @@ describe("extractHeartbeatRunIssueDocumentPromotions", () => {
       body: "Tagged body",
     }]);
   });
+
+  it("derives the fallback key and title from the document body when no key or title is supplied", () => {
+    const promotions = extractHeartbeatRunIssueDocumentPromotions({
+      summary: [
+        "## Summary",
+        "",
+        "<issue-document>",
+        "# Quarterly Closeout",
+        "",
+        "Body copy",
+        "</issue-document>",
+      ].join("\n"),
+    });
+
+    expect(promotions).toEqual([{
+      key: "quarterly-closeout",
+      title: "Quarterly Closeout",
+      body: "# Quarterly Closeout\n\nBody copy",
+    }]);
+  });
 });
 
 describe("mergeHeartbeatRunResultJson", () => {
