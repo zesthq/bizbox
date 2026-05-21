@@ -9,7 +9,7 @@ import type { StorageService } from "../storage/types.js";
 import { getStorageService } from "../storage/index.js";
 
 const CLICKUP_CHAT_MESSAGE_MAX_CHARS = 1_800;
-const DEFAULT_CLICKUP_CHANNEL_NAME = "engineering";
+const DEFAULT_CLICKUP_AWAITING_HUMAN_CHANNEL_NAME = "bizbox-feed";
 const MAX_TITLE_LENGTH = 120;
 const MAX_SUMMARY_LENGTH = 280;
 const MAX_DETAIL_BULLETS = 5;
@@ -232,11 +232,17 @@ function readClickUpChatConfig(): ClickUpChatConfig {
     .split(",")
     .map((value) => compactWhitespace(value.trim().toLowerCase()))
     .filter(Boolean);
+  const channelId = process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID?.trim()
+    || process.env.CLICKUP_ENGINEERING_CHANNEL_ID?.trim()
+    || "";
+  const channelName = process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_NAME?.trim()
+    || process.env.CLICKUP_ENGINEERING_CHANNEL_NAME?.trim()
+    || DEFAULT_CLICKUP_AWAITING_HUMAN_CHANNEL_NAME;
   return {
     personalToken: process.env.CLICKUP_PERSONAL_TOKEN?.trim() ?? "",
     workspaceId: process.env.CLICKUP_WORKSPACE_ID?.trim() ?? "",
-    channelId: process.env.CLICKUP_ENGINEERING_CHANNEL_ID?.trim() ?? "",
-    channelName: process.env.CLICKUP_ENGINEERING_CHANNEL_NAME?.trim() || DEFAULT_CLICKUP_CHANNEL_NAME,
+    channelId,
+    channelName,
     reviewListId: process.env.CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID?.trim() ?? "",
     approvalPositiveReactions: positiveReactions.length > 0
       ? [...new Set(positiveReactions)]
@@ -389,28 +395,19 @@ function renderClickUpMessage(notification: AwaitingHumanNotificationPayload) {
   const title = truncateText(notification.title, MAX_TITLE_LENGTH);
   const summary = truncateText(notification.summary, MAX_SUMMARY_LENGTH);
   const bullets = extractBullets(notification.body);
-  const contextLine = [
-    notification.kind?.trim() || null,
-    notification.audience?.trim() || null,
-  ].filter((value): value is string => Boolean(value)).join(" · ");
   const lines = [
     `**${title}**`,
     "",
     summary,
+    "",
+    "Could you take a quick look and respond here in ClickUp?",
+    "- To approve: react with 👍, ✅, or ✔️, or reply with words like \"approve\", \"approved\", \"yes\", \"ok\", \"ship it\", \"lgtm\", or \"go ahead\".",
+    "- If you want changes or have questions: reply here with what you'd like changed, added, or clarified and Bizbox will carry your full feedback back.",
   ];
-
-  if (contextLine) {
-    lines.push("");
-    lines.push(`Context: ${contextLine}`);
-  }
-
-  if (notification.labels.length > 0) {
-    lines.push(`Labels: ${notification.labels.join(", ")}`);
-  }
 
   if (bullets.length > 0) {
     lines.push("");
-    lines.push("Key points:");
+    lines.push("A few details:");
     lines.push(...bullets.map((bullet) => `- ${bullet}`));
   }
 
@@ -427,11 +424,10 @@ function renderClickUpMessage(notification: AwaitingHumanNotificationPayload) {
   }
 
   lines.push("");
-  lines.push(`Source: ${notification.link.trim()}`);
-
   if (notification.cta.trim().length > 0) {
-    lines.push(`Next step: ${truncateText(notification.cta, 180)}`);
+    lines.push(truncateText(notification.cta, 180));
   }
+  lines.push(`Open in Bizbox: ${notification.link.trim()}`);
 
   return trimTotal(lines.join("\n"), CLICKUP_CHAT_MESSAGE_MAX_CHARS);
 }
@@ -696,7 +692,7 @@ export async function sendAwaitingHumanNotification(
       return {
         status: "skipped",
         channel: "clickup-chat",
-        detail: `missing-target: CLICKUP_ENGINEERING_CHANNEL_ID or ${config.channelName}`,
+        detail: `missing-target: CLICKUP_AWAITING_HUMAN_CHANNEL_ID or ${config.channelName}`,
       };
     }
 

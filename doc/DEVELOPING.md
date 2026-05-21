@@ -122,6 +122,13 @@ For `clickup_agent_ref`:
 - Bizbox imports non-bot ClickUp replies by default.
 - Archived `agent_thread` bridges are closed automatically so stale pollers do not remain visible as live work.
 
+For `awaiting_human` ClickUp notifications:
+
+- Configure the approval surface with `CLICKUP_AWAITING_HUMAN_CHANNEL_ID` or `CLICKUP_AWAITING_HUMAN_CHANNEL_NAME`.
+- Bizbox still falls back to `CLICKUP_ENGINEERING_CHANNEL_ID` / `CLICKUP_ENGINEERING_CHANNEL_NAME` when the new vars are unset.
+- If neither name variable is set, Bizbox now defaults the lookup target to `bizbox-feed`.
+- Inbound approval polling still follows the tracked ClickUp message id, so renaming the approval channel does not change reconciliation behavior.
+
 A review-driven regression briefly treated `clickupAgentUserId` as a hard inbound author gate and caused stuck live ClickUp polls. Keep the fields separate.
 
 ## One-Command Local Run

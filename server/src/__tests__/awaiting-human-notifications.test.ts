@@ -22,6 +22,8 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   delete process.env.CLICKUP_PERSONAL_TOKEN;
   delete process.env.CLICKUP_WORKSPACE_ID;
+  delete process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID;
+  delete process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_NAME;
   delete process.env.CLICKUP_ENGINEERING_CHANNEL_ID;
   delete process.env.CLICKUP_ENGINEERING_CHANNEL_NAME;
   delete process.env.CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID;
@@ -30,10 +32,10 @@ afterEach(() => {
 });
 
 describe("sendAwaitingHumanNotification", () => {
-  it("posts the handoff to the ClickUp engineering chat channel", async () => {
+  it("posts the handoff to the configured ClickUp approval chat channel", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-    process.env.CLICKUP_ENGINEERING_CHANNEL_ID = "channel-9";
+    process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID = "channel-9";
 
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -74,14 +76,21 @@ describe("sendAwaitingHumanNotification", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
       type: "message",
       content_format: "text/md",
-      content: expect.stringContaining("Source: https://bizbox.example/issues/BIZ-35"),
+      content: expect.stringContaining("Open in Bizbox: https://bizbox.example/issues/BIZ-35"),
     });
+    const rendered = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).content as string;
+    expect(rendered).toContain("Could you take a quick look and respond here in ClickUp?");
+    expect(rendered).toContain("To approve: react with");
+    expect(rendered).toContain("If you want changes or have questions: reply here with what you'd like changed, added, or clarified");
+    expect(rendered).not.toContain("not approved");
+    expect(rendered).not.toContain("Context:");
+    expect(rendered).not.toContain("Labels:");
   });
 
   it("includes the Bizbox deliverable and ClickUp review task when a review file is present", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-    process.env.CLICKUP_ENGINEERING_CHANNEL_ID = "channel-9";
+    process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID = "channel-9";
 
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -121,17 +130,18 @@ describe("sendAwaitingHumanNotification", () => {
     expect(body.content).toContain("Bizbox deliverable: https://bizbox.example/api/attachments/33333333-3333-4333-8333-333333333333/content");
     expect(body.content).toContain("ClickUp review task: https://app.clickup.com/t/task-123");
     expect(body.content).toContain("Review file attached on the ClickUp task.");
+    expect(body.content).toContain("Open in Bizbox: https://bizbox.example/issues/BIZ-35");
   });
 
-  it("resolves the ClickUp channel id by channel name when no channel id is configured", async () => {
+  it("resolves the ClickUp channel id by the new approval channel name when no channel id is configured", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-    process.env.CLICKUP_ENGINEERING_CHANNEL_NAME = "engineering";
+    process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_NAME = "bizbox-feed";
 
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ data: [{ id: "channel-lookup-1", name: "engineering" }] }),
+        json: async () => ({ data: [{ id: "channel-lookup-1", name: "bizbox-feed" }] }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -177,7 +187,7 @@ describe("sendAwaitingHumanNotification", () => {
   it("continues channel lookup across pages before giving up", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-    process.env.CLICKUP_ENGINEERING_CHANNEL_NAME = "engineering";
+    process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_NAME = "bizbox-feed";
 
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -191,7 +201,7 @@ describe("sendAwaitingHumanNotification", () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ data: [{ id: "channel-lookup-2", name: "engineering" }] }),
+        json: async () => ({ data: [{ id: "channel-lookup-2", name: "bizbox-feed" }] }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -251,6 +261,112 @@ describe("sendAwaitingHumanNotification", () => {
       channel: "clickup-chat",
       detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
     });
+  });
+
+  it("prefers the new approval channel env vars over the legacy engineering vars", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+    process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID = "channel-new";
+    process.env.CLICKUP_ENGINEERING_CHANNEL_ID = "channel-legacy";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { id: "message-45" } }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await sendAwaitingHumanNotification({
+      companyId: "company-1",
+      issueId: "issue-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title: "BIZ-35 is waiting on human input",
+        summary: "Approve the exact GitHub reply before posting.",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Open BIZ-35 in Bizbox and respond there.",
+        labels: ["awaiting_human", "request_confirmation"],
+      },
+    });
+
+    expect(result.status).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels/channel-new/messages",
+      expect.any(Object),
+    );
+  });
+
+  it("falls back to the legacy engineering env vars when the new approval vars are unset", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+    process.env.CLICKUP_ENGINEERING_CHANNEL_ID = "channel-legacy";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { id: "message-46" } }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await sendAwaitingHumanNotification({
+      companyId: "company-1",
+      issueId: "issue-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title: "BIZ-35 is waiting on human input",
+        summary: "Approve the exact GitHub reply before posting.",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Open BIZ-35 in Bizbox and respond there.",
+        labels: ["awaiting_human", "request_confirmation"],
+      },
+    });
+
+    expect(result.status).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels/channel-legacy/messages",
+      expect.any(Object),
+    );
+  });
+
+  it("defaults the approval channel name to bizbox-feed when no channel env vars are set", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ id: "channel-lookup-3", name: "bizbox-feed" }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { id: "message-47" } }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await sendAwaitingHumanNotification({
+      companyId: "company-1",
+      issueId: "issue-1",
+      handoffKind: "ask_user_questions",
+      notification: {
+        title: "BIZ-35 is waiting on human input",
+        summary: "Need answers to 2 question(s).",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Open BIZ-35 in Bizbox and respond there.",
+        labels: ["awaiting_human", "ask_user_questions"],
+      },
+    });
+
+    expect(result.status).toBe("sent");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels?page=1&page_size=100",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels/channel-lookup-3/messages",
+      expect.any(Object),
+    );
   });
 
   it("retrieves ClickUp message replies for approval polling", async () => {
