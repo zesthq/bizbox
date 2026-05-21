@@ -5,6 +5,7 @@ import {
   activityLog,
   agents,
   agentWakeupRequests,
+  awaitingHumanNotificationOutbox,
   companies,
   createDb,
   goals,
@@ -525,5 +526,56 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
       .where(eq(issueThreadInteractions.id, seeded.interactionId))
       .then((rows) => rows[0] ?? null);
     expect(interaction?.status).toBe("pending");
+  });
+
+  it("falls back to the outbox ClickUp message id when the awaiting_human activity was logged before delivery completed", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const seeded = await seedAwaitingHumanConfirmation({ externalId: null });
+    await db.insert(awaitingHumanNotificationOutbox).values({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      dedupeKey: "handoff-1",
+      handoffKind: "request_confirmation",
+      status: "sent",
+      notification: {},
+      clickupMessageId: "message-42",
+    });
+    await db
+      .update(activityLog)
+      .set({
+        details: {
+          interactionId: seeded.interactionId,
+          dedupeKey: "handoff-1",
+          notificationDelivery: {
+            status: "enqueued",
+            channel: "clickup-chat",
+            detail: "enqueued",
+            externalId: null,
+          },
+        },
+      })
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"));
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ reaction: "heavy_check_mark", count: 1 }] }),
+      }) as typeof fetch;
+
+    const result = await heartbeat.reconcileAwaitingHumanApprovals();
+
+    expect(result.approved).toBe(1);
+    const interaction = await db
+      .select()
+      .from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, seeded.interactionId))
+      .then((rows) => rows[0] ?? null);
+    expect(interaction?.status).toBe("accepted");
   });
 });

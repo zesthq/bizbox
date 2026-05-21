@@ -24,6 +24,7 @@ import {
   agentTaskSessions,
   agentWakeupRequests,
   activityLog,
+  awaitingHumanNotificationOutbox,
   clickupBridges,
   companySkills as companySkillsTable,
   documentRevisions,
@@ -5389,6 +5390,34 @@ export function heartbeatService(db: Db) {
       return row?.status ?? null;
     }
 
+    async function resolveAwaitingHumanMessageId(input: {
+      companyId: string;
+      issueId: string;
+      handoffDetails: Record<string, unknown>;
+    }) {
+      const delivery = parseObject(input.handoffDetails.notificationDelivery);
+      const activityMessageId = readNonEmptyString(delivery.externalId);
+      if (activityMessageId) return activityMessageId;
+
+      const dedupeKey = readNonEmptyString(input.handoffDetails.dedupeKey);
+      if (!dedupeKey) return null;
+
+      const row = await db
+        .select({ clickupMessageId: awaitingHumanNotificationOutbox.clickupMessageId })
+        .from(awaitingHumanNotificationOutbox)
+        .where(
+          and(
+            eq(awaitingHumanNotificationOutbox.companyId, input.companyId),
+            eq(awaitingHumanNotificationOutbox.issueId, input.issueId),
+            eq(awaitingHumanNotificationOutbox.dedupeKey, dedupeKey),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+
+      return readNonEmptyString(row?.clickupMessageId);
+    }
+
     const candidateIssueIds = [...new Set(candidates.map((candidate) => candidate.issueId))];
     const candidateCompanyIds = [...new Set(candidates.map((candidate) => candidate.companyId))];
     const candidateInteractionKeys = new Set(
@@ -5429,10 +5458,14 @@ export function heartbeatService(db: Db) {
 
       const details = parseObject(handoff?.details);
       const delivery = parseObject(details.notificationDelivery);
-      const messageId = readNonEmptyString(delivery.externalId);
+      const messageId = await resolveAwaitingHumanMessageId({
+        companyId: candidate.companyId,
+        issueId: candidate.issueId,
+        handoffDetails: details,
+      });
       if (
         delivery.channel !== "clickup-chat"
-        || delivery.status !== "sent"
+        || (delivery.status !== "sent" && delivery.status !== "enqueued")
         || !messageId
       ) {
         result.skipped += 1;
