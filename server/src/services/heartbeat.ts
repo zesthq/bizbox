@@ -68,6 +68,7 @@ import {
 } from "./heartbeat-stop-metadata.js";
 import {
   classifyRunLiveness,
+  hasConcreteActionEvidence,
   type RunLivenessClassificationInput,
 } from "./run-liveness.js";
 import {
@@ -929,20 +930,75 @@ function summarizeRunFailureForIssueComment(
   return null;
 }
 
-function didAutomaticRecoveryFail(
-  latestRun: Pick<typeof heartbeatRuns.$inferSelect, "status" | "contextSnapshot"> | null,
-  expectedRetryReason: "assignment_recovery" | "issue_continuation_needed",
-) {
-  if (!latestRun) return false;
+function readHeartbeatResultStatus(resultJson: unknown) {
+  return readNonEmptyString(parseObject(resultJson).status)?.trim().toLowerCase() ?? null;
+}
 
-  const latestContext = parseObject(latestRun.contextSnapshot);
-  const latestRetryReason = readNonEmptyString(latestContext.retryReason);
-  return (
-    latestRetryReason === expectedRetryReason &&
-    UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES.includes(
-      latestRun.status as (typeof UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES)[number],
-    )
-  );
+function isHeartbeatResultTimedOutStatus(status: string | null) {
+  return status === "timeout";
+}
+
+function isHeartbeatResultSuccessfulStatus(status: string | null) {
+  return status === "ok";
+}
+
+function isExplicitGatewayTimeoutErrorCode(errorCode: string | null | undefined) {
+  return errorCode === "timeout"
+    || errorCode === "openclaw_gateway_timeout"
+    || errorCode === "openclaw_gateway_wait_timeout";
+}
+
+function buildAuthoritativeSuccessResultJson(input: {
+  resultJson: Record<string, unknown> | null | undefined;
+  exitCode: number | null | undefined;
+  errorCode: string | null | undefined;
+  errorMessage: string | null | undefined;
+}) {
+  const baseResultJson = input.resultJson ?? null;
+  const hasIgnoredFailureSignal =
+    (typeof input.exitCode === "number" && input.exitCode !== 0)
+    || !!readNonEmptyString(input.errorCode)
+    || !!readNonEmptyString(input.errorMessage);
+  if (!baseResultJson || !hasIgnoredFailureSignal) return baseResultJson;
+
+  return {
+    ...baseResultJson,
+    authoritativeSuccessOverride: {
+      reason: "adapter_result_status_ok",
+      ignoredExitCode: input.exitCode ?? null,
+      ignoredErrorCode: input.errorCode ?? null,
+      ignoredErrorMessage: input.errorMessage ?? null,
+    },
+  };
+}
+
+async function deriveHeartbeatRunOutcome(params: {
+  latestRun: typeof heartbeatRuns.$inferSelect | null;
+  adapterResult: AdapterExecutionResult;
+}) {
+  const { latestRun, adapterResult } = params;
+  if (isHeartbeatRunTerminalStatus(latestRun?.status)) {
+    return latestRun.status;
+  }
+
+  const resultStatus = readHeartbeatResultStatus(adapterResult.resultJson);
+  if (
+    adapterResult.timedOut
+    || isHeartbeatResultTimedOutStatus(resultStatus)
+    || isExplicitGatewayTimeoutErrorCode(adapterResult.errorCode)
+  ) {
+    return "timed_out" as const;
+  }
+
+  if (isHeartbeatResultSuccessfulStatus(resultStatus)) {
+    return "succeeded" as const;
+  }
+
+  if ((adapterResult.exitCode ?? 0) === 0 && !adapterResult.errorMessage) {
+    return "succeeded" as const;
+  }
+
+  return "failed" as const;
 }
 
 function normalizeLedgerBillingType(value: unknown): BillingType {
@@ -2007,6 +2063,21 @@ function resolveNextSessionState(input: {
 }
 
 export function heartbeatService(db: Db) {
+  type RecoveryAnalysisRun = Pick<
+    typeof heartbeatRuns.$inferSelect,
+    | "id"
+    | "companyId"
+    | "agentId"
+    | "status"
+    | "error"
+    | "errorCode"
+    | "contextSnapshot"
+    | "resultJson"
+    | "stdoutExcerpt"
+    | "stderrExcerpt"
+    | "continuationAttempt"
+  >;
+
   const instanceSettings = instanceSettingsService(db);
   const getCurrentUserRedactionOptions = async () => ({
     enabled: (await instanceSettings.getGeneral()).censorUsernameInLogs,
@@ -4186,6 +4257,58 @@ export function heartbeatService(db: Db) {
     };
   }
 
+  async function runHasConcreteProgressEvidence(
+    run: RecoveryAnalysisRun,
+    resultJson?: Record<string, unknown> | null,
+  ) {
+    const livenessInput = await buildRunLivenessInput(run, resultJson ?? parseObject(run.resultJson));
+    return hasConcreteActionEvidence(livenessInput.evidence);
+  }
+
+  async function runRepresentsAuthoritativeSuccess(
+    run: RecoveryAnalysisRun | null,
+  ) {
+    if (!run) return false;
+    if (run.status === "succeeded") return true;
+    if (run.status === "cancelled" || run.status === "timed_out") return false;
+
+    const resultStatus = readHeartbeatResultStatus(run.resultJson);
+    if (!isHeartbeatResultSuccessfulStatus(resultStatus)) return false;
+
+    return runHasConcreteProgressEvidence(run, parseObject(run.resultJson));
+  }
+
+  async function shouldSuppressAutomaticRecoveryForRun(
+    run: RecoveryAnalysisRun | null,
+    issueStatus: string | null | undefined,
+  ) {
+    if (!run) return issueStatus === "done" || issueStatus === "cancelled";
+    if (issueStatus === "done" || issueStatus === "cancelled") return true;
+    if (!UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES.includes(
+      run.status as (typeof UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES)[number],
+    )) {
+      return false;
+    }
+    return runRepresentsAuthoritativeSuccess(run);
+  }
+
+  async function didAutomaticRecoveryFail(
+    latestRun: RecoveryAnalysisRun | null,
+    expectedRetryReason: "assignment_recovery" | "issue_continuation_needed",
+  ) {
+    if (!latestRun) return false;
+    if (await runRepresentsAuthoritativeSuccess(latestRun)) return false;
+
+    const latestContext = parseObject(latestRun.contextSnapshot);
+    const latestRetryReason = readNonEmptyString(latestContext.retryReason);
+    return (
+      latestRetryReason === expectedRetryReason &&
+      UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES.includes(
+        latestRun.status as (typeof UNSUCCESSFUL_HEARTBEAT_RUN_TERMINAL_STATUSES)[number],
+      )
+    );
+  }
+
   async function classifyAndPersistRunLiveness(
     run: typeof heartbeatRuns.$inferSelect,
     resultJson?: Record<string, unknown> | null,
@@ -4344,10 +4467,16 @@ export function heartbeatService(db: Db) {
     return db
       .select({
         id: heartbeatRuns.id,
+        companyId: heartbeatRuns.companyId,
+        agentId: heartbeatRuns.agentId,
         status: heartbeatRuns.status,
         error: heartbeatRuns.error,
         errorCode: heartbeatRuns.errorCode,
         contextSnapshot: heartbeatRuns.contextSnapshot,
+        resultJson: heartbeatRuns.resultJson,
+        stdoutExcerpt: heartbeatRuns.stdoutExcerpt,
+        stderrExcerpt: heartbeatRuns.stderrExcerpt,
+        continuationAttempt: heartbeatRuns.continuationAttempt,
       })
       .from(heartbeatRuns)
       .where(
@@ -4724,7 +4853,12 @@ export function heartbeatService(db: Db) {
           continue;
         }
 
-        if (didAutomaticRecoveryFail(latestRun, "assignment_recovery")) {
+        if (await shouldSuppressAutomaticRecoveryForRun(latestRun, issue.status)) {
+          result.skipped += 1;
+          continue;
+        }
+
+        if (await didAutomaticRecoveryFail(latestRun, "assignment_recovery")) {
           const failureSummary = summarizeRunFailureForIssueComment(latestRun);
           const updated = await escalateStrandedAssignedIssue({
             issue,
@@ -4765,7 +4899,11 @@ export function heartbeatService(db: Db) {
         result.skipped += 1;
         continue;
       }
-      if (didAutomaticRecoveryFail(latestRun, "issue_continuation_needed")) {
+      if (await shouldSuppressAutomaticRecoveryForRun(latestRun, issue.status)) {
+        result.skipped += 1;
+        continue;
+      }
+      if (await didAutomaticRecoveryFail(latestRun, "issue_continuation_needed")) {
         const failureSummary = summarizeRunFailureForIssueComment(latestRun);
         const updated = await escalateStrandedAssignedIssue({
           issue,
@@ -6456,17 +6594,11 @@ export function heartbeatService(db: Db) {
       });
       const normalizedUsage = sessionUsageResolution.normalizedUsage;
 
-      let outcome: "succeeded" | "failed" | "cancelled" | "timed_out";
       const latestRun = await getRun(run.id);
-      if (isHeartbeatRunTerminalStatus(latestRun?.status)) {
-        outcome = latestRun.status;
-      } else if (adapterResult.timedOut) {
-        outcome = "timed_out";
-      } else if ((adapterResult.exitCode ?? 0) === 0 && !adapterResult.errorMessage) {
-        outcome = "succeeded";
-      } else {
-        outcome = "failed";
-      }
+      const outcome = await deriveHeartbeatRunOutcome({
+        latestRun,
+        adapterResult,
+      });
       const runErrorMessage =
         outcome === "cancelled"
           ? (latestRun?.error ?? adapterResult.errorMessage ?? "Cancelled")
@@ -6527,7 +6659,15 @@ export function heartbeatService(db: Db) {
 
       const persistedResultJson = mergeHeartbeatRunResultJson(
         mergeRunStopMetadataForAgent(agent, outcome, {
-          resultJson: adapterResult.resultJson ?? null,
+          resultJson:
+            outcome === "succeeded" && isHeartbeatResultSuccessfulStatus(readHeartbeatResultStatus(adapterResult.resultJson))
+              ? buildAuthoritativeSuccessResultJson({
+                  resultJson: parseObject(adapterResult.resultJson),
+                  exitCode: adapterResult.exitCode,
+                  errorCode: adapterResult.errorCode,
+                  errorMessage: adapterResult.errorMessage,
+                })
+              : adapterResult.resultJson ?? null,
           errorCode: runErrorCode,
           errorMessage: runErrorMessage,
         }),
@@ -7111,7 +7251,7 @@ export function heartbeatService(db: Db) {
         issue.assigneeAgentId === run.agentId &&
         (run.status === "failed" || run.status === "timed_out" || run.status === "cancelled");
 
-      if (!issueNeedsImmediateRecovery) {
+      if (!issueNeedsImmediateRecovery || await shouldSuppressAutomaticRecoveryForRun(run, issue.status)) {
         return { kind: "released" as const };
       }
 
@@ -7135,7 +7275,10 @@ export function heartbeatService(db: Db) {
       const shouldBlockImmediately =
         !recoveryAgentInvokable ||
         !recoveryAgent ||
-        didAutomaticRecoveryFail(run, issue.status === "todo" ? "assignment_recovery" : "issue_continuation_needed");
+        await didAutomaticRecoveryFail(
+          run,
+          issue.status === "todo" ? "assignment_recovery" : "issue_continuation_needed",
+        );
       if (shouldBlockImmediately) {
         const comment = buildImmediateExecutionPathRecoveryComment({
           status: issue.status as "todo" | "in_progress",

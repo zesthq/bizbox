@@ -1659,6 +1659,252 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     expect(wakes.some((row) => row.reason === "run_liveness_continuation")).toBe(false);
   });
 
+  it("treats terminal ok payloads as succeeded and does not queue stale recovery or duplicate completion comments", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const issueId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {
+        heartbeat: {
+          wakeOnDemand: true,
+          maxConcurrentRuns: 1,
+        },
+      },
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Finalize successful OpenClaw work",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: agentId,
+      issueNumber: 1,
+      identifier: `${issuePrefix}-1`,
+    });
+
+    mockAdapterExecute.mockImplementationOnce(async (ctx: { runId: string }) => {
+      await db.insert(issueComments).values({
+        companyId,
+        issueId,
+        authorAgentId: agentId,
+        createdByRunId: ctx.runId,
+        body: "Finished both deliverables.",
+      });
+      return {
+        exitCode: 17,
+        signal: null,
+        timedOut: false,
+        errorMessage: "gateway closed after delivering terminal result",
+        errorCode: "openclaw_gateway_request_failed",
+        summary: "Finished both deliverables.",
+        resultJson: {
+          status: "ok",
+          summary: "Finished both deliverables.",
+        },
+        provider: "openclaw",
+        model: "test-model",
+      };
+    });
+
+    const heartbeat = heartbeatService(db);
+    const wake = await heartbeat.wakeup(agentId, {
+      source: "assignment",
+      triggerDetail: "system",
+      reason: "issue_assigned",
+      payload: { issueId },
+      contextSnapshot: {
+        issueId,
+        taskId: issueId,
+        wakeReason: "issue_assigned",
+      },
+    });
+    expect(wake?.id).toBeTruthy();
+    if (wake?.id) {
+      await waitForRunToSettle(heartbeat, wake.id, 5_000);
+    }
+    await waitForHeartbeatIdle(db, 5_000);
+
+    const finalizedRun = wake?.id ? await heartbeat.getRun(wake.id, { unsafeFullResultJson: true }) : null;
+    expect(finalizedRun?.status).toBe("succeeded");
+    expect(finalizedRun?.errorCode).toBeNull();
+    expect(finalizedRun?.error).toBeNull();
+    expect(finalizedRun?.resultJson).toMatchObject({
+      status: "ok",
+      stopReason: "completed",
+      timeoutFired: false,
+      authoritativeSuccessOverride: {
+        reason: "adapter_result_status_ok",
+        ignoredExitCode: 17,
+        ignoredErrorCode: "openclaw_gateway_request_failed",
+      },
+    });
+
+    const allRuns = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, agentId));
+    expect(allRuns).toHaveLength(1);
+
+    const wakeups = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakeups).toHaveLength(1);
+    expect(wakeups[0]?.reason).toBe("issue_assigned");
+
+    const comments = await db
+      .select({
+        body: issueComments.body,
+        createdByRunId: issueComments.createdByRunId,
+      })
+      .from(issueComments)
+      .where(eq(issueComments.issueId, issueId));
+    expect(comments).toEqual([
+      expect.objectContaining({
+        body: "Finished both deliverables.",
+        createdByRunId: finalizedRun?.id ?? null,
+      }),
+    ]);
+  });
+
+  it("skips stranded continuation recovery for historical false failures with ok payloads and durable evidence", async () => {
+    const { agentId, issueId, runId, companyId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "failed",
+    });
+    const heartbeat = heartbeatService(db);
+
+    await db
+      .update(heartbeatRuns)
+      .set({
+        errorCode: "adapter_failed",
+        error: "gateway closed after delivering terminal result",
+        resultJson: {
+          status: "ok",
+          summary: "Finished both deliverables.",
+        },
+      })
+      .where(eq(heartbeatRuns.id, runId));
+
+    await db.insert(issueComments).values({
+      companyId,
+      issueId,
+      authorAgentId: agentId,
+      createdByRunId: runId,
+      body: "Finished both deliverables.",
+    });
+
+    const result = await heartbeat.reconcileStrandedAssignedIssues();
+    expect(result.dispatchRequeued).toBe(0);
+    expect(result.continuationRequeued).toBe(0);
+    expect(result.escalated).toBe(0);
+
+    const runs = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.agentId, agentId));
+    expect(runs).toHaveLength(1);
+
+    const wakeups = await db
+      .select()
+      .from(agentWakeupRequests)
+      .where(eq(agentWakeupRequests.agentId, agentId));
+    expect(wakeups).toHaveLength(1);
+
+    const issue = await db.select().from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0] ?? null);
+    expect(issue?.status).toBe("in_progress");
+  });
+
+  it("keeps genuine gateway timeouts as timed_out failures", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const issueId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "CodexCoder",
+      role: "engineer",
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {
+        heartbeat: {
+          wakeOnDemand: true,
+          maxConcurrentRuns: 1,
+        },
+      },
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Preserve real OpenClaw timeouts",
+      status: "todo",
+      priority: "medium",
+      assigneeAgentId: agentId,
+      issueNumber: 1,
+      identifier: `${issuePrefix}-1`,
+    });
+
+    mockAdapterExecute.mockResolvedValueOnce({
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      errorMessage: "gateway websocket open timeout",
+      errorCode: "openclaw_gateway_wait_timeout",
+      resultJson: {
+        status: "timeout",
+      },
+      provider: "openclaw",
+      model: "test-model",
+    });
+
+    const heartbeat = heartbeatService(db);
+    const wake = await heartbeat.wakeup(agentId, {
+      source: "assignment",
+      triggerDetail: "system",
+      reason: "issue_assigned",
+      payload: { issueId },
+      contextSnapshot: {
+        issueId,
+        taskId: issueId,
+        wakeReason: "issue_assigned",
+      },
+    });
+    expect(wake?.id).toBeTruthy();
+    if (wake?.id) {
+      await waitForRunToSettle(heartbeat, wake.id, 5_000);
+    }
+    await waitForHeartbeatIdle(db, 5_000);
+
+    const timedOutRun = wake?.id ? await heartbeat.getRun(wake.id, { unsafeFullResultJson: true }) : null;
+    expect(timedOutRun?.status).toBe("timed_out");
+    expect(timedOutRun?.errorCode).toBe("timeout");
+    expect(timedOutRun?.resultJson).toMatchObject({
+      status: "timeout",
+      stopReason: "timeout",
+      timeoutFired: true,
+    });
+  });
+
   it("continues promoting later documents and posts the run comment when one promotion fails", async () => {
     const companyId = randomUUID();
     const agentId = randomUUID();
