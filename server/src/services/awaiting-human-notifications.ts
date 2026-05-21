@@ -4,6 +4,7 @@ import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { awaitingHumanNotificationOutbox } from "@paperclipai/db";
 import { buildDocumentFilename } from "../lib/document-filenames.js";
+import { resolveDocumentTitle } from "../lib/document-titles.js";
 import type { StorageService } from "../storage/types.js";
 import { getStorageService } from "../storage/index.js";
 
@@ -584,7 +585,7 @@ export async function resolveAwaitingHumanReviewFile(
   return {
     source: "document",
     deliverableId: document.deliverable_id,
-    title: document.title?.trim() || key,
+    title: resolveDocumentTitle(document.title, document.format, document.body) ?? key,
     filename: buildDocumentFilename(document.key, document.title, document.format, document.body),
     contentType: document.format === "markdown" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8",
     byteSize: Number(document.byte_size) || 0,

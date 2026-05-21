@@ -4,10 +4,22 @@ export function normalizeDocumentTitle(value: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function stripInlineMarkdown(value: string) {
+  return value
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/~~(.*?)~~/g, "$1")
+    .replace(/\\([\\`*_{}\[\]()#+\-.!])/g, "$1")
+    .replace(/<\/?[^>]+>/g, "");
+}
+
 export function extractMarkdownH1(body: string | null | undefined) {
   if (typeof body !== "string") return null;
-  const headingMatch = body.match(/^\s*#\s+(.+?)\s*$/m);
-  return normalizeDocumentTitle(headingMatch?.[1] ?? null);
+  const headingMatch = body.match(/^[ ]{0,3}#\s+(.+?)(?:\s+#+\s*)?$/m);
+  return normalizeDocumentTitle(stripInlineMarkdown(headingMatch?.[1] ?? ""));
 }
 
 export function resolveDocumentTitle(

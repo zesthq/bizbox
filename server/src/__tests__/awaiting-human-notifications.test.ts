@@ -698,6 +698,7 @@ describe("resolveAwaitingHumanReviewFile", () => {
 
     expect(file).toMatchObject({
       source: "document",
+      title: "Review Packet",
       filename: "review-packet.md",
       deliverableUrl: "https://bizbox.example/api/deliverables/55555555-5555-4555-8555-555555555555/content",
     });
