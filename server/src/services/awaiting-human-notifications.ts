@@ -401,7 +401,7 @@ function renderClickUpMessage(notification: AwaitingHumanNotificationPayload) {
     summary,
     "",
     "Could you take a quick look and respond here in ClickUp?",
-    "- To approve: react with 👍, ✅, or ✔️, or reply with words like \"approve\", \"approved\", \"yes\", \"ok\", \"ship it\", \"lgtm\", or \"go ahead\".",
+    "- To approve: react with 👍, ✅, or ✔️, or reply with words like \"approve\", \"approved\", \"approving\", \"yes\", \"ok\", \"okay\", \"ship it\", \"lgtm\", \"looks good\", \"go ahead\", or \"+1\".",
     "- If you want changes or have questions: reply here with what you'd like changed, added, or clarified and Bizbox will carry your full feedback back.",
   ];
 
@@ -692,7 +692,7 @@ export async function sendAwaitingHumanNotification(
       return {
         status: "skipped",
         channel: "clickup-chat",
-        detail: `missing-target: CLICKUP_AWAITING_HUMAN_CHANNEL_ID or ${config.channelName}`,
+        detail: `missing-target: CLICKUP_AWAITING_HUMAN_CHANNEL_ID (or CLICKUP_ENGINEERING_CHANNEL_ID) or channel name '${config.channelName}'`,
       };
     }
 
