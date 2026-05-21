@@ -4127,7 +4127,7 @@ export function heartbeatService(db: Db) {
   }
 
   async function buildRunLivenessInput(
-    run: typeof heartbeatRuns.$inferSelect,
+    run: RecoveryAnalysisRun,
     resultJson: Record<string, unknown> | null | undefined,
   ): Promise<RunLivenessClassificationInput> {
     const context = parseObject(run.contextSnapshot);
