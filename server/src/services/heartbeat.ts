@@ -5410,6 +5410,7 @@ export function heartbeatService(db: Db) {
             eq(awaitingHumanNotificationOutbox.companyId, input.companyId),
             eq(awaitingHumanNotificationOutbox.issueId, input.issueId),
             eq(awaitingHumanNotificationOutbox.dedupeKey, dedupeKey),
+            eq(awaitingHumanNotificationOutbox.status, "sent"),
           ),
         )
         .limit(1)
@@ -5458,16 +5459,20 @@ export function heartbeatService(db: Db) {
 
       const details = parseObject(handoff?.details);
       const delivery = parseObject(details.notificationDelivery);
+      if (
+        delivery.channel !== "clickup-chat"
+        || (delivery.status !== "sent" && delivery.status !== "enqueued")
+      ) {
+        result.skipped += 1;
+        continue;
+      }
+
       const messageId = await resolveAwaitingHumanMessageId({
         companyId: candidate.companyId,
         issueId: candidate.issueId,
         handoffDetails: details,
       });
-      if (
-        delivery.channel !== "clickup-chat"
-        || (delivery.status !== "sent" && delivery.status !== "enqueued")
-        || !messageId
-      ) {
+      if (!messageId) {
         result.skipped += 1;
         continue;
       }
