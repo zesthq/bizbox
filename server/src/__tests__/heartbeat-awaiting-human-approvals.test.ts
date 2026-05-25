@@ -7,10 +7,17 @@ import {
   agentWakeupRequests,
   awaitingHumanBridgeInboundEvents,
   awaitingHumanBridges,
+  companyAwaitingHumanSettings,
+  companySecretVersions,
+  companySecrets,
   companies,
   createDb,
+  companySkills,
+  environmentLeases,
   goals,
+  heartbeatRunEvents,
   heartbeatRuns,
+  agentRuntimeState,
   instanceSettings,
   issueComments,
   issueThreadInteractions,
@@ -33,6 +40,7 @@ vi.mock("../otel.js", () => ({
 import { heartbeatService } from "../services/heartbeat.js";
 import { issueThreadInteractionService } from "../services/issue-thread-interactions.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
+import { secretService } from "../services/secrets.js";
 
 const originalFetch = globalThis.fetch;
 const mockTelemetryClient = vi.hoisted(() => ({ track: vi.fn() }));
@@ -100,9 +108,17 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     delete process.env.CLICKUP_WORKSPACE_ID;
     delete process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS;
     await db.delete(activityLog);
+    await db.delete(heartbeatRunEvents);
+    await db.delete(agentRuntimeState);
+    await db.delete(heartbeatRuns);
     await db.delete(agentWakeupRequests);
     await db.delete(awaitingHumanBridgeInboundEvents);
     await db.delete(awaitingHumanBridges);
+    await db.delete(environmentLeases);
+    await db.delete(companyAwaitingHumanSettings);
+    await db.delete(companySecretVersions);
+    await db.delete(companySecrets);
+    await db.delete(companySkills);
     await db.delete(issueThreadInteractions);
     await db.delete(issueComments);
     await db.delete(issues);
@@ -137,12 +153,28 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     const goalId = randomUUID();
     const issueId = randomUUID();
     const agentId = randomUUID();
+    const secrets = secretService(db);
 
     await db.insert(companies).values({
       id: companyId,
       name: "Paperclip",
       issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
       requireBoardApprovalForNewAgents: false,
+    });
+    const secret = await secrets.create(companyId, {
+      name: "clickup-personal-token",
+      provider: "local_encrypted",
+      value: "token-123",
+    });
+    await db.insert(companyAwaitingHumanSettings).values({
+      companyId,
+      enabled: true,
+      provider: "clickup",
+      providerConfigJson: {
+        authTokenRef: { type: "secret_ref", secretId: secret.id, version: "latest" },
+        workspaceId: "workspace-1",
+        channelId: "channel-1",
+      },
     });
     await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
     await db.insert(goals).values({
@@ -207,9 +239,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   }
 
   it("accepts a pending confirmation when a ClickUp reply is detected and does not duplicate on rerun", async () => {
-    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
-    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-
     const seeded = await seedAwaitingHumanConfirmation();
     globalThis.fetch = vi.fn()
       .mockResolvedValue({
@@ -263,9 +292,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   });
 
   it("accepts a pending confirmation when a positive ClickUp reaction is detected", async () => {
-    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
-    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-
     const seeded = await seedAwaitingHumanConfirmation();
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
@@ -296,9 +322,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   });
 
   it("forwards non-approval ClickUp replies into issue comments and wakes the creator agent", async () => {
-    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
-    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-
     const seeded = await seedAwaitingHumanConfirmation();
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
@@ -361,9 +384,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   });
 
   it("forwards multiple distinct non-approval replies only once each", async () => {
-    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
-    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-
     const seeded = await seedAwaitingHumanConfirmation();
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
@@ -411,9 +431,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   });
 
   it("does not enqueue a wake when the issue moved to backlog before forwarding the ClickUp reply", async () => {
-    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
-    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-
     const seeded = await seedAwaitingHumanConfirmation();
     globalThis.fetch = vi.fn()
       .mockImplementationOnce(async () => {
@@ -447,9 +464,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   });
 
   it("does not enqueue a wake when the issue closes before forwarding the ClickUp reply", async () => {
-    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
-    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-
     const seeded = await seedAwaitingHumanConfirmation();
     globalThis.fetch = vi.fn()
       .mockImplementationOnce(async () => {
@@ -483,9 +497,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   });
 
   it("does not accept a pending confirmation for neutral or negative reactions", async () => {
-    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
-    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-
     const seeded = await seedAwaitingHumanConfirmation();
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
@@ -513,9 +524,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   });
 
   it("skips candidates that do not have a stored ClickUp message id", async () => {
-    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
-    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
-
     const seeded = await seedAwaitingHumanConfirmation({ externalId: null });
     globalThis.fetch = vi.fn() as typeof fetch;
 
@@ -531,4 +539,5 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
       .then((rows) => rows[0] ?? null);
     expect(interaction?.status).toBe("pending");
   });
+
 });

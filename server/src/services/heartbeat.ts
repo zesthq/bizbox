@@ -5330,7 +5330,59 @@ export function heartbeatService(db: Db) {
 
   async function reconcileAwaitingHumanApprovals() {
     await awaitingHumanBridge.expireWaitingBridges();
-    return awaitingHumanBridge.reconcilePendingConfirmations();
+    const legacyDeliveredInteractions = await db
+      .select({
+        companyId: activityLog.companyId,
+        issueId: activityLog.entityId,
+        interactionId: sql<string | null>`${activityLog.details} ->> 'interactionId'`.as("interactionId"),
+        assigneeAgentId: sql<string | null>`${activityLog.details} ->> 'assigneeAgentId'`.as("assigneeAgentId"),
+        createdByAgentId: activityLog.agentId,
+        handoffDetails: activityLog.details,
+      })
+      .from(activityLog)
+      .where(and(
+        eq(activityLog.entityType, "issue"),
+        eq(activityLog.action, "issue.awaiting_human.entered"),
+      ))
+      .orderBy(desc(activityLog.createdAt))
+      .limit(200);
+
+    const deliveredCandidates = legacyDeliveredInteractions.filter((candidate) => {
+      if (!candidate.interactionId || candidate.interactionId.trim().length === 0) return false;
+      const details = parseObject(candidate.handoffDetails);
+      const delivery = parseObject(details.notificationDelivery);
+      return delivery.channel === "clickup-chat" && delivery.status === "sent";
+    }).map((candidate) => ({
+      companyId: candidate.companyId,
+      issueId: candidate.issueId,
+      interactionId: candidate.interactionId as string,
+      assigneeAgentId: candidate.assigneeAgentId,
+      createdByAgentId: candidate.createdByAgentId,
+      handoffDetails: candidate.handoffDetails,
+    }));
+
+    const legacyResult = deliveredCandidates.length > 0
+      ? await awaitingHumanBridge.reconcileDeliveredInteractions(deliveredCandidates)
+      : {
+        checked: 0,
+        approved: 0,
+        failed: 0,
+        skipped: 0,
+        noSignal: 0,
+        approvedIssueIds: [] as string[],
+        approvedInteractionIds: [] as string[],
+      };
+
+    const pendingResult = await awaitingHumanBridge.reconcilePendingConfirmations();
+    return {
+      checked: legacyResult.checked + pendingResult.checked,
+      approved: legacyResult.approved + pendingResult.approved,
+      failed: legacyResult.failed + pendingResult.failed,
+      skipped: legacyResult.skipped + pendingResult.skipped,
+      noApproval: legacyResult.noSignal + pendingResult.noApproval,
+      issueIds: [...legacyResult.approvedIssueIds, ...pendingResult.issueIds],
+      interactionIds: [...legacyResult.approvedInteractionIds, ...pendingResult.interactionIds],
+    };
   }
 
   async function updateRuntimeState(

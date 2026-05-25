@@ -30,13 +30,9 @@ type StoredAwaitingHumanSettingsRow = {
 function defaultStoredSettings(companyId: string) {
   return {
     companyId,
-    enabled: true,
-    provider: "clickup" as const,
-    providerConfigJson: {
-      authTokenRef: null,
-      workspaceId: null,
-      channelId: null,
-    } satisfies StoredClickUpProviderConfig,
+    enabled: false,
+    provider: null,
+    providerConfigJson: null,
     createdAt: null,
     updatedAt: null,
   };

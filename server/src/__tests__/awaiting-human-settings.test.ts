@@ -91,4 +91,26 @@ describeEmbeddedPostgres("awaitingHumanSettingsService", () => {
       channelId: "channel-123",
     }));
   });
+
+  it("defaults companies without a settings row to disabled awaiting-human delivery", async () => {
+    const companyId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const service = awaitingHumanSettingsService(db);
+    const settings = await service.get(companyId);
+
+    expect(settings).toEqual(expect.objectContaining({
+      companyId,
+      enabled: false,
+      provider: null,
+      providerConfig: null,
+      hasStoredAuthToken: false,
+    }));
+  });
 });
