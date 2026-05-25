@@ -1125,7 +1125,8 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     const [updatedOne] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridgeOne.id));
     const [updatedTwo] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridgeTwo.id));
     expect(updatedOne).toEqual(expect.objectContaining({
-      status: "waiting_for_human",
+      status: "closed",
+      closeOutcome: "expired",
     }));
     expect(updatedTwo).toEqual(expect.objectContaining({
       status: "closed",
@@ -1134,12 +1135,53 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
 
     const commentsOne = await db.select().from(issueComments).where(eq(issueComments.issueId, seededOne.issueId));
     const commentsTwo = await db.select().from(issueComments).where(eq(issueComments.issueId, seededTwo.issueId));
-    expect(commentsOne).toHaveLength(0);
+    expect(commentsOne).toHaveLength(1);
     expect(commentsTwo).toHaveLength(1);
 
     const eventsOne = await db.select().from(activityLog).where(eq(activityLog.entityId, seededOne.issueId));
     expect(eventsOne.some((event) => event.action === "issue.awaiting_human.bridge_expire_failed")).toBe(true);
     expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it("backs off polling when a bridge poll throws so it does not retry every heartbeat", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => {
+          throw new Error("awaiting-human-bridge-disabled");
+        }),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    const bridge = await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    const now = new Date("2026-05-22T00:03:00.000Z");
+    await db.update(awaitingHumanBridges).set({
+      nextPollAt: new Date("2026-05-22T00:00:00.000Z"),
+    }).where(eq(awaitingHumanBridges.id, bridge.id));
+
+    const result = await service.pollActiveBridges(now);
+
+    expect(result.failed).toBe(1);
+    const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
+    expect(updatedBridge).toEqual(expect.objectContaining({
+      status: "waiting_for_human",
+      lastError: "awaiting-human-bridge-disabled",
+    }));
+    expect(updatedBridge?.nextPollAt && updatedBridge.nextPollAt.getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("marks the bridge failed and records visible evidence when the provider poll fails", async () => {

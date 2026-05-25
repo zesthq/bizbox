@@ -98,6 +98,8 @@ function emptySummary(): BridgePollSummary {
   };
 }
 
+const AWAITING_HUMAN_POLL_FAILURE_BACKOFF_MS = 5 * 60 * 1000;
+
 function parseObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -598,6 +600,24 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       updatedAt: new Date(),
     }).where(eq(awaitingHumanBridges.id, input.row.id)).returning();
 
+    return updated ?? input.row;
+  }
+
+  async function forceCloseExpiredBridgeRow(input: {
+    row: typeof awaitingHumanBridges.$inferSelect;
+    reason: string;
+    detail?: string | null;
+  }) {
+    const now = new Date();
+    const [updated] = await db.update(awaitingHumanBridges).set({
+      status: "closed",
+      closeOutcome: "expired",
+      closeReason: input.reason,
+      closedAt: now,
+      nextPollAt: null,
+      lastError: input.detail ?? null,
+      updatedAt: now,
+    }).where(eq(awaitingHumanBridges.id, input.row.id)).returning();
     return updated ?? input.row;
   }
 
@@ -1273,6 +1293,12 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
           summary.approvedIssueIds.push(...result.approvedIssueIds);
           summary.approvedInteractionIds.push(...result.approvedInteractionIds);
         } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          await db.update(awaitingHumanBridges).set({
+            lastError: detail,
+            nextPollAt: new Date(now.getTime() + AWAITING_HUMAN_POLL_FAILURE_BACKOFF_MS),
+            updatedAt: now,
+          }).where(eq(awaitingHumanBridges.id, row.id));
           summary.failed += 1;
           logger.warn({
             err: error,
@@ -1342,6 +1368,75 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               provider: row.provider,
               detail,
             },
+          });
+          const expiredBody = row.status === "failed"
+            ? "Awaiting human bridge failed to deliver before a human response was received."
+            : "Awaiting human bridge timed out before a human response was received.";
+          let interaction: Awaited<ReturnType<typeof interactionsSvc.rejectInteraction>> | null = null;
+          try {
+            interaction = await interactionsSvc.rejectInteraction({
+              id: row.issueId,
+              companyId: row.companyId,
+            }, row.interactionId, {
+              reason: expiredBody,
+            }, { actorType: "system" });
+          } catch (rejectError) {
+            const rejectDetail = rejectError instanceof Error ? rejectError.message : String(rejectError);
+            await logActivity(db, {
+              companyId: row.companyId,
+              actorType: "system",
+              actorId: "awaiting_human_bridge",
+              action: "issue.awaiting_human.bridge_expire_reject_failed",
+              entityType: "issue",
+              entityId: row.issueId,
+              details: {
+                bridgeId: row.id,
+                interactionId: row.interactionId,
+                provider: row.provider,
+                detail: rejectDetail,
+              },
+            });
+          }
+          try {
+            await addSystemIssueComment({
+              companyId: row.companyId,
+              issueId: row.issueId,
+              interactionId: row.interactionId,
+              body: expiredBody,
+            });
+          } catch (commentError) {
+            const commentDetail = commentError instanceof Error ? commentError.message : String(commentError);
+            await logActivity(db, {
+              companyId: row.companyId,
+              actorType: "system",
+              actorId: "awaiting_human_bridge",
+              action: "issue.awaiting_human.bridge_expire_comment_failed",
+              entityType: "issue",
+              entityId: row.issueId,
+              details: {
+                bridgeId: row.id,
+                interactionId: row.interactionId,
+                provider: row.provider,
+                detail: commentDetail,
+              },
+            });
+          }
+          if (row.agentId && interaction) {
+            await insertWakeup({
+              companyId: row.companyId,
+              agentId: row.agentId,
+              payload: {
+                issueId: row.issueId,
+                interactionId: interaction.id,
+                interactionStatus: interaction.status,
+                mutation: "interaction",
+              },
+            });
+          }
+          await forceCloseExpiredBridgeRow({
+            row,
+            reason: expiredBody,
+            detail,
           });
         }
       }
