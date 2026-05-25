@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agentWakeupRequests,
@@ -79,10 +79,22 @@ type BridgePollSummary = {
   noSignal: number;
   failed: number;
   skipped: number;
+  approvedIssueIds: string[];
+  approvedInteractionIds: string[];
 };
 
 function emptySummary(): BridgePollSummary {
-  return { checked: 0, approved: 0, rejected: 0, replies: 0, noSignal: 0, failed: 0, skipped: 0 };
+  return {
+    checked: 0,
+    approved: 0,
+    rejected: 0,
+    replies: 0,
+    noSignal: 0,
+    failed: 0,
+    skipped: 0,
+    approvedIssueIds: [],
+    approvedInteractionIds: [],
+  };
 }
 
 function parseObject(value: unknown): Record<string, unknown> {
@@ -190,7 +202,7 @@ function tokenLooselyMatchesKeyword(token: string, keyword: string) {
   if (keyword.length <= 4) {
     return isWithinEditDistance(token, keyword, 1);
   }
-  return isWithinEditDistance(token, keyword, 2);
+  return isWithinEditDistance(token, keyword, 3);
 }
 
 function replyIntentScore(normalized: string, keywords: readonly string[]) {
@@ -251,6 +263,7 @@ function classifyOptionIntent(option: { id: string; label: string; description?:
   if (positiveScore === 0 && negativeScore === 0) return null;
   if (positiveScore > negativeScore) return "affirmative" as const;
   if (negativeScore > positiveScore) return "negative" as const;
+  if (negativeScore > 0) return "negative" as const;
   return null;
 }
 
@@ -310,7 +323,7 @@ function buildAskUserQuestionsResponseFromReply(input: {
   const globalIntent = detectReplyIntent(input.replyBody);
 
   const answers: Array<{ questionId: string; optionIds: string[] }> = [];
-  input.interaction.payload.questions.forEach((question, index) => {
+  for (const [index, question] of input.interaction.payload.questions.entries()) {
     const scopedReply = replyByQuestionIndex.get(index + 1) ?? input.replyBody;
     const normalizedScopedReply = normalizeForMatch(scopedReply);
     const matched = question.options
@@ -345,7 +358,7 @@ function buildAskUserQuestionsResponseFromReply(input: {
       questionId: question.id,
       optionIds,
     });
-  });
+  }
 
   if (answers.length === 0) return null;
   return {
@@ -546,6 +559,10 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       ))
       .limit(1);
     return existing.length > 0;
+  }
+
+  function isUniqueViolation(error: unknown) {
+    return !!error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505";
   }
 
   async function addSystemIssueComment(input: {
@@ -802,23 +819,8 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       result.failed += polled.failed;
       result.skipped += polled.skipped;
       result.noApproval += polled.noSignal;
-
-      if (polled.approved > 0) {
-        const approvedRows = await db
-          .select({
-            issueId: awaitingHumanBridges.issueId,
-            interactionId: awaitingHumanBridges.interactionId,
-          })
-          .from(awaitingHumanBridges)
-          .where(and(
-            eq(awaitingHumanBridges.status, "closed"),
-            eq(awaitingHumanBridges.closeOutcome, "approved"),
-          ))
-          .orderBy(desc(awaitingHumanBridges.closedAt))
-          .limit(polled.approved);
-        result.issueIds.push(...approvedRows.map((row) => row.issueId));
-        result.interactionIds.push(...approvedRows.map((row) => row.interactionId));
-      }
+      result.issueIds.push(...polled.approvedIssueIds);
+      result.interactionIds.push(...polled.approvedInteractionIds);
 
       return result;
     },
@@ -869,14 +871,19 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
         const externalEventId = event.externalEventId?.trim() || null;
         if (await dedupeInboundEvent(row.id, externalEventId)) continue;
 
-        await db.insert(awaitingHumanBridgeInboundEvents).values({
-          bridgeId: row.id,
-          eventKind: event.kind,
-          externalEventId,
-          externalMessageId: event.externalMessageId?.trim() || null,
-          externalThreadId: event.externalThreadId?.trim() || null,
-          payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
-        });
+        try {
+          await db.insert(awaitingHumanBridgeInboundEvents).values({
+            bridgeId: row.id,
+            eventKind: event.kind,
+            externalEventId,
+            externalMessageId: event.externalMessageId?.trim() || null,
+            externalThreadId: event.externalThreadId?.trim() || null,
+            payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+          });
+        } catch (error) {
+          if (isUniqueViolation(error)) continue;
+          throw error;
+        }
 
         if (event.kind === "reply" && event.body?.trim()) {
           const body = `ClickUp reply received:\n\n${event.body.trim()}`;
@@ -1064,6 +1071,8 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             reason: event.body?.trim() || null,
           });
           summary.approved += 1;
+          summary.approvedIssueIds.push(row.issueId);
+          summary.approvedInteractionIds.push(row.interactionId);
           return summary;
         }
 
@@ -1111,7 +1120,9 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
         .where(and(
           eq(awaitingHumanBridges.status, "waiting_for_human"),
           lte(awaitingHumanBridges.nextPollAt, now),
-        ));
+        ))
+        .orderBy(asc(awaitingHumanBridges.nextPollAt), asc(awaitingHumanBridges.createdAt))
+        .limit(200);
 
       const summary = emptySummary();
       for (const row of rows) {
@@ -1123,6 +1134,8 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
         summary.noSignal += result.noSignal;
         summary.failed += result.failed;
         summary.skipped += result.skipped;
+        summary.approvedIssueIds.push(...result.approvedIssueIds);
+        summary.approvedInteractionIds.push(...result.approvedInteractionIds);
       }
       return summary;
     },

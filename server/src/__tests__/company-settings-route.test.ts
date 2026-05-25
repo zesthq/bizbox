@@ -177,6 +177,15 @@ describe("company awaiting-human settings route", () => {
       expect.objectContaining({
         companyId: "company-1",
         action: "company.awaiting_human_settings.updated",
+        details: expect.objectContaining({
+          enabled: true,
+          provider: "clickup",
+          providerConfig: {
+            workspaceId: "90161423646",
+            channelId: "channel-123",
+          },
+          clickupPersonalToken: "[REDACTED]",
+        }),
       }),
     );
     expect(res.body.provider).toBe("clickup");

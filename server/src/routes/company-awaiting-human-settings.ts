@@ -36,6 +36,9 @@ export function companyAwaitingHumanSettingsRoutes(db: Db) {
       userId: req.actor.userId ?? actor.actorId,
       agentId: actor.agentId,
     });
+    const redactedBody = "clickupPersonalToken" in body && body.clickupPersonalToken != null
+      ? { ...body, clickupPersonalToken: "[REDACTED]" }
+      : body;
     await logActivity(db, {
       companyId,
       actorType: actor.actorType,
@@ -45,7 +48,7 @@ export function companyAwaitingHumanSettingsRoutes(db: Db) {
       action: "company.awaiting_human_settings.updated",
       entityType: "company",
       entityId: companyId,
-      details: body,
+      details: redactedBody,
     });
     res.json(updated);
   });

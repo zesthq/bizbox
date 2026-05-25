@@ -141,6 +141,15 @@ export function awaitingHumanSettingsService(db: Db) {
         : null;
     }
 
+    if (nextProvider === "clickup") {
+      validateClickUpAwaitingHumanProviderConfig({
+        enabled: nextEnabled,
+        providerConfig: nextProviderConfig
+          ? { workspaceId: nextProviderConfig.workspaceId, channelId: nextProviderConfig.channelId }
+          : null,
+      });
+    }
+
     const nextToken = trimToken(patch.clickupPersonalToken);
     if (nextProvider === "clickup" && nextToken) {
       if (nextProviderConfig?.authTokenRef?.secretId) {
@@ -162,15 +171,6 @@ export function awaitingHumanSettingsService(db: Db) {
           channelId: nextProviderConfig?.channelId ?? null,
         };
       }
-    }
-
-    if (nextProvider === "clickup") {
-      validateClickUpAwaitingHumanProviderConfig({
-        enabled: nextEnabled,
-        providerConfig: nextProviderConfig
-          ? { workspaceId: nextProviderConfig.workspaceId, channelId: nextProviderConfig.channelId }
-          : null,
-      });
     }
 
     const values = {
