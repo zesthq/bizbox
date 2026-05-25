@@ -297,8 +297,8 @@ describe("sendAwaitingHumanNotification", () => {
       status: "sent",
       detail: "ok",
       replies: [
-        { id: "reply-1", content: "Ship it" },
-        { id: "reply-2", content: "Approved" },
+        { id: "reply-1", messageId: null, reactionsUrl: null, content: "Ship it" },
+        { id: "reply-2", messageId: null, reactionsUrl: null, content: "Approved" },
       ],
     });
     expect(fetchMock).toHaveBeenCalledWith(
