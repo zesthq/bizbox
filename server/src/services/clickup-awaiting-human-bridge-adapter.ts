@@ -190,7 +190,7 @@ export function clickupAwaitingHumanBridgeAdapter(db: Db): AwaitingHumanBridgeAd
         });
       }
       return {
-        externalThreadId: result.externalId ?? "",
+        externalThreadId: result.externalId ?? null,
         externalMessageId: result.externalId ?? null,
         nextPollAt: new Date(Date.now() + 60_000),
       };

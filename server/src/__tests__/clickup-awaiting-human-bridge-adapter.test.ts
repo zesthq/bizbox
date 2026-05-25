@@ -172,4 +172,34 @@ describe("clickupAwaitingHumanBridgeAdapter", () => {
       action: "issue.awaiting_human.state_reaction",
     }));
   });
+
+  it("keeps external thread ids null when ClickUp omits them", async () => {
+    mocks.sendAwaitingHumanNotification.mockResolvedValueOnce({
+      status: "sent",
+      channel: "clickup-chat",
+      detail: "sent",
+      externalId: null,
+    });
+    const adapter = clickupAwaitingHumanBridgeAdapter(makeDb());
+
+    const result = await adapter.send({
+      bridgeId: "bridge-1",
+      companyId: "company-1",
+      issueId: "issue-1",
+      interactionId: "interaction-1",
+      agentId: "agent-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title: "Title",
+        summary: "Summary",
+        link: "https://bizbox.example/issues/1",
+        cta: "Respond",
+        labels: ["awaiting_human"],
+      },
+    });
+
+    expect(result.externalThreadId).toBeNull();
+    expect(result.externalMessageId).toBeNull();
+    expect(mocks.addClickUpChatMessageReaction).not.toHaveBeenCalled();
+  });
 });

@@ -958,7 +958,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     }));
   });
 
-  it("expires an overdue bridge, leaves the interaction pending, and records visible evidence", async () => {
+  it("expires an overdue bridge, rejects the interaction, and wakes the agent", async () => {
     const seeded = await seedAwaitingHumanInteraction();
     const close = vi.fn(async () => {});
     const service = awaitingHumanBridgeService(db, {
@@ -991,7 +991,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
 
     const [interaction] = await db.select().from(issueThreadInteractions)
       .where(eq(issueThreadInteractions.id, seeded.interactionId));
-    expect(interaction?.status).toBe("pending");
+    expect(interaction?.status).toBe("rejected");
 
     const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
     expect(updatedBridge).toEqual(expect.objectContaining({
@@ -1002,6 +1002,18 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
     expect(comments).toHaveLength(1);
     expect(comments[0]?.body).toContain("Awaiting human bridge timed out");
+
+    const [updatedIssue] = await db.select().from(issues).where(eq(issues.id, seeded.issueId));
+    expect(updatedIssue?.status).toBe("todo");
+
+    const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, seeded.agentId));
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]?.payload).toMatchObject({
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      interactionStatus: "rejected",
+      mutation: "interaction",
+    });
 
     const events = await db.select().from(activityLog).where(eq(activityLog.entityId, seeded.issueId));
     expect(events.some((event) => event.action === "issue.comment_added")).toBe(true);

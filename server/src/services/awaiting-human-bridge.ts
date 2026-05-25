@@ -37,7 +37,7 @@ export type AwaitingHumanBridgeAdapter = {
     notification: AwaitingHumanNotificationPayload;
     externalThreadId?: string | null;
   }): Promise<{
-    externalThreadId: string;
+    externalThreadId: string | null;
     externalMessageId?: string | null;
     nextPollAt?: Date | null;
   }>;
@@ -1285,6 +1285,24 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             outcome: "expired",
             reason: expiredBody,
           });
+          const interaction = await interactionsSvc.rejectInteraction({
+            id: row.issueId,
+            companyId: row.companyId,
+          }, row.interactionId, {
+            reason: expiredBody,
+          }, { actorType: "system" });
+          if (row.agentId) {
+            await insertWakeup({
+              companyId: row.companyId,
+              agentId: row.agentId,
+              payload: {
+                issueId: row.issueId,
+                interactionId: interaction.id,
+                interactionStatus: interaction.status,
+                mutation: "interaction",
+              },
+            });
+          }
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           await logActivity(db, {
