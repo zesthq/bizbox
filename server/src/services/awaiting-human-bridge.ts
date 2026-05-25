@@ -1252,17 +1252,35 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       ));
 
       for (const row of rows) {
-        await addSystemIssueComment({
-          companyId: row.companyId,
-          issueId: row.issueId,
-          interactionId: row.interactionId,
-          body: "Awaiting human bridge timed out before a human response was received.",
-        });
-        await this.closeBridge({
-          bridgeId: row.id,
-          outcome: "expired",
-          reason: "Awaiting human bridge timed out before a human response was received.",
-        });
+        try {
+          await addSystemIssueComment({
+            companyId: row.companyId,
+            issueId: row.issueId,
+            interactionId: row.interactionId,
+            body: "Awaiting human bridge timed out before a human response was received.",
+          });
+          await this.closeBridge({
+            bridgeId: row.id,
+            outcome: "expired",
+            reason: "Awaiting human bridge timed out before a human response was received.",
+          });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          await logActivity(db, {
+            companyId: row.companyId,
+            actorType: "system",
+            actorId: "awaiting_human_bridge",
+            action: "issue.awaiting_human.bridge_expire_failed",
+            entityType: "issue",
+            entityId: row.issueId,
+            details: {
+              bridgeId: row.id,
+              interactionId: row.interactionId,
+              provider: row.provider,
+              detail,
+            },
+          });
+        }
       }
     },
 

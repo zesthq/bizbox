@@ -907,6 +907,76 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it("continues expiring later bridges when one bridge fails to close", async () => {
+    const seededOne = await seedAwaitingHumanInteraction();
+    const seededTwo = await seedAwaitingHumanInteraction();
+    let failingBridgeId: string | null = null;
+    const close = vi.fn(async ({ bridgeId }: { bridgeId: string }) => {
+      if (bridgeId === failingBridgeId) {
+        throw new Error("clickup bridge close failed");
+      }
+    });
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({ status: "ok", detail: "ok", events: [] })),
+        close,
+      }),
+    });
+
+    const bridgeOne = await service.openOrReuseForInteraction({
+      companyId: seededOne.companyId,
+      issueId: seededOne.issueId,
+      interactionId: seededOne.interactionId,
+      agentId: seededOne.agentId,
+      ...approvalNotification(),
+    });
+    const bridgeTwo = await service.openOrReuseForInteraction({
+      companyId: seededTwo.companyId,
+      issueId: seededTwo.issueId,
+      interactionId: seededTwo.interactionId,
+      agentId: seededTwo.agentId,
+      ...approvalNotification(),
+    });
+
+    failingBridgeId = bridgeOne.id;
+
+    await db.update(awaitingHumanBridges).set({
+      createdAt: new Date("2026-05-21T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-21T00:00:00.000Z"),
+    }).where(eq(awaitingHumanBridges.id, bridgeOne.id));
+    await db.update(awaitingHumanBridges).set({
+      createdAt: new Date("2026-05-21T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-21T00:00:00.000Z"),
+    }).where(eq(awaitingHumanBridges.id, bridgeTwo.id));
+
+    await service.expireWaitingBridges(new Date("2026-05-22T12:00:00.000Z"), 60 * 60 * 1000);
+
+    const [updatedOne] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridgeOne.id));
+    const [updatedTwo] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridgeTwo.id));
+    expect(updatedOne).toEqual(expect.objectContaining({
+      status: "waiting_for_human",
+    }));
+    expect(updatedTwo).toEqual(expect.objectContaining({
+      status: "closed",
+      closeOutcome: "expired",
+    }));
+
+    const commentsOne = await db.select().from(issueComments).where(eq(issueComments.issueId, seededOne.issueId));
+    const commentsTwo = await db.select().from(issueComments).where(eq(issueComments.issueId, seededTwo.issueId));
+    expect(commentsOne).toHaveLength(1);
+    expect(commentsTwo).toHaveLength(1);
+
+    const eventsOne = await db.select().from(activityLog).where(eq(activityLog.entityId, seededOne.issueId));
+    expect(eventsOne.some((event) => event.action === "issue.awaiting_human.bridge_expire_failed")).toBe(true);
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+
   it("marks the bridge failed and records visible evidence when the provider poll fails", async () => {
     const seeded = await seedAwaitingHumanInteraction();
     const service = awaitingHumanBridgeService(db, {
