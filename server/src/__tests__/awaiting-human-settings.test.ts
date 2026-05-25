@@ -92,6 +92,43 @@ describeEmbeddedPostgres("awaitingHumanSettingsService", () => {
     }));
   });
 
+  it("uses an upsert when two first-time saves race for the same company", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const service = awaitingHumanSettingsService(db);
+    const input = {
+      enabled: true,
+      provider: "clickup" as const,
+      providerConfig: {
+        workspaceId: "workspace-123",
+        channelId: "channel-123",
+      },
+    };
+
+    await Promise.all([
+      service.update(companyId, input, { userId: "user-1", agentId: null }),
+      service.update(companyId, input, { userId: "user-2", agentId: null }),
+    ]);
+
+    const rows = await db.select().from(companyAwaitingHumanSettings).where(eq(companyAwaitingHumanSettings.companyId, companyId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(expect.objectContaining({
+      companyId,
+      enabled: true,
+      provider: "clickup",
+      providerConfigJson: expect.objectContaining({
+        workspaceId: "workspace-123",
+        channelId: "channel-123",
+      }),
+    }));
+  });
+
   it("defaults companies without a settings row to disabled awaiting-human delivery", async () => {
     const companyId = randomUUID();
 

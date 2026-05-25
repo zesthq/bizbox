@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MessageSquare, Save } from "lucide-react";
+import { Loader2, MessageSquare, Save } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "@/context/CompanyContext";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
@@ -79,6 +79,29 @@ export function CompanyAwaitingHumanSettings() {
     return (
       <div className="text-sm text-muted-foreground">
         No company selected. Select a company before editing awaiting-human settings.
+      </div>
+    );
+  }
+
+  if (settingsQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card px-6 py-5 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+        Loading awaiting-human settings…
+      </div>
+    );
+  }
+
+  if (settingsQuery.isError) {
+    return (
+      <div className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-foreground">
+        <div className="font-semibold text-destructive">Failed to load awaiting-human settings</div>
+        <div className="text-muted-foreground">
+          {settingsQuery.error instanceof Error ? settingsQuery.error.message : "Please try again."}
+        </div>
+        <Button size="sm" variant="outline" onClick={() => settingsQuery.refetch()}>
+          Retry
+        </Button>
       </div>
     );
   }

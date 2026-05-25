@@ -1265,22 +1265,25 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     async expireWaitingBridges(now = new Date(), maxAgeMs = 24 * 60 * 60 * 1000) {
       const deadline = new Date(now.getTime() - maxAgeMs);
       const rows = await db.select().from(awaitingHumanBridges).where(and(
-        eq(awaitingHumanBridges.status, "waiting_for_human"),
+        inArray(awaitingHumanBridges.status, ["waiting_for_human", "failed"]),
         lte(awaitingHumanBridges.createdAt, deadline),
       )).orderBy(asc(awaitingHumanBridges.createdAt)).limit(200);
 
       for (const row of rows) {
         try {
+          const expiredBody = row.status === "failed"
+            ? "Awaiting human bridge failed to deliver before a human response was received."
+            : "Awaiting human bridge timed out before a human response was received.";
           await addSystemIssueComment({
             companyId: row.companyId,
             issueId: row.issueId,
             interactionId: row.interactionId,
-            body: "Awaiting human bridge timed out before a human response was received.",
+            body: expiredBody,
           });
           await this.closeBridge({
             bridgeId: row.id,
             outcome: "expired",
-            reason: "Awaiting human bridge timed out before a human response was received.",
+            reason: expiredBody,
           });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);

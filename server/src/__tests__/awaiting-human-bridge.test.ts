@@ -1008,6 +1008,51 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it("expires a failed bridge delivery so it does not stay stranded", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => {
+          throw new Error("clickup send failed");
+        }),
+        poll: vi.fn(async () => ({ status: "ok", detail: "ok", events: [] })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    await expect(service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    })).rejects.toThrow("clickup send failed");
+
+    const [failedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
+    expect(failedBridge).toEqual(expect.objectContaining({
+      status: "failed",
+      lastError: "clickup send failed",
+    }));
+
+    await db.update(awaitingHumanBridges).set({
+      createdAt: new Date("2026-05-21T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-21T00:00:00.000Z"),
+    }).where(eq(awaitingHumanBridges.id, failedBridge!.id));
+
+    await service.expireWaitingBridges(new Date("2026-05-22T12:00:00.000Z"), 60 * 60 * 1000);
+
+    const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, failedBridge!.id));
+    expect(updatedBridge).toEqual(expect.objectContaining({
+      status: "closed",
+      closeOutcome: "expired",
+    }));
+
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.body).toContain("failed to deliver");
+  });
+
   it("continues expiring later bridges when one bridge fails to close", async () => {
     const seededOne = await seedAwaitingHumanInteraction();
     const seededTwo = await seedAwaitingHumanInteraction();

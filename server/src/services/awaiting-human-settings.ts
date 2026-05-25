@@ -188,6 +188,9 @@ export function awaitingHumanSettingsService(db: Db) {
       await db.insert(companyAwaitingHumanSettings).values({
         companyId,
         ...values,
+      }).onConflictDoUpdate({
+        target: companyAwaitingHumanSettings.companyId,
+        set: values,
       });
     }
 
