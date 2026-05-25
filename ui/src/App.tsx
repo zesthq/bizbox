@@ -31,6 +31,7 @@ import { CompanySettings } from "./pages/CompanySettings";
 import { CompanyAccess } from "./pages/CompanyAccess";
 import { CompanyInvites } from "./pages/CompanyInvites";
 import { CompanyBuilderSettings } from "./pages/CompanyBuilderSettings";
+import { CompanyAwaitingHumanSettings } from "./pages/CompanyAwaitingHumanSettings";
 import { CompanySkills } from "./pages/CompanySkills";
 import { CompanyBuilder } from "./pages/CompanyBuilder";
 import { CompanyExport } from "./pages/CompanyExport";
@@ -66,6 +67,7 @@ function boardRoutes() {
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="company/settings" element={<CompanySettings />} />
+      <Route path="company/settings/awaiting-human" element={<CompanyAwaitingHumanSettings />} />
       <Route path="company/settings/builder" element={<CompanyBuilderSettings />} />
       <Route path="company/settings/access" element={<CompanyAccess />} />
       <Route path="company/settings/invites" element={<CompanyInvites />} />

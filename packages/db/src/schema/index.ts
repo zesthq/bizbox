@@ -1,5 +1,6 @@
 export { companies } from "./companies.js";
 export { companyLogos } from "./company_logos.js";
+export { companyAwaitingHumanSettings } from "./company_awaiting_human_settings.js";
 export { authUsers, authSessions, authAccounts, authVerifications } from "./auth.js";
 export { instanceSettings } from "./instance_settings.js";
 export { instanceUserRoles } from "./instance_user_roles.js";
@@ -52,6 +53,8 @@ export { issueAttachments } from "./issue_attachments.js";
 export { documents } from "./documents.js";
 export { documentRevisions } from "./document_revisions.js";
 export { issueDocuments } from "./issue_documents.js";
+export { awaitingHumanBridges } from "./awaiting_human_bridges.js";
+export { awaitingHumanBridgeInboundEvents } from "./awaiting_human_bridge_inbound_events.js";
 export { clickupBridges } from "./clickup_bridges.js";
 export { clickupOutboundEvents } from "./clickup_outbound_events.js";
 export { awaitingHumanNotificationOutbox } from "./awaiting_human_notification_outbox.js";

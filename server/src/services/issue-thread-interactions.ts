@@ -36,6 +36,7 @@ import {
   suggestTasksResultSchema,
 } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
+import { logger } from "../middleware/logger.js";
 import { maybeLogAwaitingHumanHandoff } from "./awaiting-human-handoff.js";
 import { issueService } from "./issues.js";
 
@@ -79,6 +80,14 @@ type IssueResolutionContext = {
   status: string;
   assigneeAgentId: string | null;
   assigneeUserId: string | null;
+};
+
+type IssueThreadInteractionDeps = {
+  openAwaitingHumanBridge?: (input: {
+    companyId: string;
+    issueId: string;
+    interactionId: string;
+  }) => Promise<void>;
 };
 
 function isIssueThreadInteractionIdempotencyConflict(error: unknown): boolean {
@@ -496,7 +505,7 @@ async function expireStaleRequestConfirmationTarget(db: Db | any, args: {
   return hydrateInteraction(updated);
 }
 
-export function issueThreadInteractionService(db: Db) {
+export function issueThreadInteractionService(db: Db, deps: IssueThreadInteractionDeps = {}) {
   async function getIdempotentInteraction(args: {
     issueId: string;
     companyId: string;
@@ -890,27 +899,57 @@ export function issueThreadInteractionService(db: Db) {
           .from(issues)
           .where(eq(issues.id, issue.id))
           .then((rows) => rows[0] ?? null);
-        if (currentIssueRow && currentIssueRow.status === "in_progress") {
-          const updatedIssue = await issueService(db).update(issue.id, {
-            status: "awaiting_human",
-            actorAgentId: actor.agentId,
-            actorUserId: actor.userId ?? null,
-          });
-          if (updatedIssue) {
+        if (currentIssueRow) {
+          const actorInfo = {
+            actorType: (actor.userId ? "user" : actor.agentId ? "agent" : "system") as "user" | "agent" | "system",
+            actorId: actor.userId ?? actor.agentId ?? "system",
+            agentId: actor.agentId ?? null,
+            userId: actor.userId ?? null,
+          };
+          if (currentIssueRow.status === "in_progress") {
+            const updatedIssue = await issueService(db).update(issue.id, {
+              status: "awaiting_human",
+              actorAgentId: actor.agentId,
+              actorUserId: actor.userId ?? null,
+            });
+            if (updatedIssue) {
+              await maybeLogAwaitingHumanHandoff(db, {
+                previousIssue: currentIssueRow,
+                updatedIssue,
+                source: "issue_thread_interactions.create_auto_park",
+                handoffKind: data.kind,
+                interaction: buildAwaitingHumanInteraction(created.id, data),
+                actor: actorInfo,
+                emitIssueUpdatedActivity: true,
+                delivery: "none",
+              });
+            }
+          } else if (currentIssueRow.status === "awaiting_human") {
             await maybeLogAwaitingHumanHandoff(db, {
               previousIssue: currentIssueRow,
-              updatedIssue,
-              source: "issue_thread_interactions.create_auto_park",
+              updatedIssue: currentIssueRow,
+              source: "issue_thread_interactions.create_retry_handoff",
               handoffKind: data.kind,
               interaction: buildAwaitingHumanInteraction(created.id, data),
-              actor: {
-                actorType: actor.userId ? "user" : actor.agentId ? "agent" : "system",
-                actorId: actor.userId ?? actor.agentId ?? "system",
-                agentId: actor.agentId ?? null,
-                userId: actor.userId ?? null,
-              },
-              emitIssueUpdatedActivity: true,
+              actor: actorInfo,
+              emitIssueUpdatedActivity: false,
+              delivery: "none",
             });
+          }
+
+          if (deps.openAwaitingHumanBridge) {
+            try {
+              await deps.openAwaitingHumanBridge({
+                companyId: issue.companyId,
+                issueId: issue.id,
+                interactionId: created.id,
+              });
+            } catch (err) {
+              logger.warn(
+                { err, issueId: issue.id, interactionId: created.id, interactionKind: data.kind },
+                "failed to open awaiting human bridge after interaction create",
+              );
+            }
           }
         }
       }

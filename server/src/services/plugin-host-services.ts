@@ -50,6 +50,7 @@ import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { logger } from "../middleware/logger.js";
 import { getTelemetryClient } from "../telemetry.js";
+import { awaitingHumanBridgeRuntime } from "./awaiting-human-bridge-runtime.js";
 
 // ---------------------------------------------------------------------------
 // SSRF protection for plugin HTTP fetch
@@ -476,6 +477,12 @@ export function buildHostServices(
   const budgets = budgetService(db);
   const issueApprovals = issueApprovalService(db);
   const assets = assetService(db);
+  const awaitingHumanBridge = awaitingHumanBridgeRuntime(db);
+  const interactionsSvc = issueThreadInteractionService(db, {
+    openAwaitingHumanBridge: async ({ companyId, issueId, interactionId }) => {
+      await awaitingHumanBridge.openForPendingInteraction({ companyId, issueId, interactionId });
+    },
+  });
   const scopedBus = eventBus.forPlugin(pluginKey);
 
   // Track active session event subscriptions for cleanup
@@ -1511,7 +1518,7 @@ export function buildHostServices(
         const companyId = ensureCompanyId(params.companyId);
         await ensurePluginAvailableForCompany(companyId);
         const issue = requireInCompany("Issue", await issues.getById(params.issueId), companyId);
-        const interaction = await issueThreadInteractionService(db).create(issue, params.interaction as CreateIssueThreadInteraction, {
+        const interaction = await interactionsSvc.create(issue, params.interaction as CreateIssueThreadInteraction, {
           actorType: "agent",
           agentId: params.authorAgentId ?? null,
           userId: null,

@@ -5,6 +5,8 @@ import {
   activityLog,
   agents,
   agentWakeupRequests,
+  awaitingHumanBridgeInboundEvents,
+  awaitingHumanBridges,
   companies,
   createDb,
   goals,
@@ -100,6 +102,8 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     await db.delete(activityLog);
     await db.delete(heartbeatRuns);
     await db.delete(agentWakeupRequests);
+    await db.delete(awaitingHumanBridgeInboundEvents);
+    await db.delete(awaitingHumanBridges);
     await db.delete(issueThreadInteractions);
     await db.delete(issueComments);
     await db.delete(issues);
@@ -188,22 +192,16 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
       agentId,
     });
 
-    await db.insert(activityLog).values({
+    await db.insert(awaitingHumanBridges).values({
       companyId,
-      actorType: "system",
-      actorId: "system",
-      action: "issue.awaiting_human.entered",
-      entityType: "issue",
-      entityId: issueId,
-      details: {
-        interactionId: interaction.id,
-        notificationDelivery: {
-          status: "sent",
-          channel: "clickup-chat",
-          detail: "sent",
-          externalId: opts && "externalId" in opts ? opts.externalId : "message-42",
-        },
-      },
+      issueId,
+      interactionId: interaction.id,
+      agentId,
+      provider: "clickup",
+      status: "waiting_for_human",
+      externalMessageId: opts && "externalId" in opts ? opts.externalId : "message-42",
+      externalThreadId: null,
+      nextPollAt: new Date(Date.now() - 1_000),
     });
 
     return { companyId, goalId, issueId, agentId, interactionId: interaction.id };
@@ -244,6 +242,14 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     expect(wakes).toHaveLength(1);
     const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
     expect(comments).toHaveLength(0);
+    const bridges = await db.select().from(awaitingHumanBridges)
+      .where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0]).toEqual(expect.objectContaining({
+      externalMessageId: "message-42",
+      status: "closed",
+      closeOutcome: "approved",
+    }));
 
     const acceptedActivity = await db
       .select()
@@ -517,7 +523,7 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     const result = await heartbeat.reconcileAwaitingHumanApprovals();
 
     expect(result.approved).toBe(0);
-    expect(result.checked).toBe(0);
+    expect(result.checked).toBe(1);
     expect(result.skipped).toBeGreaterThan(0);
     const interaction = await db
       .select()

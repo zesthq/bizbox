@@ -888,9 +888,78 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       issuePath: expect.stringContaining("/issues/"),
       handoffKind: "ask_user_questions",
       needsHumanInput: "Need answers to 1 question(s).",
+      notificationDelivery: expect.objectContaining({
+        status: "skipped",
+        channel: "audit-only",
+      }),
       notification: expect.objectContaining({
         link: expect.stringContaining("/issues/"),
       }),
+    });
+  });
+
+  it("opens the awaiting-human bridge directly when an agent creates an awaiting-human interaction", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+    const agentId = randomUUID();
+    const openAwaitingHumanBridge = vi.fn(async () => {});
+    const svc = issueThreadInteractionService(db, { openAwaitingHumanBridge });
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Direct awaiting-human bridge open",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Engineer",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Parent issue",
+      status: "in_progress",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    const created = await svc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "request_confirmation",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Approve the rollout?",
+      },
+    }, {
+      agentId,
+    });
+
+    expect(openAwaitingHumanBridge).toHaveBeenCalledTimes(1);
+    expect(openAwaitingHumanBridge).toHaveBeenCalledWith({
+      companyId,
+      issueId,
+      interactionId: created.id,
     });
   });
 
@@ -963,6 +1032,94 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
       needsHumanInput: "Need approval on the exact reply draft before posting.",
       notification: expect.objectContaining({
         summary: "Need approval on the exact reply draft before posting.",
+      }),
+    });
+  });
+
+  it("logs a fresh awaiting-human handoff when an agent retries with ask_user_questions on an already awaiting_human issue", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+    const agentId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Retry awaiting-human bridge",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Engineer",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Parent issue",
+      status: "awaiting_human",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    const created = await interactionsSvc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "ask_user_questions",
+      continuationPolicy: "wake_assignee",
+      summary: "Need rename details from the board.",
+      payload: {
+        version: 1,
+        questions: [
+          {
+            id: "rename-details",
+            prompt: "What exact company name should I use?",
+            selectionMode: "single",
+            required: true,
+            options: [
+              { id: "display-only", label: "Display name only" },
+              { id: "all-records", label: "All company records" },
+            ],
+          },
+        ],
+      },
+    }, {
+      agentId,
+    });
+
+    const updated = (await db.select().from(issues)).find((row) => row.id === issueId);
+    expect(updated?.status).toBe("awaiting_human");
+
+    const handoffs = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "issue.awaiting_human.entered"));
+    expect(handoffs).toHaveLength(1);
+    expect(handoffs[0]?.details).toMatchObject({
+      issueId,
+      interactionId: created.id,
+      interactionKind: "ask_user_questions",
+      handoffKind: "ask_user_questions",
+      needsHumanInput: "Need rename details from the board.",
+      notificationDelivery: expect.objectContaining({
+        status: "skipped",
+        channel: "audit-only",
       }),
     });
   });
