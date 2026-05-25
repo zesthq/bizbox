@@ -1298,16 +1298,16 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
           const expiredBody = row.status === "failed"
             ? "Awaiting human bridge failed to deliver before a human response was received."
             : "Awaiting human bridge timed out before a human response was received.";
+          await this.closeBridge({
+            bridgeId: row.id,
+            outcome: "expired",
+            reason: expiredBody,
+          });
           await addSystemIssueComment({
             companyId: row.companyId,
             issueId: row.issueId,
             interactionId: row.interactionId,
             body: expiredBody,
-          });
-          await this.closeBridge({
-            bridgeId: row.id,
-            outcome: "expired",
-            reason: expiredBody,
           });
           const interaction = await interactionsSvc.rejectInteraction({
             id: row.issueId,

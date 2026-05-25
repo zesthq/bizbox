@@ -993,6 +993,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     }).where(eq(awaitingHumanBridges.id, bridge.id));
 
     await service.expireWaitingBridges(new Date("2026-05-22T12:00:00.000Z"), 60 * 60 * 1000);
+    await service.expireWaitingBridges(new Date("2026-05-22T12:05:00.000Z"), 60 * 60 * 1000);
 
     const [interaction] = await db.select().from(issueThreadInteractions)
       .where(eq(issueThreadInteractions.id, seeded.interactionId));
@@ -1133,7 +1134,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
 
     const commentsOne = await db.select().from(issueComments).where(eq(issueComments.issueId, seededOne.issueId));
     const commentsTwo = await db.select().from(issueComments).where(eq(issueComments.issueId, seededTwo.issueId));
-    expect(commentsOne).toHaveLength(1);
+    expect(commentsOne).toHaveLength(0);
     expect(commentsTwo).toHaveLength(1);
 
     const eventsOne = await db.select().from(activityLog).where(eq(activityLog.entityId, seededOne.issueId));
