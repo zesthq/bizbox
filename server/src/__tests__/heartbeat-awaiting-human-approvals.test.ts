@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   activityLog,
@@ -20,8 +20,11 @@ import {
   agentRuntimeState,
   instanceSettings,
   issueComments,
+  issueDocuments,
   issueThreadInteractions,
   issues,
+  documentRevisions,
+  documents,
 } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -107,25 +110,32 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     delete process.env.CLICKUP_PERSONAL_TOKEN;
     delete process.env.CLICKUP_WORKSPACE_ID;
     delete process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS;
-    await db.delete(activityLog);
-    await db.delete(heartbeatRunEvents);
-    await db.delete(agentRuntimeState);
-    await db.delete(heartbeatRuns);
-    await db.delete(agentWakeupRequests);
-    await db.delete(awaitingHumanBridgeInboundEvents);
-    await db.delete(awaitingHumanBridges);
-    await db.delete(environmentLeases);
-    await db.delete(companyAwaitingHumanSettings);
-    await db.delete(companySecretVersions);
-    await db.delete(companySecrets);
-    await db.delete(companySkills);
-    await db.delete(issueThreadInteractions);
-    await db.delete(issueComments);
-    await db.delete(issues);
-    await db.delete(goals);
-    await db.delete(agents);
-    await db.delete(instanceSettings);
-    await db.delete(companies);
+    await db.execute(sql`
+      truncate table
+        ${activityLog},
+        ${heartbeatRunEvents},
+        ${agentRuntimeState},
+        ${heartbeatRuns},
+        ${agentWakeupRequests},
+        ${awaitingHumanBridgeInboundEvents},
+        ${awaitingHumanBridges},
+        ${environmentLeases},
+        ${companyAwaitingHumanSettings},
+        ${companySecretVersions},
+        ${companySecrets},
+        ${companySkills},
+        ${issueDocuments},
+        ${documents},
+        ${issueThreadInteractions},
+        ${issueComments},
+        ${issues},
+        ${goals},
+        ${documentRevisions},
+        ${agents},
+        ${instanceSettings},
+        ${companies}
+      restart identity cascade
+    `);
   });
 
   afterAll(async () => {
@@ -294,14 +304,14 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   it("accepts a pending confirmation when a positive ClickUp reaction is detected", async () => {
     const seeded = await seedAwaitingHumanConfirmation();
     globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce({
+      .mockImplementationOnce(async () => ({
         ok: true,
         json: async () => ({ data: [] }),
-      })
-      .mockResolvedValueOnce({
+      }))
+      .mockImplementation(async () => ({
         ok: true,
         json: async () => ({ data: [{ reaction: "heavy_check_mark", count: 1 }] }),
-      }) as typeof fetch;
+      })) as typeof fetch;
 
     const result = await heartbeat.reconcileAwaitingHumanApprovals();
 

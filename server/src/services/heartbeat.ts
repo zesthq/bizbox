@@ -24,6 +24,7 @@ import {
   agentTaskSessions,
   agentWakeupRequests,
   activityLog,
+  awaitingHumanBridges,
   clickupBridges,
   companySkills as companySkillsTable,
   documentRevisions,
@@ -5340,9 +5341,20 @@ export function heartbeatService(db: Db) {
         handoffDetails: activityLog.details,
       })
       .from(activityLog)
+      .innerJoin(issues, and(
+        eq(activityLog.companyId, issues.companyId),
+        sql`${activityLog.entityId} = cast(${issues.id} as text)`,
+      ))
       .where(and(
         eq(activityLog.entityType, "issue"),
         eq(activityLog.action, "issue.awaiting_human.entered"),
+        eq(issues.status, "awaiting_human"),
+        sql`not exists (
+          select 1
+          from ${awaitingHumanBridges}
+          where ${awaitingHumanBridges.interactionId} = cast(${activityLog.details} ->> 'interactionId' as uuid)
+            and ${awaitingHumanBridges.status} in ('pending_delivery', 'waiting_for_human')
+        )`,
       ))
       .orderBy(desc(activityLog.createdAt))
       .limit(200);

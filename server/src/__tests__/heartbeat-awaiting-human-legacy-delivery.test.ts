@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { activityLog, companies, createDb } from "@paperclipai/db";
+import { activityLog, companies, createDb, goals, issues } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -50,6 +50,8 @@ describeEmbeddedPostgres("heartbeat legacy awaiting_human delivery reconciliatio
 
   afterEach(async () => {
     await db.delete(activityLog);
+    await db.delete(issues);
+    await db.delete(goals);
     await db.delete(companies);
     mockExpireWaitingBridges.mockClear();
     mockReconcileDeliveredInteractions.mockClear();
@@ -62,6 +64,7 @@ describeEmbeddedPostgres("heartbeat legacy awaiting_human delivery reconciliatio
 
   it("forwards legacy delivered handoffs into the bridge reconciler", async () => {
     const companyId = randomUUID();
+    const goalId = randomUUID();
     const issueId = randomUUID();
     const interactionId = randomUUID();
 
@@ -70,6 +73,22 @@ describeEmbeddedPostgres("heartbeat legacy awaiting_human delivery reconciliatio
       name: "Paperclip",
       issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
       requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Legacy bridge goal",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Awaiting legacy approval",
+      status: "awaiting_human",
+      priority: "medium",
+      assigneeUserId: "local-board",
     });
     await db.insert(activityLog).values({
       companyId,
