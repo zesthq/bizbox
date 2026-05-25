@@ -555,6 +555,10 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     });
   }
 
+  async function touchIssueUpdatedAt(issueId: string) {
+    await db.update(issues).set({ updatedAt: new Date() }).where(eq(issues.id, issueId));
+  }
+
   async function dedupeInboundEvent(bridgeId: string, externalEventId: string | null) {
     if (!externalEventId) return false;
     const existing = await db
@@ -657,6 +661,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       createdByRunId: null,
       body: input.body,
     }).returning();
+    await touchIssueUpdatedAt(input.issueId);
     await logActivity(db, {
       companyId: input.companyId,
       actorType: "system",
@@ -982,21 +987,21 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
         const externalEventId = event.externalEventId?.trim() || null;
         if (await dedupeInboundEvent(row.id, externalEventId)) continue;
 
-        try {
-          await db.insert(awaitingHumanBridgeInboundEvents).values({
-            bridgeId: row.id,
-            eventKind: event.kind,
-            externalEventId,
-            externalMessageId: event.externalMessageId?.trim() || null,
-            externalThreadId: event.externalThreadId?.trim() || null,
-            payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
-          });
-        } catch (error) {
-          if (isUniqueViolation(error)) continue;
-          throw error;
-        }
-
         if (event.kind === "reply" && event.body?.trim()) {
+          try {
+            await db.insert(awaitingHumanBridgeInboundEvents).values({
+              bridgeId: row.id,
+              eventKind: event.kind,
+              externalEventId,
+              externalMessageId: event.externalMessageId?.trim() || null,
+              externalThreadId: event.externalThreadId?.trim() || null,
+              payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+            });
+          } catch (error) {
+            if (isUniqueViolation(error)) continue;
+            throw error;
+          }
+
           const body = `ClickUp reply received:\n\n${event.body.trim()}`;
           const [comment] = await db.insert(issueComments).values({
             companyId: row.companyId,
@@ -1006,6 +1011,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             createdByRunId: null,
             body,
           }).returning();
+          await touchIssueUpdatedAt(row.issueId);
 
           const [issueRow] = await db.select({
             status: issues.status,
@@ -1181,6 +1187,15 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             outcome: "approved",
             reason: event.body?.trim() || null,
           });
+
+          await db.insert(awaitingHumanBridgeInboundEvents).values({
+            bridgeId: row.id,
+            eventKind: event.kind,
+            externalEventId,
+            externalMessageId: event.externalMessageId?.trim() || null,
+            externalThreadId: event.externalThreadId?.trim() || null,
+            payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+          });
           summary.approved += 1;
           summary.approvedIssueIds.push(row.issueId);
           summary.approvedInteractionIds.push(row.interactionId);
@@ -1210,6 +1225,15 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             bridgeId: row.id,
             outcome: "rejected",
             reason: event.body?.trim() || null,
+          });
+
+          await db.insert(awaitingHumanBridgeInboundEvents).values({
+            bridgeId: row.id,
+            eventKind: event.kind,
+            externalEventId,
+            externalMessageId: event.externalMessageId?.trim() || null,
+            externalThreadId: event.externalThreadId?.trim() || null,
+            payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
           });
           summary.rejected += 1;
           return summary;

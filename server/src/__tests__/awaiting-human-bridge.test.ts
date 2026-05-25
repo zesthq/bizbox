@@ -430,6 +430,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
 
   it("imports a plain reply as an issue comment, wakes the agent, and keeps the bridge open", async () => {
     const seeded = await seedAwaitingHumanInteraction();
+    const [issueBefore] = await db.select({ updatedAt: issues.updatedAt }).from(issues).where(eq(issues.id, seeded.issueId));
     const service = awaitingHumanBridgeService(db, {
       resolveProviderForCompany: async () => "clickup",
       resolveAdapter: () => ({
@@ -488,6 +489,9 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
 
     const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
     expect(updatedBridge?.status).toBe("waiting_for_human");
+
+    const [issueAfter] = await db.select({ updatedAt: issues.updatedAt }).from(issues).where(eq(issues.id, seeded.issueId));
+    expect(issueAfter && issueBefore && issueAfter.updatedAt.getTime()).toBeGreaterThan(issueBefore.updatedAt.getTime());
   });
 
   it("skips a duplicate inbound event when overlapping polls race on the same ClickUp reply", async () => {
@@ -960,6 +964,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
 
   it("expires an overdue bridge, rejects the interaction, and wakes the agent", async () => {
     const seeded = await seedAwaitingHumanInteraction();
+    const [issueBefore] = await db.select({ updatedAt: issues.updatedAt }).from(issues).where(eq(issues.id, seeded.issueId));
     const close = vi.fn(async () => {});
     const service = awaitingHumanBridgeService(db, {
       resolveProviderForCompany: async () => "clickup",
@@ -1005,6 +1010,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
 
     const [updatedIssue] = await db.select().from(issues).where(eq(issues.id, seeded.issueId));
     expect(updatedIssue?.status).toBe("todo");
+    expect(updatedIssue && issueBefore && updatedIssue.updatedAt.getTime()).toBeGreaterThan(issueBefore.updatedAt.getTime());
 
     const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, seeded.agentId));
     expect(wakes).toHaveLength(1);
