@@ -101,11 +101,11 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     delete process.env.CLICKUP_APPROVAL_NEGATIVE_REACTIONS;
     await db.delete(activityLog);
     await db.delete(heartbeatRuns);
-    await db.delete(agentWakeupRequests);
     await db.delete(issueThreadInteractions);
     await db.delete(issueComments);
     await db.delete(issues);
     await db.delete(goals);
+    await db.delete(agentWakeupRequests);
     await db.delete(agents);
     await db.delete(instanceSettings);
     await db.delete(companies);
