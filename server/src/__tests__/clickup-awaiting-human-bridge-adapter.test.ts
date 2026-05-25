@@ -173,6 +173,111 @@ describe("clickupAwaitingHumanBridgeAdapter", () => {
     }));
   });
 
+  it("uses a thumbs down reaction when close is rejected", async () => {
+    mocks.sendAwaitingHumanNotification.mockResolvedValueOnce({
+      status: "sent",
+      channel: "clickup-chat",
+      detail: "sent",
+      externalId: "message-1",
+    });
+    const adapter = clickupAwaitingHumanBridgeAdapter(makeDb());
+
+    await adapter.send({
+      bridgeId: "bridge-1",
+      companyId: "company-1",
+      issueId: "issue-1",
+      interactionId: "interaction-1",
+      agentId: "agent-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title: "Title",
+        summary: "Summary",
+        link: "https://bizbox.example/issues/1",
+        cta: "Respond",
+        labels: ["awaiting_human"],
+      },
+    });
+
+    vi.clearAllMocks();
+
+    await adapter.close({
+      bridgeId: "bridge-1",
+      externalMessageId: "message-1",
+      outcome: "rejected",
+      reason: "No",
+    });
+
+    expect(mocks.deleteClickUpChatMessageReaction).toHaveBeenCalledWith(
+      "message-1",
+      "brain_is_thinking",
+      expect.objectContaining({
+        personalToken: "token-123",
+        workspaceId: "workspace-1",
+        channelId: "channel-1",
+      }),
+    );
+    expect(mocks.addClickUpChatMessageReaction).toHaveBeenCalledWith(
+      "message-1",
+      "thumbsdown",
+      expect.objectContaining({
+        personalToken: "token-123",
+        workspaceId: "workspace-1",
+        channelId: "channel-1",
+      }),
+    );
+    expect(mocks.addClickUpChatMessageReaction).not.toHaveBeenCalledWith(
+      "message-1",
+      "white_check_mark",
+      expect.anything(),
+    );
+  });
+
+  it("does not add a terminal reaction when close expires", async () => {
+    mocks.sendAwaitingHumanNotification.mockResolvedValueOnce({
+      status: "sent",
+      channel: "clickup-chat",
+      detail: "sent",
+      externalId: "message-1",
+    });
+    const adapter = clickupAwaitingHumanBridgeAdapter(makeDb());
+
+    await adapter.send({
+      bridgeId: "bridge-1",
+      companyId: "company-1",
+      issueId: "issue-1",
+      interactionId: "interaction-1",
+      agentId: "agent-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title: "Title",
+        summary: "Summary",
+        link: "https://bizbox.example/issues/1",
+        cta: "Respond",
+        labels: ["awaiting_human"],
+      },
+    });
+
+    vi.clearAllMocks();
+
+    await adapter.close({
+      bridgeId: "bridge-1",
+      externalMessageId: "message-1",
+      outcome: "expired",
+      reason: "Timed out",
+    });
+
+    expect(mocks.deleteClickUpChatMessageReaction).toHaveBeenCalledWith(
+      "message-1",
+      "brain_is_thinking",
+      expect.objectContaining({
+        personalToken: "token-123",
+        workspaceId: "workspace-1",
+        channelId: "channel-1",
+      }),
+    );
+    expect(mocks.addClickUpChatMessageReaction).not.toHaveBeenCalled();
+  });
+
   it("keeps external thread ids null when ClickUp omits them", async () => {
     mocks.sendAwaitingHumanNotification.mockResolvedValueOnce({
       status: "sent",

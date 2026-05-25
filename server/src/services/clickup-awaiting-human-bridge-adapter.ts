@@ -260,17 +260,31 @@ export function clickupAwaitingHumanBridgeAdapter(db: Db): AwaitingHumanBridgeAd
         reaction: "brain_is_thinking",
         overrides,
       });
-      await applyBridgeReaction({
-        db,
-        bridgeId: input.bridgeId,
-        companyId: bridge.companyId,
-        issueId: bridge.issueId,
-        interactionId: bridge.interactionId,
-        messageId,
-        reaction: "white_check_mark",
-        target: "main",
-        overrides,
-      });
+      if (input.outcome === "approved") {
+        await applyBridgeReaction({
+          db,
+          bridgeId: input.bridgeId,
+          companyId: bridge.companyId,
+          issueId: bridge.issueId,
+          interactionId: bridge.interactionId,
+          messageId,
+          reaction: "white_check_mark",
+          target: "main",
+          overrides,
+        });
+      } else if (input.outcome === "rejected") {
+        await applyBridgeReaction({
+          db,
+          bridgeId: input.bridgeId,
+          companyId: bridge.companyId,
+          issueId: bridge.issueId,
+          interactionId: bridge.interactionId,
+          messageId,
+          reaction: "thumbsdown",
+          target: "main",
+          overrides,
+        });
+      }
     },
   };
 }
