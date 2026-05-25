@@ -1,5 +1,4 @@
-import { index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { agents } from "./agents.js";
 import { companies } from "./companies.js";
 import { issues } from "./issues.js";
@@ -40,8 +39,5 @@ export const awaitingHumanBridges = pgTable(
       table.status,
       table.nextPollAt,
     ),
-    interactionActiveUq: uniqueIndex("awaiting_human_bridges_interaction_active_uq")
-      .on(table.interactionId)
-      .where(sql`${table.status} in ('pending_delivery', 'waiting_for_human')`),
   }),
 );

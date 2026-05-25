@@ -46,3 +46,5 @@ CREATE INDEX "awaiting_human_bridges_company_poll_idx" ON "awaiting_human_bridge
 CREATE INDEX "awaiting_human_bridge_inbound_events_bridge_created_at_idx" ON "awaiting_human_bridge_inbound_events" USING btree ("bridge_id","created_at");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "awaiting_human_bridge_inbound_events_external_event_uq" ON "awaiting_human_bridge_inbound_events" USING btree ("bridge_id","external_event_id") WHERE "awaiting_human_bridge_inbound_events"."external_event_id" IS NOT NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX "awaiting_human_bridges_interaction_active_uq" ON "awaiting_human_bridges" USING btree ("interaction_id") WHERE "status" in ('pending_delivery', 'waiting_for_human');
