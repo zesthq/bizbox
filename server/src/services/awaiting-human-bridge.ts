@@ -556,7 +556,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
   }
 
   async function dedupeInboundEvent(bridgeId: string, externalEventId: string | null) {
-    if (!externalEventId) return false;
+    if (!externalEventId) return true;
     const existing = await db
       .select({ id: awaitingHumanBridgeInboundEvents.id })
       .from(awaitingHumanBridgeInboundEvents)

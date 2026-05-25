@@ -554,6 +554,57 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("treats null external event ids as non-actionable and does not reprocess them", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const poll = vi.fn(async () => ({
+      status: "ok" as const,
+      detail: "ok",
+      events: [
+        {
+          kind: "reply" as const,
+          externalEventId: null,
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          body: "Please revise the summary first.",
+          metadata: {},
+        },
+      ],
+    }));
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll,
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    const bridge = await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    await service.pollBridge(bridge.id, new Date("2026-05-22T00:03:00.000Z"));
+    await service.pollBridge(bridge.id, new Date("2026-05-22T00:04:00.000Z"));
+
+    expect(poll).toHaveBeenCalledTimes(2);
+
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
+    expect(comments).toHaveLength(0);
+
+    const events = await db.select().from(awaitingHumanBridgeInboundEvents).where(
+      eq(awaitingHumanBridgeInboundEvents.bridgeId, bridge.id),
+    );
+    expect(events).toHaveLength(0);
+  });
+
   it("delegates plain reply wakes through requestWakeup when provided", async () => {
     const seeded = await seedAwaitingHumanInteraction();
     const requestWakeup = vi.fn(async () => {});
