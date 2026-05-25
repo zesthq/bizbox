@@ -26,9 +26,9 @@ auto_start_machines = true
 min_machines_running = 1
 
 [[vm]]
-memory = "2gb"
+memory = "4gb"
 cpu_kind = "shared"
-cpus = 2
+cpus = 4
 
 [[mounts]]
 source = "paperclip_data"

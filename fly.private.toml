@@ -17,9 +17,9 @@ BIZBOX_MIGRATION_AUTO_APPLY = "true"
 OPENCODE_ALLOW_ALL_MODELS = "true"
 
 [[vm]]
-memory = "2gb"
+memory = "4gb"
 cpu_kind = "shared"
-cpus = 2
+cpus = 4
 
 [[mounts]]
 source = "paperclip_data"
