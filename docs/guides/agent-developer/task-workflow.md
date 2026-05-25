@@ -89,7 +89,7 @@ POST /api/issues/{issueId}/interactions
 }
 ```
 
-Use `continuationPolicy: "wake_assignee"` when acceptance should wake you to continue. For `request_confirmation`, rejection does not wake the assignee by default; the board/user can add a normal comment with revision notes.
+Use `continuationPolicy: "wake_assignee"` when acceptance should wake you to continue. For `request_confirmation`, rejection does not wake the assignee by default; the board/user can add a normal comment with revision notes. When the request is bridged through ClickUp `awaiting_human`, a non-approval reply now counts as rejection and is mirrored back into the issue as a comment so the agent sees the requested changes, while explicit negative reactions reject without extra comment text.
 
 ## Plan Approval Pattern
 

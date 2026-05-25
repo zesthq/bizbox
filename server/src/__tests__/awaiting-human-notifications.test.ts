@@ -28,6 +28,7 @@ afterEach(() => {
   delete process.env.CLICKUP_ENGINEERING_CHANNEL_NAME;
   delete process.env.CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID;
   delete process.env.CLICKUP_APPROVAL_POSITIVE_REACTIONS;
+  delete process.env.CLICKUP_APPROVAL_NEGATIVE_REACTIONS;
   delete process.env.CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS;
 });
 
@@ -456,7 +457,7 @@ describe("sendAwaitingHumanNotification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not treat negative or ambiguous replies as approval", async () => {
+  it("treats non-approval replies as rejection with forwarded context", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
 
@@ -479,13 +480,14 @@ describe("sendAwaitingHumanNotification", () => {
     const result = await detectClickUpAwaitingHumanApproval("message-42");
 
     expect(result).toEqual({
-      status: "forward_reply",
+      status: "rejected",
       detail: "non-approval-reply-detected",
       resolutionSource: "clickup_reply",
       replies: [
         { id: "reply-1", content: "No, please revise this" },
         { id: "reply-2", content: "Can you clarify the rollout plan?" },
       ],
+      rejectionReason: "No, please revise this",
     });
   });
 
@@ -513,7 +515,7 @@ describe("sendAwaitingHumanNotification", () => {
     const result = await detectClickUpAwaitingHumanApproval("message-42");
 
     expect(result).toEqual({
-      status: "forward_reply",
+      status: "rejected",
       detail: "non-approval-reply-detected",
       resolutionSource: "clickup_reply",
       replies: [
@@ -521,6 +523,7 @@ describe("sendAwaitingHumanNotification", () => {
         { id: "reply-2", content: "don't go ahead" },
         { id: "reply-3", content: "not approved" },
       ],
+      rejectionReason: "not okay",
     });
   });
 
@@ -575,7 +578,7 @@ describe("sendAwaitingHumanNotification", () => {
     });
   });
 
-  it("returns forwardable replies when the reactions lookup fails after replies were collected", async () => {
+  it("rejects with forwarded replies when the reactions lookup fails after replies were collected", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
 
@@ -596,10 +599,11 @@ describe("sendAwaitingHumanNotification", () => {
     const result = await detectClickUpAwaitingHumanApproval("message-42");
 
     expect(result).toEqual({
-      status: "forward_reply",
+      status: "rejected",
       detail: "non-approval-reply-detected",
       resolutionSource: "clickup_reply",
       replies: [{ id: "reply-1", content: "Please fix the rollout title first." }],
+      rejectionReason: "Please fix the rollout title first.",
     });
   });
 
@@ -706,7 +710,7 @@ describe("sendAwaitingHumanNotification", () => {
     });
   });
 
-  it("ignores neutral or noisy reactions when detecting approval", async () => {
+  it("treats configured negative reactions as rejection", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
 
@@ -721,6 +725,37 @@ describe("sendAwaitingHumanNotification", () => {
           data: [
             { reaction: "eyes", count: 2 },
             { reaction: "thumbsdown", count: 1 },
+          ],
+        }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanApproval("message-42");
+
+    expect(result).toEqual({
+      status: "rejected",
+      detail: "negative-reaction-detected",
+      resolutionSource: "clickup_reaction",
+      clickupReaction: "thumbsdown",
+      rejectionReason: "Rejected in ClickUp with :thumbsdown: reaction.",
+    });
+  });
+
+  it("ignores neutral reactions when detecting approval", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { reaction: "eyes", count: 2 },
+            { reaction: "thinking_face", count: 1 },
           ],
         }),
       });

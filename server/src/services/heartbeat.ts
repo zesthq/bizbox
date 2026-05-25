@@ -136,7 +136,11 @@ import {
 import { extractSkillMentionIds } from "@paperclipai/shared";
 import { getStorageService } from "../storage/index.js";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
-import { finalizeAcceptedInteractionResolution, isClosedIssueStatus } from "./issue-interaction-resolution-effects.js";
+import {
+  finalizeAcceptedInteractionResolution,
+  isClosedIssueStatus,
+  queueResolvedInteractionContinuationWakeup,
+} from "./issue-interaction-resolution-effects.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const MAX_PERSISTED_LOG_CHUNK_CHARS = 64 * 1024;
@@ -5337,6 +5341,7 @@ export function heartbeatService(db: Db) {
     const result = {
       checked: 0,
       approved: 0,
+      rejected: 0,
       failed: 0,
       skipped: 0,
       noApproval: 0,
@@ -5373,6 +5378,111 @@ export function heartbeatService(db: Db) {
 
     function buildForwardedClickUpReplyComment(replyBody: string) {
       return `ClickUp reply received:\n\n${replyBody}`;
+    }
+
+    async function forwardClickUpRepliesIntoIssueComments(input: {
+      candidate: typeof candidates[number];
+      messageId: string;
+      replies: { id: string | null; content: string | null }[];
+    }) {
+      let forwardedAny = false;
+      for (const reply of input.replies) {
+        const replyId = readNonEmptyString(reply.id);
+        const replyBody = readNonEmptyString(reply.content);
+        const wakeAgentId = input.candidate.assigneeAgentId ?? input.candidate.createdByAgentId ?? null;
+        if (!replyId || !replyBody) continue;
+        if (await hasForwardedClickUpReply({
+          companyId: input.candidate.companyId,
+          issueId: input.candidate.issueId,
+          interactionId: input.candidate.interactionId,
+          clickupMessageId: input.messageId,
+          clickupReplyId: replyId,
+        })) {
+          continue;
+        }
+
+        try {
+          const comment = await db.transaction(async (tx) => {
+            const [createdComment] = await tx
+              .insert(issueComments)
+              .values({
+                companyId: input.candidate.companyId,
+                issueId: input.candidate.issueId,
+                authorAgentId: null,
+                authorUserId: null,
+                createdByRunId: null,
+                body: buildForwardedClickUpReplyComment(replyBody),
+              })
+              .returning();
+
+            await tx
+              .update(issues)
+              .set({ updatedAt: new Date() })
+              .where(eq(issues.id, input.candidate.issueId));
+
+            await logActivity(tx as unknown as Db, {
+              companyId: input.candidate.companyId,
+              actorType: "system",
+              actorId: "clickup_approval_poller",
+              action: "issue.comment_added",
+              entityType: "issue",
+              entityId: input.candidate.issueId,
+              details: {
+                commentId: createdComment.id,
+                bodySnippet: createdComment.body.slice(0, 120),
+                identifier: input.candidate.identifier,
+                issueTitle: input.candidate.title,
+                interactionId: input.candidate.interactionId,
+                forwardingOrigin: "clickup.awaiting_human.reply_forwarded",
+                clickupMessageId: input.messageId,
+                clickupReplyId: replyId,
+              },
+            });
+
+            return createdComment;
+          });
+
+          forwardedAny = true;
+
+          const currentIssueStatus = await getCurrentIssueStatus(input.candidate.companyId, input.candidate.issueId);
+          if (wakeAgentId && currentIssueStatus !== "backlog" && !isClosedIssueStatus(currentIssueStatus)) {
+            await enqueueWakeup(wakeAgentId, {
+              source: "automation",
+              triggerDetail: "system",
+              reason: "issue_commented",
+              payload: {
+                issueId: input.candidate.issueId,
+                commentId: comment.id,
+                mutation: "comment",
+              },
+              requestedByActorType: "system",
+              requestedByActorId: "clickup_approval_poller",
+              contextSnapshot: {
+                issueId: input.candidate.issueId,
+                taskId: input.candidate.issueId,
+                commentId: comment.id,
+                wakeCommentId: comment.id,
+                source: "clickup.awaiting_human.reply_forwarded",
+                wakeReason: "issue_commented",
+                interactionId: input.candidate.interactionId,
+                clickupMessageId: input.messageId,
+                clickupReplyId: replyId,
+              },
+            });
+          }
+        } catch (error) {
+          result.failed += 1;
+          logger.warn({
+            err: error,
+            issueId: input.candidate.issueId,
+            interactionId: input.candidate.interactionId,
+            clickupMessageId: input.messageId,
+            clickupReplyId: replyId,
+          }, "failed to forward awaiting_human ClickUp reply into issue comment");
+        }
+      }
+
+      return forwardedAny;
     }
 
     async function getCurrentIssueStatus(companyId: string, issueId: string) {
@@ -5490,104 +5600,91 @@ export function heartbeatService(db: Db) {
         continue;
       }
       if (approval.status === "forward_reply") {
-        let forwardedAny = false;
-        for (const reply of approval.replies ?? []) {
-          const replyId = readNonEmptyString(reply.id);
-          const replyBody = readNonEmptyString(reply.content);
-          const wakeAgentId = candidate.assigneeAgentId ?? candidate.createdByAgentId ?? null;
-          if (!replyId || !replyBody) continue;
-          if (await hasForwardedClickUpReply({
+        const forwardedAny = await forwardClickUpRepliesIntoIssueComments({
+          candidate,
+          messageId,
+          replies: approval.replies ?? [],
+        });
+        if (!forwardedAny) {
+          result.skipped += 1;
+        }
+        continue;
+      }
+      if (approval.status === "rejected") {
+        try {
+          const interaction = await interactionsSvc.rejectInteraction({
+            id: candidate.issueId,
             companyId: candidate.companyId,
+          }, candidate.interactionId, {
+            reason: approval.rejectionReason ?? "Rejected from ClickUp awaiting_human flow.",
+          }, {
+            actorType: "system",
+            userId: null,
+            agentId: null,
+          });
+
+          await logActivity(db, {
+            companyId: candidate.companyId,
+            actorType: "system",
+            actorId: "clickup_approval_poller",
+            action: interaction.status === "expired"
+              ? "issue.thread_interaction_expired"
+              : "issue.thread_interaction_rejected",
+            entityType: "issue",
+            entityId: candidate.issueId,
+            details: {
+              interactionId: interaction.id,
+              interactionKind: interaction.kind,
+              interactionStatus: interaction.status,
+              rejectionReason:
+                interaction.kind === "suggest_tasks"
+                  ? (interaction.result?.rejectionReason ?? null)
+                  : interaction.kind === "request_confirmation"
+                    ? (interaction.result?.reason ?? null)
+                    : null,
+              resolutionSource: approval.resolutionSource,
+              clickupMessageId: messageId,
+              clickupReaction: approval.clickupReaction ?? null,
+            },
+          });
+
+          const currentIssueStatus = await getCurrentIssueStatus(candidate.companyId, candidate.issueId);
+          queueResolvedInteractionContinuationWakeup({
+            heartbeat: { wakeup: enqueueWakeup },
+            issue: {
+              id: candidate.issueId,
+              assigneeAgentId: candidate.assigneeAgentId,
+              status: currentIssueStatus ?? candidate.status,
+            },
+            interaction,
+            actor: {
+              actorType: "system",
+              actorId: "clickup_approval_poller",
+            },
+            source: "clickup.awaiting_human.rejection",
+          });
+
+          const forwardedAny = await forwardClickUpRepliesIntoIssueComments({
+            candidate,
+            messageId,
+            replies: approval.replies ?? [],
+          });
+          if (!forwardedAny && (approval.replies?.length ?? 0) > 0) {
+            result.skipped += 1;
+          }
+
+          result.rejected += 1;
+          result.issueIds.push(candidate.issueId);
+          result.interactionIds.push(candidate.interactionId);
+        } catch (error) {
+          result.failed += 1;
+          logger.warn({
+            err: error,
             issueId: candidate.issueId,
             interactionId: candidate.interactionId,
             clickupMessageId: messageId,
-            clickupReplyId: replyId,
-          })) {
-            continue;
-          }
-
-          try {
-            const comment = await db.transaction(async (tx) => {
-              const [createdComment] = await tx
-                .insert(issueComments)
-                .values({
-                  companyId: candidate.companyId,
-                  issueId: candidate.issueId,
-                  authorAgentId: null,
-                  authorUserId: null,
-                  createdByRunId: null,
-                  body: buildForwardedClickUpReplyComment(replyBody),
-                })
-                .returning();
-
-              await tx
-                .update(issues)
-                .set({ updatedAt: new Date() })
-                .where(eq(issues.id, candidate.issueId));
-
-              await logActivity(tx as unknown as Db, {
-                companyId: candidate.companyId,
-                actorType: "system",
-                actorId: "clickup_approval_poller",
-                action: "issue.comment_added",
-                entityType: "issue",
-                entityId: candidate.issueId,
-                details: {
-                  commentId: createdComment.id,
-                  bodySnippet: createdComment.body.slice(0, 120),
-                  identifier: candidate.identifier,
-                  issueTitle: candidate.title,
-                  interactionId: candidate.interactionId,
-                  forwardingOrigin: "clickup.awaiting_human.reply_forwarded",
-                  clickupMessageId: messageId,
-                  clickupReplyId: replyId,
-                },
-              });
-
-              return createdComment;
-            });
-
-            forwardedAny = true;
-
-            const currentIssueStatus = await getCurrentIssueStatus(candidate.companyId, candidate.issueId);
-            if (wakeAgentId && currentIssueStatus !== "backlog" && !isClosedIssueStatus(currentIssueStatus)) {
-              await enqueueWakeup(wakeAgentId, {
-                source: "automation",
-                triggerDetail: "system",
-                reason: "issue_commented",
-                payload: {
-                  issueId: candidate.issueId,
-                  commentId: comment.id,
-                  mutation: "comment",
-                },
-                requestedByActorType: "system",
-                requestedByActorId: "clickup_approval_poller",
-                contextSnapshot: {
-                  issueId: candidate.issueId,
-                  taskId: candidate.issueId,
-                  commentId: comment.id,
-                  wakeCommentId: comment.id,
-                  source: "clickup.awaiting_human.reply_forwarded",
-                  wakeReason: "issue_commented",
-                  interactionId: candidate.interactionId,
-                  clickupMessageId: messageId,
-                  clickupReplyId: replyId,
-                },
-              });
-            }
-          } catch (error) {
-            result.failed += 1;
-            logger.warn({
-              err: error,
-              issueId: candidate.issueId,
-              interactionId: candidate.interactionId,
-              clickupMessageId: messageId,
-              clickupReplyId: replyId,
-            }, "failed to forward awaiting_human ClickUp reply into issue comment");
-          }
-        }
-        if (!forwardedAny) {
-          result.skipped += 1;
+            detail: approval.detail,
+          }, "failed to reject ClickUp awaiting_human interaction");
         }
         continue;
       }

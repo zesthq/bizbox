@@ -128,6 +128,7 @@ For `awaiting_human` ClickUp notifications:
 - Bizbox still falls back to `CLICKUP_ENGINEERING_CHANNEL_ID` / `CLICKUP_ENGINEERING_CHANNEL_NAME` when the new vars are unset.
 - If neither name variable is set, Bizbox now defaults the lookup target to `bizbox-feed`.
 - Inbound approval polling still follows the tracked ClickUp message id, so renaming the approval channel does not change reconciliation behavior.
+- Positive replies/reactions accept the pending confirmation. Non-approval replies reject the confirmation and are forwarded into the issue as comments. Explicit negative reactions such as `thumbsdown` reject without forwarding comment text.
 
 A review-driven regression briefly treated `clickupAgentUserId` as a hard inbound author gate and caused stuck live ClickUp polls. Keep the fields separate.
 

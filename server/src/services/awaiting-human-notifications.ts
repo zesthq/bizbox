@@ -20,6 +20,7 @@ const STALE_OUTBOX_PROCESSING_MS = 5 * 60 * 1000;
 const DEFAULT_CLICKUP_TIMEOUT_SEC = 30;
 const CLICKUP_ATTACHMENT_FILE_FIELD = "attachment[0]";
 const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS = ["thumbsup", "white_check_mark", "heavy_check_mark"] as const;
+const DEFAULT_CLICKUP_APPROVAL_NEGATIVE_REACTIONS = ["thumbsdown"] as const;
 const DEFAULT_CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS = [
   "approve",
   "approved",
@@ -99,6 +100,7 @@ type ClickUpChatConfig = {
   channelName: string;
   reviewListId: string;
   approvalPositiveReactions: string[];
+  approvalNegativeReactions: string[];
   approvalPositiveReplyKeywords: string[];
 };
 
@@ -115,11 +117,12 @@ export interface ClickUpChatMessageReaction {
 }
 
 export interface ClickUpAwaitingHumanApprovalResult {
-  status: ClickUpApiStatus | "approved" | "forward_reply";
+  status: ClickUpApiStatus | "approved" | "forward_reply" | "rejected";
   detail: string;
   resolutionSource?: "clickup_reply" | "clickup_reaction";
   clickupReaction?: string | null;
   replies?: ClickUpChatMessageReply[];
+  rejectionReason?: string | null;
 }
 
 function truncateText(value: string, maxLength: number) {
@@ -228,6 +231,10 @@ function readClickUpChatConfig(): ClickUpChatConfig {
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
+  const negativeReactions = (process.env.CLICKUP_APPROVAL_NEGATIVE_REACTIONS ?? "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
   const positiveReplyKeywords = (process.env.CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS ?? "")
     .split(",")
     .map((value) => compactWhitespace(value.trim().toLowerCase()))
@@ -247,6 +254,9 @@ function readClickUpChatConfig(): ClickUpChatConfig {
     approvalPositiveReactions: positiveReactions.length > 0
       ? [...new Set(positiveReactions)]
       : [...DEFAULT_CLICKUP_APPROVAL_POSITIVE_REACTIONS],
+    approvalNegativeReactions: negativeReactions.length > 0
+      ? [...new Set(negativeReactions)]
+      : [...DEFAULT_CLICKUP_APPROVAL_NEGATIVE_REACTIONS],
     approvalPositiveReplyKeywords: positiveReplyKeywords.length > 0
       ? [...new Set(positiveReplyKeywords)]
       : [...DEFAULT_CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS],
@@ -1216,15 +1226,17 @@ export async function detectClickUpAwaitingHumanApproval(
     };
   }
   const forwardableReplies = availableReplies.filter((reply) => normalizeReplyContent(reply.content).length > 0);
+  const rejectionReason = forwardableReplies[0]?.content?.trim() ?? null;
 
   const reactionsResult = await getClickUpChatMessageReactions(messageId);
   if (reactionsResult.status === "failed" || reactionsResult.status === "skipped") {
     if (forwardableReplies.length > 0) {
       return {
-        status: "forward_reply",
+        status: "rejected",
         detail: "non-approval-reply-detected",
         resolutionSource: "clickup_reply",
         replies: forwardableReplies,
+        rejectionReason,
       };
     }
     if (repliesResult.status === "failed") {
@@ -1251,12 +1263,29 @@ export async function detectClickUpAwaitingHumanApproval(
       clickupReaction: matchingReaction.name,
     };
   }
+
+  const negativeSet = new Set(config.approvalNegativeReactions);
+  const rejectingReaction = reactionsResult.reactions.find((reaction) =>
+    reaction.count > 0 && negativeSet.has(reaction.name)
+  );
+  if (rejectingReaction) {
+    return {
+      status: "rejected",
+      detail: "negative-reaction-detected",
+      resolutionSource: "clickup_reaction",
+      clickupReaction: rejectingReaction.name,
+      replies: forwardableReplies.length > 0 ? forwardableReplies : undefined,
+      rejectionReason: rejectionReason ?? `Rejected in ClickUp with :${rejectingReaction.name}: reaction.`,
+    };
+  }
+
   if (forwardableReplies.length > 0) {
     return {
-      status: "forward_reply",
+      status: "rejected",
       detail: "non-approval-reply-detected",
       resolutionSource: "clickup_reply",
       replies: forwardableReplies,
+      rejectionReason,
     };
   }
   if (repliesResult.status === "failed") {
