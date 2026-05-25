@@ -554,7 +554,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(events).toHaveLength(1);
   });
 
-  it("treats null external event ids as non-actionable and does not reprocess them", async () => {
+  it("processes null external event ids on each poll", async () => {
     const seeded = await seedAwaitingHumanInteraction();
     const poll = vi.fn(async () => ({
       status: "ok" as const,
@@ -597,12 +597,12 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(poll).toHaveBeenCalledTimes(2);
 
     const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
-    expect(comments).toHaveLength(0);
+    expect(comments).toHaveLength(2);
 
     const events = await db.select().from(awaitingHumanBridgeInboundEvents).where(
       eq(awaitingHumanBridgeInboundEvents.bridgeId, bridge.id),
     );
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(2);
   });
 
   it("delegates plain reply wakes through requestWakeup when provided", async () => {
