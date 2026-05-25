@@ -640,13 +640,14 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
       }),
     });
 
-    await service.openForPendingInteraction({
+    const bridge = await service.openForPendingInteraction({
       companyId: seeded.companyId,
       issueId: seeded.issueId,
       interactionId: seeded.interactionId,
     });
 
-    await service.pollActiveBridges(new Date("2026-05-22T00:03:00.000Z"));
+    expect(bridge).not.toBeNull();
+    await service.pollBridge(bridge!.id, new Date("2026-05-22T00:03:00.000Z"));
     await service.pollActiveBridges(new Date("2026-05-22T00:04:00.000Z"));
 
     const [interaction] = await db.select().from(issueThreadInteractions)
@@ -684,6 +685,55 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
       status: "closed",
       closeOutcome: "superseded",
     }));
+  });
+
+  it("treats unapproved ask-user replies as negative intent", async () => {
+    const seeded = await seedAskUserQuestionsBinaryInteraction();
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({
+          status: "ok",
+          detail: "ok",
+          events: [
+            {
+              kind: "reply",
+              externalEventId: "reply-1",
+              externalThreadId: "thread-1",
+              externalMessageId: "message-1",
+              body: "This is unapproved",
+              metadata: { clickupReplyId: "reply-1" },
+            },
+          ],
+        })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    await service.openForPendingInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+    });
+
+    await service.pollActiveBridges(new Date("2026-05-22T00:03:00.000Z"));
+
+    const [interaction] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, seeded.interactionId));
+    expect(interaction?.status).toBe("answered");
+    expect(interaction?.result).toMatchObject({
+      version: 1,
+      answers: [
+        { questionId: "surface_check", optionIds: ["partial_render"] },
+        { questionId: "roundtrip_observation", optionIds: ["not_mirrored"] },
+      ],
+      summaryMarkdown: "This is unapproved",
+    });
   });
 
   it("accepts the interaction, wakes the agent, and closes the bridge on approval", async () => {
@@ -1167,6 +1217,70 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
       lte(awaitingHumanBridges.nextPollAt, now),
     ));
     expect(remainingReadyRows).toHaveLength(1);
+  });
+
+  it("continues polling later bridges when one bridge poll throws", async () => {
+    const seededOne = await seedAwaitingHumanInteraction();
+    const seededTwo = await seedAwaitingHumanInteraction();
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({ status: "ok", detail: "ok", events: [] })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    const pollBridge = vi.fn(async (bridgeId: string) => {
+      if (bridgeId === bridgeOne.id) {
+        throw new Error("409 conflict");
+      }
+      return {
+        checked: 1,
+        approved: 1,
+        rejected: 0,
+        replies: 0,
+        noSignal: 0,
+        failed: 0,
+        skipped: 0,
+        approvedIssueIds: [seededTwo.issueId],
+        approvedInteractionIds: [seededTwo.interactionId],
+      };
+    });
+    (service as any).pollBridge = pollBridge;
+
+    const bridgeOne = await service.openOrReuseForInteraction({
+      companyId: seededOne.companyId,
+      issueId: seededOne.issueId,
+      interactionId: seededOne.interactionId,
+      agentId: seededOne.agentId,
+      ...approvalNotification(),
+    });
+    const bridgeTwo = await service.openOrReuseForInteraction({
+      companyId: seededTwo.companyId,
+      issueId: seededTwo.issueId,
+      interactionId: seededTwo.interactionId,
+      agentId: seededTwo.agentId,
+      ...approvalNotification(),
+    });
+
+    await db.update(awaitingHumanBridges).set({
+      nextPollAt: new Date("2026-05-22T00:00:00.000Z"),
+    }).where(eq(awaitingHumanBridges.id, bridgeOne.id));
+    await db.update(awaitingHumanBridges).set({
+      nextPollAt: new Date("2026-05-22T00:00:00.000Z"),
+    }).where(eq(awaitingHumanBridges.id, bridgeTwo.id));
+
+    const result = await service.pollActiveBridges(new Date("2026-05-22T00:03:00.000Z"));
+
+    expect(pollBridge).toHaveBeenCalledTimes(2);
+    expect(result.failed).toBe(1);
+    expect(result.approved).toBe(1);
+    expect(result.approvedIssueIds).toContain(seededTwo.issueId);
   });
 
   it("creates a new bridge cycle after a bridge closed or failed", async () => {

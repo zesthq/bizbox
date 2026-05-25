@@ -11,6 +11,7 @@ import {
 } from "@paperclipai/db";
 import type { AskUserQuestionsInteraction, IssueThreadInteraction } from "@paperclipai/shared";
 import { logActivity } from "./activity-log.js";
+import { logger } from "../middleware/logger.js";
 import { finalizeAcceptedInteractionResolution, isClosedIssueStatus } from "./issue-interaction-resolution-effects.js";
 import { issueThreadInteractionService } from "./issue-thread-interactions.js";
 import type { AwaitingHumanNotificationPayload } from "./awaiting-human-notifications.js";
@@ -154,6 +155,7 @@ const NEGATIVE_KEYWORDS = [
   "nah",
   "reject",
   "rejected",
+  "unapproved",
   "decline",
   "declined",
   "false",
@@ -219,7 +221,12 @@ function replyIntentScore(normalized: string, keywords: readonly string[]) {
 function detectReplyIntent(value: string): "affirmative" | "negative" | null {
   const normalized = normalizeForMatch(value);
   if (!normalized) return null;
-  if (normalized.includes("not approved") || normalized.includes("not rendered") || normalized.includes("no mirror")) {
+  if (
+    normalized.includes("not approved")
+    || normalized.includes("unapproved")
+    || normalized.includes("not rendered")
+    || normalized.includes("no mirror")
+  ) {
     return "negative";
   }
 
@@ -1230,16 +1237,27 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
 
       const summary = emptySummary();
       for (const row of rows) {
-        const result = await this.pollBridge(row.id, now);
-        summary.checked += result.checked;
-        summary.approved += result.approved;
-        summary.rejected += result.rejected;
-        summary.replies += result.replies;
-        summary.noSignal += result.noSignal;
-        summary.failed += result.failed;
-        summary.skipped += result.skipped;
-        summary.approvedIssueIds.push(...result.approvedIssueIds);
-        summary.approvedInteractionIds.push(...result.approvedInteractionIds);
+        try {
+          const result = await this.pollBridge(row.id, now);
+          summary.checked += result.checked;
+          summary.approved += result.approved;
+          summary.rejected += result.rejected;
+          summary.replies += result.replies;
+          summary.noSignal += result.noSignal;
+          summary.failed += result.failed;
+          summary.skipped += result.skipped;
+          summary.approvedIssueIds.push(...result.approvedIssueIds);
+          summary.approvedInteractionIds.push(...result.approvedInteractionIds);
+        } catch (error) {
+          summary.failed += 1;
+          logger.warn({
+            err: error,
+            bridgeId: row.id,
+            companyId: row.companyId,
+            issueId: row.issueId,
+            interactionId: row.interactionId,
+          }, "failed to poll awaiting_human bridge");
+        }
       }
       return summary;
     },
@@ -1249,7 +1267,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       const rows = await db.select().from(awaitingHumanBridges).where(and(
         eq(awaitingHumanBridges.status, "waiting_for_human"),
         lte(awaitingHumanBridges.createdAt, deadline),
-      ));
+      )).orderBy(asc(awaitingHumanBridges.createdAt)).limit(200);
 
       for (const row of rows) {
         try {

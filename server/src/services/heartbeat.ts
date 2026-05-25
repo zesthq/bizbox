@@ -94,7 +94,6 @@ import {
 import { issueService } from "./issues.js";
 import { agentThreadService } from "./agent-threads.js";
 import { clickupBridgeService } from "./clickup-bridge.js";
-import { companyService } from "./companies.js";
 import { documentService } from "./documents.js";
 import { workProductService } from "./work-products.js";
 import { awaitingHumanBridgeService } from "./awaiting-human-bridge.js";
