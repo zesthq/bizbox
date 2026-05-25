@@ -56,12 +56,20 @@ function registerModuleMocks() {
       syncIssue: async () => undefined,
     }),
     issueService: () => mockIssueService,
+    issueThreadInteractionService: () => ({}),
     logActivity: vi.fn(async () => undefined),
     projectService: () => ({}),
     routineService: () => ({
       syncRunStatusForIssue: vi.fn(async () => undefined),
     }),
     workProductService: () => ({}),
+  }));
+
+  vi.doMock("../services/awaiting-human-bridge-runtime.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      closeOpenBridgesForIssue: vi.fn(async () => 0),
+      openForPendingInteraction: vi.fn(async () => null),
+    }),
   }));
 }
 

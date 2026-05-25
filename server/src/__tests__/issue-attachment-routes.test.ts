@@ -78,6 +78,7 @@ function registerRouteMocks() {
       syncIssue: async () => undefined,
     }),
     issueService: () => mockIssueService,
+    issueThreadInteractionService: () => ({}),
     logActivity: mockLogActivity,
     projectService: () => ({}),
     routineService: () => ({

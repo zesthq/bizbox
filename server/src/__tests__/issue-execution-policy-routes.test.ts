@@ -64,6 +64,7 @@ function registerModuleMocks() {
       syncIssue: async () => undefined,
     }),
     issueService: () => mockIssueService,
+    issueThreadInteractionService: () => ({}),
     logActivity: vi.fn(async () => undefined),
     projectService: () => ({}),
     routineService: () => ({

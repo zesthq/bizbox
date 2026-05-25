@@ -59,6 +59,7 @@ vi.mock("../services/index.js", () => ({
     syncIssue: async () => undefined,
   }),
   issueService: () => mockIssueService,
+  issueThreadInteractionService: () => ({}),
   logActivity: vi.fn(async () => undefined),
   projectService: () => ({
     getById: vi.fn(),
@@ -69,6 +70,13 @@ vi.mock("../services/index.js", () => ({
   }),
   workProductService: () => ({
     listForIssue: vi.fn(async () => []),
+  }),
+}));
+
+vi.mock("../services/awaiting-human-bridge-runtime.js", () => ({
+  awaitingHumanBridgeRuntime: () => ({
+    closeOpenBridgesForIssue: vi.fn(async () => 0),
+    openForPendingInteraction: vi.fn(async () => null),
   }),
 }));
 

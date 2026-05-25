@@ -114,6 +114,7 @@ function registerServiceMocks() {
       syncIssue: async () => undefined,
     }),
     issueService: () => mockIssueService,
+    issueThreadInteractionService: () => ({}),
     logActivity: mockLogActivity,
     projectService: () => mockProjectService,
     routineService: () => ({
