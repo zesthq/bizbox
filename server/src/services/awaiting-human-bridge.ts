@@ -1202,12 +1202,6 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             },
           });
 
-          await this.closeBridge({
-            bridgeId: row.id,
-            outcome: "approved",
-            reason: event.body?.trim() || null,
-          });
-
           await db.insert(awaitingHumanBridgeInboundEvents).values({
             bridgeId: row.id,
             eventKind: event.kind,
@@ -1215,6 +1209,11 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             externalMessageId: event.externalMessageId?.trim() || null,
             externalThreadId: event.externalThreadId?.trim() || null,
             payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+          });
+          await this.closeBridge({
+            bridgeId: row.id,
+            outcome: "approved",
+            reason: event.body?.trim() || null,
           });
           summary.approved += 1;
           summary.approvedIssueIds.push(row.issueId);
@@ -1240,13 +1239,6 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               mutation: "interaction",
             },
           });
-
-          await this.closeBridge({
-            bridgeId: row.id,
-            outcome: "rejected",
-            reason: event.body?.trim() || null,
-          });
-
           await db.insert(awaitingHumanBridgeInboundEvents).values({
             bridgeId: row.id,
             eventKind: event.kind,
@@ -1254,6 +1246,11 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             externalMessageId: event.externalMessageId?.trim() || null,
             externalThreadId: event.externalThreadId?.trim() || null,
             payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+          });
+          await this.closeBridge({
+            bridgeId: row.id,
+            outcome: "rejected",
+            reason: event.body?.trim() || null,
           });
           summary.rejected += 1;
           return summary;
