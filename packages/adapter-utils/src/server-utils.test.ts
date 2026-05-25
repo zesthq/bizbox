@@ -434,14 +434,24 @@ describe("renderPaperclipWakePrompt", () => {
 });
 
 describe("ensurePathInEnv", () => {
-  it("prepends NVM_BIN when PATH omits it", () => {
-    const env = ensurePathInEnv({
-      HOME: "/Users/tester",
-      PATH: "/usr/bin:/bin",
-      NVM_BIN: "/Users/tester/.nvm/versions/node/v24.0.0/bin",
-    });
+  it("prepends env and process NVM_BIN entries ahead of PATH", () => {
+    const previousNvmBin = process.env.NVM_BIN;
+    process.env.NVM_BIN = "/Users/tester/.nvm/versions/node/v24.1.0/bin";
 
-    expect(env.PATH).toBe("/Users/tester/.nvm/versions/node/v24.0.0/bin:/usr/bin:/bin");
+    try {
+      const env = ensurePathInEnv({
+        HOME: "/Users/tester",
+        PATH: "/usr/bin:/bin",
+        NVM_BIN: "/Users/tester/.nvm/versions/node/v24.0.0/bin",
+      });
+
+      expect(env.PATH).toBe(
+        "/Users/tester/.nvm/versions/node/v24.0.0/bin:/Users/tester/.nvm/versions/node/v24.1.0/bin:/usr/bin:/bin",
+      );
+    } finally {
+      if (previousNvmBin === undefined) delete process.env.NVM_BIN;
+      else process.env.NVM_BIN = previousNvmBin;
+    }
   });
 });
 

@@ -117,7 +117,7 @@ export interface ClickUpChatMessageReaction {
 }
 
 export interface ClickUpAwaitingHumanApprovalResult {
-  status: ClickUpApiStatus | "approved" | "forward_reply" | "rejected";
+  status: ClickUpApiStatus | "approved" | "rejected";
   detail: string;
   resolutionSource?: "clickup_reply" | "clickup_reaction";
   clickupReaction?: string | null;

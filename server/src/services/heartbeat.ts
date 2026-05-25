@@ -5384,7 +5384,9 @@ export function heartbeatService(db: Db) {
       candidate: typeof candidates[number];
       messageId: string;
       replies: { id: string | null; content: string | null }[];
+      wakeAssignee?: boolean;
     }) {
+      const wakeAssignee = input.wakeAssignee ?? true;
       let forwardedAny = false;
       for (const reply of input.replies) {
         const replyId = readNonEmptyString(reply.id);
@@ -5445,7 +5447,12 @@ export function heartbeatService(db: Db) {
           forwardedAny = true;
 
           const currentIssueStatus = await getCurrentIssueStatus(input.candidate.companyId, input.candidate.issueId);
-          if (wakeAgentId && currentIssueStatus !== "backlog" && !isClosedIssueStatus(currentIssueStatus)) {
+          if (
+            wakeAssignee
+            && wakeAgentId
+            && currentIssueStatus !== "backlog"
+            && !isClosedIssueStatus(currentIssueStatus)
+          ) {
             await enqueueWakeup(wakeAgentId, {
               source: "automation",
               triggerDetail: "system",
@@ -5599,17 +5606,6 @@ export function heartbeatService(db: Db) {
         }, "failed to poll ClickUp awaiting_human approval state");
         continue;
       }
-      if (approval.status === "forward_reply") {
-        const forwardedAny = await forwardClickUpRepliesIntoIssueComments({
-          candidate,
-          messageId,
-          replies: approval.replies ?? [],
-        });
-        if (!forwardedAny) {
-          result.skipped += 1;
-        }
-        continue;
-      }
       if (approval.status === "rejected") {
         try {
           const interaction = await interactionsSvc.rejectInteraction({
@@ -5668,6 +5664,7 @@ export function heartbeatService(db: Db) {
             candidate,
             messageId,
             replies: approval.replies ?? [],
+            wakeAssignee: false,
           });
           if (!forwardedAny && (approval.replies?.length ?? 0) > 0) {
             result.skipped += 1;

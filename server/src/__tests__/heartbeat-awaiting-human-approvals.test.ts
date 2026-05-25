@@ -131,7 +131,10 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
       .where(eq(agentWakeupRequests.agentId, agentId));
   }
 
-  async function seedAwaitingHumanConfirmation(opts?: { externalId?: string | null }) {
+  async function seedAwaitingHumanConfirmation(opts?: {
+    continuationPolicy?: "wake_assignee" | "wake_assignee_on_accept";
+    externalId?: string | null;
+  }) {
     const companyId = randomUUID();
     const goalId = randomUUID();
     const issueId = randomUUID();
@@ -181,7 +184,7 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
       companyId,
     }, {
       kind: "request_confirmation",
-      continuationPolicy: "wake_assignee_on_accept",
+      continuationPolicy: opts?.continuationPolicy ?? "wake_assignee_on_accept",
       payload: {
         version: 1,
         prompt: "Approve this plan?",
@@ -350,9 +353,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
       .then((rows) => rows[0] ?? null);
     expect(updatedIssue?.status).toBe("todo");
 
-    const wakes = await waitForWakeup(seeded.agentId);
-    expect(wakes).toHaveLength(1);
-
     const commentActivities = await db
       .select()
       .from(activityLog)
@@ -424,8 +424,6 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
       "ClickUp reply received:\n\nAlso add the rollback note.",
     ]);
 
-    const wakes = await waitForWakeup(seeded.agentId);
-    expect(wakes).toHaveLength(2);
   });
 
   it("does not enqueue a wake when the issue moved to backlog before forwarding the ClickUp reply", async () => {
