@@ -104,6 +104,8 @@ type ClickUpApiStatus = "sent" | "skipped" | "failed";
 
 export interface ClickUpChatMessageReply {
   id: string | null;
+  messageId: string | null;
+  reactionsUrl: string | null;
   content: string | null;
 }
 
@@ -310,8 +312,20 @@ function extractReplyRows(payload: unknown): ClickUpChatMessageReply[] {
 
   return rows.map((entry) => {
     const row = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+    const postData = row.post_data && typeof row.post_data === "object"
+      ? row.post_data as Record<string, unknown>
+      : row.postData && typeof row.postData === "object"
+        ? row.postData as Record<string, unknown>
+        : null;
+    const links = row.links && typeof row.links === "object" ? row.links as Record<string, unknown> : null;
     return {
       id: readString(row.id),
+      messageId:
+        readString(row.message_id)
+        ?? readString(row.messageId)
+        ?? (postData ? readString(postData.message_id) : null)
+        ?? (postData ? readString(postData.messageId) : null),
+      reactionsUrl: links ? readString(links.reactions) : null,
       content: readString(row.content) ?? readString(row.message) ?? readString(row.text),
     };
   });
@@ -362,10 +376,6 @@ function renderClickUpMessage(notification: AwaitingHumanNotificationPayload) {
     `**${title}**`,
     "",
     summary,
-    "",
-    "Could you take a quick look and respond here in ClickUp?",
-    "- To approve: react with 👍, ✅, or ✔️, or reply with words like \"approve\", \"approved\", \"approving\", \"yes\", \"ok\", \"okay\", \"ship it\", \"lgtm\", \"looks good\", \"go ahead\", or \"+1\".",
-    "- If you want changes or have questions: reply here with what you'd like changed, added, or clarified and Bizbox will carry your full feedback back.",
   ];
 
   if (bodySection) {
@@ -635,6 +645,183 @@ export async function getClickUpChatMessageReactions(
   };
 }
 
+export async function addClickUpChatMessageReaction(
+  messageId: string,
+  reaction: string,
+  overrides?: ClickUpAwaitingHumanConfigOverrides,
+): Promise<{
+  status: ClickUpApiStatus;
+  detail: string;
+}> {
+  const config = readClickUpChatConfig(overrides);
+  if (!config.personalToken) {
+    return {
+      status: "skipped",
+      detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+    };
+  }
+  if (!config.workspaceId) {
+    return {
+      status: "skipped",
+      detail: "missing-target: CLICKUP_WORKSPACE_ID",
+    };
+  }
+
+  const reactionName = reaction.trim();
+  if (!reactionName) {
+    return {
+      status: "skipped",
+      detail: "missing-target: reaction",
+    };
+  }
+
+  try {
+    return await postClickUpChatMessageReaction(
+      `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/chat/messages/${encodeURIComponent(messageId)}/reactions`,
+      reactionName,
+      config.personalToken,
+    );
+  } catch (error) {
+    return {
+      status: "failed",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function postClickUpChatMessageReaction(
+  url: string,
+  reaction: string,
+  personalToken: string,
+): Promise<{
+  status: ClickUpApiStatus;
+  detail: string;
+}> {
+  const response = await fetchText(url, {
+    method: "POST",
+    headers: {
+      Authorization: personalToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      reaction,
+    }),
+  });
+
+  if (response.ok) {
+    return {
+      status: "sent",
+      detail: "sent",
+    };
+  }
+
+  if (response.status === 400 && /already exists/i.test(response.text)) {
+    return {
+      status: "sent",
+      detail: "already-exists",
+    };
+  }
+
+  return {
+    status: "failed",
+    detail: `http-error:${response.status}:${truncateText(response.text, 240)}`,
+  };
+}
+
+export async function addClickUpChatMessageReactionByUrl(
+  reactionUrl: string,
+  reaction: string,
+  overrides?: ClickUpAwaitingHumanConfigOverrides,
+): Promise<{
+  status: ClickUpApiStatus;
+  detail: string;
+}> {
+  const config = readClickUpChatConfig(overrides);
+  if (!config.personalToken) {
+    return {
+      status: "skipped",
+      detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+    };
+  }
+  const reactionName = reaction.trim();
+  if (!reactionName) {
+    return {
+      status: "skipped",
+      detail: "missing-target: reaction",
+    };
+  }
+
+  try {
+    return await postClickUpChatMessageReaction(reactionUrl, reactionName, config.personalToken);
+  } catch (error) {
+    return {
+      status: "failed",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function deleteClickUpChatMessageReaction(
+  messageId: string,
+  reaction: string,
+  overrides?: ClickUpAwaitingHumanConfigOverrides,
+): Promise<{
+  status: ClickUpApiStatus;
+  detail: string;
+}> {
+  const config = readClickUpChatConfig(overrides);
+  if (!config.personalToken) {
+    return {
+      status: "skipped",
+      detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+    };
+  }
+  if (!config.workspaceId) {
+    return {
+      status: "skipped",
+      detail: "missing-target: CLICKUP_WORKSPACE_ID",
+    };
+  }
+
+  const reactionName = reaction.trim();
+  if (!reactionName) {
+    return {
+      status: "skipped",
+      detail: "missing-target: reaction",
+    };
+  }
+
+  try {
+    const response = await fetchText(
+      `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/chat/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(reactionName)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: config.personalToken,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (response.ok || response.status === 404) {
+      return {
+        status: "sent",
+        detail: response.ok ? "deleted" : "not-found",
+      };
+    }
+
+    return {
+      status: "failed",
+      detail: `http-error:${response.status}:${truncateText(response.text, 240)}`,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function detectClickUpAwaitingHumanBridgeEvents(
   messageId: string,
   overrides?: ClickUpAwaitingHumanConfigOverrides,
@@ -654,7 +841,7 @@ export async function detectClickUpAwaitingHumanBridgeEvents(
 
   const events: ClickUpAwaitingHumanBridgeEvent[] = [];
   for (const reply of repliesResult.replies) {
-    const replyId = readString(reply.id);
+    const replyId = readString(reply.id) ?? readString(reply.messageId);
     const replyBody = readString(reply.content);
     if (!replyId || !replyBody) continue;
     if (replySignalsApproval(reply, config)) {
@@ -666,6 +853,7 @@ export async function detectClickUpAwaitingHumanBridgeEvents(
         metadata: {
           resolutionSource: "clickup_reply",
           clickupReplyId: replyId,
+          ...(reply.reactionsUrl ? { clickupReplyReactionsUrl: reply.reactionsUrl } : {}),
         },
       });
       return { status: "sent", detail: "positive-reply-detected", events };
@@ -679,6 +867,7 @@ export async function detectClickUpAwaitingHumanBridgeEvents(
         metadata: {
           resolutionSource: "clickup_reply",
           clickupReplyId: replyId,
+          ...(reply.reactionsUrl ? { clickupReplyReactionsUrl: reply.reactionsUrl } : {}),
         },
       });
       return { status: "sent", detail: "negative-reply-detected", events };
@@ -691,6 +880,7 @@ export async function detectClickUpAwaitingHumanBridgeEvents(
         body: replyBody,
         metadata: {
           clickupReplyId: replyId,
+          ...(reply.reactionsUrl ? { clickupReplyReactionsUrl: reply.reactionsUrl } : {}),
         },
       });
     }

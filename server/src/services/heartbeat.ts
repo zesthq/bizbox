@@ -5330,6 +5330,7 @@ export function heartbeatService(db: Db) {
   }
 
   async function reconcileAwaitingHumanApprovals() {
+    await awaitingHumanBridge.expireWaitingBridges();
     return awaitingHumanBridge.reconcilePendingConfirmations();
   }
 

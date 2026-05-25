@@ -565,6 +565,77 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     return !!error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505";
   }
 
+  async function closeBridgeRow(input: {
+    row: typeof awaitingHumanBridges.$inferSelect;
+    outcome?: "approved" | "rejected" | "expired" | "superseded" | "cancelled" | null;
+    reason?: string | null;
+  }) {
+    await deps.resolveAdapter(input.row.provider).close({
+      bridgeId: input.row.id,
+      externalThreadId: input.row.externalThreadId ?? null,
+      externalMessageId: input.row.externalMessageId ?? null,
+      outcome: input.outcome ?? null,
+      reason: input.reason ?? null,
+    });
+
+    const [updated] = await db.update(awaitingHumanBridges).set({
+      status: "closed",
+      closeOutcome: input.outcome ?? null,
+      closeReason: input.reason ?? null,
+      closedAt: new Date(),
+      nextPollAt: null,
+      updatedAt: new Date(),
+    }).where(eq(awaitingHumanBridges.id, input.row.id)).returning();
+
+    return updated ?? input.row;
+  }
+
+  async function closeOpenBridgesForIssue(input: {
+    companyId: string;
+    issueId: string;
+    outcome?: "approved" | "rejected" | "expired" | "superseded" | "cancelled" | null;
+    reason?: string | null;
+  }) {
+    const rows = await db.select().from(awaitingHumanBridges).where(and(
+      eq(awaitingHumanBridges.companyId, input.companyId),
+      eq(awaitingHumanBridges.issueId, input.issueId),
+      inArray(awaitingHumanBridges.status, ["pending_delivery", "waiting_for_human"]),
+    ));
+
+    let closedCount = 0;
+    for (const row of rows) {
+      try {
+        await closeBridgeRow({
+          row,
+          outcome: input.outcome ?? "superseded",
+          reason: input.reason ?? null,
+        });
+        closedCount += 1;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        await logActivity(db, {
+          companyId: input.companyId,
+          actorType: "system",
+          actorId: "system",
+          agentId: null,
+          runId: null,
+          action: "issue.awaiting_human.bridge_close_failed",
+          entityType: "issue",
+          entityId: input.issueId,
+          details: {
+            bridgeId: row.id,
+            provider: row.provider,
+            outcome: input.outcome ?? "superseded",
+            reason: input.reason ?? null,
+            detail,
+          },
+        });
+      }
+    }
+
+    return { closedCount };
+  }
+
   async function addSystemIssueComment(input: {
     companyId: string;
     issueId: string;
@@ -623,7 +694,27 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
         agentId: input.agentId,
         provider,
         status: "pending_delivery",
+      }).onConflictDoNothing({
+        target: awaitingHumanBridges.interactionId,
+        where: inArray(awaitingHumanBridges.status, ["pending_delivery", "waiting_for_human"]),
       }).returning();
+
+      if (!created) {
+        const [existingAfterConflict] = await db
+          .select()
+          .from(awaitingHumanBridges)
+          .where(and(
+            eq(awaitingHumanBridges.companyId, input.companyId),
+            eq(awaitingHumanBridges.interactionId, input.interactionId),
+            inArray(awaitingHumanBridges.status, ["pending_delivery", "waiting_for_human"]),
+          ))
+          .orderBy(awaitingHumanBridges.createdAt)
+          .limit(1);
+        if (!existingAfterConflict) {
+          throw new Error("Failed to reopen existing awaiting human bridge after conflict");
+        }
+        return existingAfterConflict;
+      }
 
       const adapter = deps.resolveAdapter(provider);
       let delivered;
@@ -831,6 +922,19 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       if (!row || row.status !== "waiting_for_human") return summary;
 
       summary.checked += 1;
+      const [issue] = await db.select({
+        status: issues.status,
+      }).from(issues).where(eq(issues.id, row.issueId)).limit(1);
+      if (issue && isClosedIssueStatus(issue.status)) {
+        await closeBridgeRow({
+          row,
+          outcome: issue.status === "cancelled" ? "cancelled" : "superseded",
+          reason: `Issue already marked ${issue.status}.`,
+        });
+        summary.skipped += 1;
+        return summary;
+      }
+
       const adapter = deps.resolveAdapter(row.provider);
       const polled = await adapter.poll({
         bridgeId: row.id,
@@ -1169,25 +1273,16 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     }) {
       const [row] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, input.bridgeId)).limit(1);
       if (!row) return null;
+      return closeBridgeRow({ row, outcome: input.outcome ?? null, reason: input.reason ?? null });
+    },
 
-      await deps.resolveAdapter(row.provider).close({
-        bridgeId: row.id,
-        externalThreadId: row.externalThreadId ?? null,
-        externalMessageId: row.externalMessageId ?? null,
-        outcome: input.outcome ?? null,
-        reason: input.reason ?? null,
-      });
-
-      const [updated] = await db.update(awaitingHumanBridges).set({
-        status: "closed",
-        closeOutcome: input.outcome ?? null,
-        closeReason: input.reason ?? null,
-        closedAt: new Date(),
-        nextPollAt: null,
-        updatedAt: new Date(),
-      }).where(eq(awaitingHumanBridges.id, row.id)).returning();
-
-      return updated ?? row;
+    async closeOpenBridgesForIssue(input: {
+      companyId: string;
+      issueId: string;
+      outcome?: "approved" | "rejected" | "expired" | "superseded" | "cancelled" | null;
+      reason?: string | null;
+    }) {
+      return closeOpenBridgesForIssue(input);
     },
   };
 }

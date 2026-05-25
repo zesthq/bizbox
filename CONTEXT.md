@@ -12,6 +12,14 @@ _Avoid_: Ticket, task item, work card
 A company-scoped bridge record that links a Bizbox work object in `awaiting_human` flow to an external messaging thread and normalizes outbound delivery plus inbound human replies.
 _Avoid_: Generic chat bridge, chat sync, transport glue
 
+**ClickUp Message Acknowledgement**:
+The provider-side `thumbsup` reaction that the ClickUp adapter adds to a reply message after a poll returns new inbound events, indicating Bizbox has consumed that reply.
+_Avoid_: Main-thread state marker, Bizbox comment, workflow state, approval signal
+
+**ClickUp Message State Reaction**:
+The provider-side reaction that marks the original ClickUp message as active while the bridge is open and completed when the bridge closes.
+_Avoid_: Reply acknowledgement, Bizbox comment, workflow state
+
 **Inbox Item**:
 A first-order object that independently belongs in an inbox view and can carry its own inbox state and actions.
 _Avoid_: Any visible row, nested row
@@ -36,6 +44,8 @@ _Avoid_: Duplicate placement, equal-priority relationships
 
 - An **Awaiting Human Bridge** belongs to one Bizbox work object that is waiting on human input
 - An **Awaiting Human Bridge** can deliver outbound messages to an external channel and import inbound human replies back into Bizbox
+- A **ClickUp Message Acknowledgement** is a transport acknowledgement applied by the ClickUp adapter after a poll returns new events
+- A **ClickUp Message State Reaction** marks the original ClickUp message as `brain_is_thinking` while open and `white_check_mark` when closed
 - An **Issue** may appear as an **Inbox Item** when it independently matches the inbox query
 - A **Contextual Row** appears under an **Inbox Item** and does not become its own **Inbox Item** by presentation alone
 - **Related Work** is rendered as **Contextual Rows** under an expanded **Issue**
@@ -59,6 +69,8 @@ _Avoid_: Duplicate placement, equal-priority relationships
 ## Flagged ambiguities
 
 - "bridge" was ambiguous between generic chat transport and approval/handoff transport — resolved: **Awaiting Human Bridge** is the core concept; provider adapters implement channel-specific delivery and ingestion
+- "acknowledgement" was ambiguous between internal workflow completion and provider-side message handling — resolved: **ClickUp Message Acknowledgement** is the provider-side `thumbsup` reaction added after the adapter observes new events on poll
+- "state reaction" was ambiguous between reply acknowledgement and bridge lifecycle state — resolved: **ClickUp Message State Reaction** marks the original message as open/closed status via `brain_is_thinking` and `white_check_mark`
 - "nested row" was ambiguous between an independent inbox object and supporting presentation context — resolved: `References` and `Referenced by` rows are **Contextual Rows**, not independent **Inbox Items**
 - "related context in a filtered inbox" was ambiguous between strict and best-effort filtering — resolved: the **Inbox Filter Contract** still applies to nested **Related Work** rows
 - "multiple nested relationships" was ambiguous between duplication and precedence — resolved: child placement wins over related-work placement

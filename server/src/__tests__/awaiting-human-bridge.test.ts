@@ -333,6 +333,63 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     }));
   });
 
+  it("does not create duplicate bridges when concurrent openOrReuse calls race", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    let resolveProviderGate!: () => void;
+    let resolveProviderCalls = 0;
+    const providerGate = new Promise<void>((resolve) => {
+      resolveProviderGate = resolve;
+    });
+    const send = vi.fn(async () => ({
+      externalThreadId: "thread-1",
+      externalMessageId: "message-1",
+      nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+    }));
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => {
+        resolveProviderCalls += 1;
+        if (resolveProviderCalls === 2) {
+          resolveProviderGate();
+        }
+        await providerGate;
+        return "clickup";
+      },
+      resolveAdapter: () => ({
+        send,
+        poll: vi.fn(async () => ({ status: "ok", detail: "ok", events: [] })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    const [first, second] = await Promise.all([
+      service.openOrReuseForInteraction({
+        companyId: seeded.companyId,
+        issueId: seeded.issueId,
+        interactionId: seeded.interactionId,
+        agentId: seeded.agentId,
+        ...approvalNotification(),
+      }),
+      service.openOrReuseForInteraction({
+        companyId: seeded.companyId,
+        issueId: seeded.issueId,
+        interactionId: seeded.interactionId,
+        agentId: seeded.agentId,
+        ...approvalNotification(),
+      }),
+    ]);
+
+    expect(first.id).toBe(second.id);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    const rows = await db.select().from(awaitingHumanBridges)
+      .where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(expect.objectContaining({
+      status: "waiting_for_human",
+      externalMessageId: "message-1",
+    }));
+  });
+
   it("builds full ask-user-questions outbound content for the bridge", async () => {
     const seeded = await seedAskUserQuestionsInteraction();
     const send = vi.fn(async () => ({
@@ -892,6 +949,54 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
 
     const events = await db.select().from(activityLog).where(eq(activityLog.entityId, seeded.issueId));
     expect(events.some((event) => event.action === "issue.comment_added")).toBe(true);
+  });
+
+  it("closes waiting ClickUp bridges when the issue is already terminal", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const poll = vi.fn(async () => ({
+      status: "ok" as const,
+      detail: "ok",
+      events: [],
+    }));
+    const close = vi.fn(async () => {});
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll,
+        close,
+      }),
+    });
+
+    const bridge = await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    await db.update(issues).set({
+      status: "done",
+      completedAt: new Date("2026-05-22T00:02:00.000Z"),
+    }).where(eq(issues.id, seeded.issueId));
+
+    const result = await service.pollBridge(bridge.id, new Date("2026-05-22T00:03:00.000Z"));
+
+    expect(poll).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(result.skipped).toBe(1);
+
+    const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
+    expect(updatedBridge).toEqual(expect.objectContaining({
+      status: "closed",
+      closeOutcome: "superseded",
+      closeReason: "Issue already marked done.",
+    }));
   });
 
   it("supports manual close through the bridge service", async () => {

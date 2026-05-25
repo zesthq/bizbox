@@ -77,12 +77,12 @@ describe("sendAwaitingHumanNotification", () => {
       content: expect.stringContaining("Open in Bizbox: https://bizbox.example/issues/BIZ-35"),
     });
     const rendered = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).content as string;
-    expect(rendered).toContain("Could you take a quick look and respond here in ClickUp?");
-    expect(rendered).toContain("To approve: react with");
-    expect(rendered).toContain("If you want changes or have questions: reply here with what you'd like changed, added, or clarified");
     expect(rendered).not.toContain("not approved");
     expect(rendered).not.toContain("Context:");
     expect(rendered).not.toContain("Labels:");
+    expect(rendered).not.toContain("Could you take a quick look and respond here in ClickUp?");
+    expect(rendered).not.toContain("To approve: react with");
+    expect(rendered).not.toContain("If you want changes or have questions: reply here with what you'd like changed, added, or clarified");
   });
 
   it("uses explicit ClickUp transport overrides for token, workspace, and channel id", async () => {

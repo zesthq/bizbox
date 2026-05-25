@@ -2508,6 +2508,15 @@ export function issueRoutes(
         }
       }
 
+      if (becameTerminal) {
+        await awaitingHumanBridge.closeOpenBridgesForIssue({
+          companyId: issue.companyId,
+          issueId: issue.id,
+          outcome: issue.status === "cancelled" ? "cancelled" : "superseded",
+          reason: `Issue marked ${issue.status}.`,
+        });
+      }
+
       for (const { agentId, wakeup } of wakeups.values()) {
         heartbeat
           .wakeup(agentId, wakeup)
