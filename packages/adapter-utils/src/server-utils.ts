@@ -940,6 +940,26 @@ export function defaultPathForPlatform() {
   return "/usr/local/bin:/opt/homebrew/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin";
 }
 
+function pathEntries(value: string | undefined | null): string[] {
+  if (typeof value !== "string" || value.trim().length === 0) return [];
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  return value
+    .split(delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function uniquePathEntries(entries: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of entries) {
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+  }
+  return out;
+}
+
 function windowsPathExts(env: NodeJS.ProcessEnv): string[] {
   return (env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean);
 }
@@ -1024,9 +1044,20 @@ async function resolveSpawnTarget(
 }
 
 export function ensurePathInEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (typeof env.PATH === "string" && env.PATH.length > 0) return env;
-  if (typeof env.Path === "string" && env.Path.length > 0) return env;
-  return { ...env, PATH: defaultPathForPlatform() };
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  const existingPath = typeof env.PATH === "string" && env.PATH.length > 0
+    ? env.PATH
+    : typeof env.Path === "string" && env.Path.length > 0
+      ? env.Path
+      : defaultPathForPlatform();
+  const mergedPath = uniquePathEntries([
+    ...pathEntries(env.NVM_BIN),
+    ...pathEntries(process.env.NVM_BIN),
+    ...pathEntries(existingPath),
+  ]).join(delimiter);
+
+  if (env.PATH === mergedPath) return env;
+  return { ...env, PATH: mergedPath };
 }
 
 export async function ensureAbsoluteDirectory(

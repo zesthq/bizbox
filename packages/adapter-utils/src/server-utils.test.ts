@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendWithByteCap,
   DEFAULT_BIZBOX_AGENT_PROMPT_TEMPLATE,
+  ensurePathInEnv,
   renderPaperclipWakePrompt,
   runningProcesses,
   runChildProcess,
@@ -429,6 +430,28 @@ describe("renderPaperclipWakePrompt", () => {
     expect(prompt).toContain("Do not treat this like issue execution unless visible work is created.");
     expect(prompt).toContain("CTO");
     expect(prompt).toContain("make 3 follow-up issues");
+  });
+});
+
+describe("ensurePathInEnv", () => {
+  it("prepends env and process NVM_BIN entries ahead of PATH", () => {
+    const previousNvmBin = process.env.NVM_BIN;
+    process.env.NVM_BIN = "/Users/tester/.nvm/versions/node/v24.1.0/bin";
+
+    try {
+      const env = ensurePathInEnv({
+        HOME: "/Users/tester",
+        PATH: "/usr/bin:/bin",
+        NVM_BIN: "/Users/tester/.nvm/versions/node/v24.0.0/bin",
+      });
+
+      expect(env.PATH).toBe(
+        "/Users/tester/.nvm/versions/node/v24.0.0/bin:/Users/tester/.nvm/versions/node/v24.1.0/bin:/usr/bin:/bin",
+      );
+    } finally {
+      if (previousNvmBin === undefined) delete process.env.NVM_BIN;
+      else process.env.NVM_BIN = previousNvmBin;
+    }
   });
 });
 
