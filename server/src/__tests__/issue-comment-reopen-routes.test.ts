@@ -134,6 +134,13 @@ function registerModuleMocks() {
     routineService: () => mockRoutineService,
     workProductService: () => ({}),
   }));
+
+  vi.doMock("../services/awaiting-human-bridge-runtime.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      closeOpenBridgesForIssue: vi.fn(async () => 0),
+      openForPendingInteraction: vi.fn(async () => null),
+    }),
+  }));
 }
 
 function createApp() {
@@ -197,6 +204,7 @@ describe("issue comment reopen routes", () => {
     vi.doUnmock("../services/feedback.js");
     vi.doUnmock("../services/heartbeat.js");
     vi.doUnmock("../services/index.js");
+    vi.doUnmock("../services/awaiting-human-bridge-runtime.js");
     vi.doUnmock("../services/instance-settings.js");
     vi.doUnmock("../services/issues.js");
     vi.doUnmock("../services/routines.js");

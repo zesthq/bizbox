@@ -99,10 +99,21 @@ function registerModuleMocks() {
       syncIssue: async () => undefined,
     }),
     issueService: () => mockIssueService,
+    issueThreadInteractionService: () => ({
+      expireRequestConfirmationsSupersededByComment: vi.fn(async () => []),
+      expireStaleRequestConfirmationsForIssueDocument: vi.fn(async () => []),
+    }),
     logActivity: mockLogActivity,
     projectService: () => ({}),
     routineService: () => mockRoutineService,
     workProductService: () => ({}),
+  }));
+
+  vi.doMock("../services/awaiting-human-bridge-runtime.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      closeOpenBridgesForIssue: vi.fn(async () => 0),
+      openForPendingInteraction: vi.fn(async () => null),
+    }),
   }));
 }
 
@@ -151,6 +162,7 @@ describe("issue activity event routes", () => {
     vi.doUnmock("../services/feedback.js");
     vi.doUnmock("../services/heartbeat.js");
     vi.doUnmock("../services/index.js");
+    vi.doUnmock("../services/awaiting-human-bridge-runtime.js");
     vi.doUnmock("../services/instance-settings.js");
     vi.doUnmock("../services/issues.js");
     vi.doUnmock("../services/routines.js");

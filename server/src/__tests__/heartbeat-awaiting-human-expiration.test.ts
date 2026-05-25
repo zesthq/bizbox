@@ -5,14 +5,18 @@ import {
   activityLog,
   agents,
   agentWakeupRequests,
+  agentRuntimeState,
   awaitingHumanBridgeInboundEvents,
   awaitingHumanBridges,
+  companyAwaitingHumanSettings,
   companies,
   createDb,
   goals,
   issueComments,
   issueThreadInteractions,
   issues,
+  heartbeatRunEvents,
+  heartbeatRuns,
 } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -36,19 +40,6 @@ describeEmbeddedPostgres("heartbeat awaiting-human expiration", () => {
     heartbeat = heartbeatService(db);
     interactionsSvc = issueThreadInteractionService(db);
   }, 20_000);
-
-  afterEach(async () => {
-    await db.delete(activityLog);
-    await db.delete(agentWakeupRequests);
-    await db.delete(awaitingHumanBridgeInboundEvents);
-    await db.delete(awaitingHumanBridges);
-    await db.delete(issueThreadInteractions);
-    await db.delete(issueComments);
-    await db.delete(issues);
-    await db.delete(goals);
-    await db.delete(agents);
-    await db.delete(companies);
-  });
 
   afterAll(async () => {
     await tempDb?.cleanup();
@@ -96,6 +87,12 @@ describeEmbeddedPostgres("heartbeat awaiting-human expiration", () => {
       status: "awaiting_human",
       priority: "medium",
       assigneeUserId: "local-board",
+    });
+    await db.insert(companyAwaitingHumanSettings).values({
+      companyId,
+      enabled: true,
+      provider: "clickup",
+      providerConfigJson: null,
     });
 
     const interaction = await interactionsSvc.create({
@@ -150,5 +147,7 @@ describeEmbeddedPostgres("heartbeat awaiting-human expiration", () => {
     const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
     expect(comments).toHaveLength(1);
     expect(comments[0]?.body).toContain("Awaiting human bridge timed out");
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
   });
 });
