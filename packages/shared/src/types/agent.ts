@@ -13,6 +13,18 @@ export interface AgentPermissions {
   canCreateAgents: boolean;
 }
 
+export interface AgentLoadoutSelection {
+  tools?: string[];
+  memory?: string[];
+  slotLayoutVersion?: string;
+}
+
+export type AgentMetadata = Record<string, unknown> & {
+  nickname?: string;
+  portraitAssetPath?: string;
+  loadout?: AgentLoadoutSelection;
+};
+
 export type AgentInstructionsBundleMode = "managed" | "external";
 
 export interface AgentInstructionsFileSummary {
@@ -79,7 +91,7 @@ export interface Agent {
   pausedAt: Date | null;
   permissions: AgentPermissions;
   lastHeartbeatAt: Date | null;
-  metadata: Record<string, unknown> | null;
+  metadata: AgentMetadata | null;
   createdAt: Date;
   updatedAt: Date;
 }

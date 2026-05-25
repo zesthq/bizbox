@@ -40,6 +40,7 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { RunButton, PauseResumeButton } from "../components/AgentActionButtons";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
 import { AgentChatTab } from "../components/AgentChatTab";
+import { AgentLoadoutTab } from "../components/AgentLoadoutTab";
 import { PackageFileTree, buildFileTree } from "../components/PackageFileTree";
 import { ScrollToBottom } from "../components/ScrollToBottom";
 import { formatCents, formatDate, relativeTime, formatTokens, visibleRunCostUsd } from "../lib/utils";
@@ -227,10 +228,11 @@ function scrollToContainerBottom(container: ScrollContainer, behavior: ScrollBeh
   container.scrollTo({ top: container.scrollHeight, behavior });
 }
 
-type AgentDetailView = "dashboard" | "chat" | "instructions" | "configuration" | "skills" | "runs" | "budget";
+type AgentDetailView = "dashboard" | "chat" | "loadout" | "instructions" | "configuration" | "skills" | "runs" | "budget";
 
 function parseAgentDetailView(value: string | null): AgentDetailView {
   if (value === "chat") return "chat";
+  if (value === "loadout") return "loadout";
   if (value === "instructions" || value === "prompts") return "instructions";
   if (value === "configure" || value === "configuration") return "configuration";
   if (value === "skills") return "skills";
@@ -746,6 +748,8 @@ export function AgentDetail() {
     const canonicalTab =
       activeView === "chat"
         ? "chat"
+        : activeView === "loadout"
+          ? "loadout"
         : activeView === "instructions"
           ? "instructions"
           : activeView === "configuration"
@@ -870,6 +874,8 @@ export function AgentDetail() {
       if (urlRunId) {
         crumbs.push({ label: "Runs", href: `/agents/${canonicalAgentRef}/runs` });
         crumbs.push({ label: `Run ${urlRunId.slice(0, 8)}` });
+      } else if (activeView === "loadout") {
+        crumbs.push({ label: "Loadout" });
       } else if (activeView === "instructions") {
         crumbs.push({ label: "Instructions" });
       } else if (activeView === "configuration") {
@@ -907,7 +913,7 @@ export function AgentDetail() {
     return <Navigate to={`/agents/${canonicalAgentRef}/dashboard`} replace />;
   }
   const isPendingApproval = agent.status === "pending_approval";
-  const showConfigActionBar = (activeView === "configuration" || activeView === "instructions") && (configDirty || configSaving);
+  const showConfigActionBar = (activeView === "configuration" || activeView === "instructions" || activeView === "loadout") && (configDirty || configSaving);
 
   return (
     <div className={cn("space-y-6", isMobile && showConfigActionBar && "pb-24")}>
@@ -1016,6 +1022,7 @@ export function AgentDetail() {
             items={[
               { value: "dashboard", label: "Dashboard" },
               { value: "chat", label: "Chat" },
+              { value: "loadout", label: "Loadout" },
               { value: "instructions", label: "Instructions" },
               { value: "skills", label: "Skills" },
               { value: "configuration", label: "Configuration" },
@@ -1110,6 +1117,17 @@ export function AgentDetail() {
           agentId={agent.id}
           companyId={resolvedCompanyId}
           runs={heartbeats ?? []}
+        />
+      )}
+
+      {activeView === "loadout" && resolvedCompanyId && (
+        <AgentLoadoutTab
+          agent={agent}
+          companyId={resolvedCompanyId}
+          onDirtyChange={setConfigDirty}
+          onSaveActionChange={setSaveConfigAction}
+          onCancelActionChange={setCancelConfigAction}
+          onSavingChange={setConfigSaving}
         />
       )}
 

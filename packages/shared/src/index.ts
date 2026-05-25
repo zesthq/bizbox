@@ -272,6 +272,8 @@ export type {
   AgentAccessState,
   AgentChainOfCommandEntry,
   AgentDetail,
+  AgentMetadata,
+  AgentLoadoutSelection,
   AgentPermissions,
   AgentInstructionsBundleMode,
   AgentInstructionsFileSummary,
