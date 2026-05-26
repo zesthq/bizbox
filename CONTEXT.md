@@ -9,8 +9,12 @@ The core unit of work in Bizbox, scoped to a company and used to track execution
 _Avoid_: Ticket, task item, work card
 
 **Awaiting Human Bridge**:
-A company-scoped bridge record that links a Bizbox work object in `awaiting_human` flow to an external messaging thread and normalizes outbound delivery plus inbound human replies.
+A company-scoped bridge record that links an issue interaction in `awaiting_human` flow to an external messaging thread and normalizes outbound delivery plus inbound human replies.
 _Avoid_: Generic chat bridge, chat sync, transport glue
+
+**Awaiting Human Bridge Transport Adapter**:
+The provider-specific layer that sends notifications, polls the external channel, and handles provider-side transport reactions or markers.
+_Avoid_: Bizbox workflow service, settings store, bridge lifecycle owner
 
 **ClickUp Message Acknowledgement**:
 The provider-side `thumbsup` reaction that the ClickUp adapter adds to a reply message after a poll returns new inbound events, indicating Bizbox has consumed that reply.

@@ -7,6 +7,14 @@ import {
 } from "./helpers/embedded-postgres.js";
 
 const mockExpireWaitingBridges = vi.hoisted(() => vi.fn(async () => undefined));
+const mockRetryFailedBridgeOpenings = vi.hoisted(() => vi.fn(async () => ({
+  checked: 0,
+  reopened: 0,
+  failed: 0,
+  skipped: 0,
+  issueIds: [],
+  interactionIds: [],
+})));
 const mockReconcileDeliveredInteractions = vi.hoisted(() => vi.fn(async (input: Array<{ issueId: string; interactionId: string }>) => ({
   checked: input.length,
   approved: input.length,
@@ -29,6 +37,7 @@ const mockReconcilePendingConfirmations = vi.hoisted(() => vi.fn(async () => ({
 vi.mock("../services/awaiting-human-bridge.js", () => ({
   awaitingHumanBridgeService: vi.fn(() => ({
     expireWaitingBridges: mockExpireWaitingBridges,
+    retryFailedBridgeOpenings: mockRetryFailedBridgeOpenings,
     reconcileDeliveredInteractions: mockReconcileDeliveredInteractions,
     reconcilePendingConfirmations: mockReconcilePendingConfirmations,
   })),
@@ -54,6 +63,7 @@ describeEmbeddedPostgres("heartbeat legacy awaiting_human delivery reconciliatio
     await db.delete(goals);
     await db.delete(companies);
     mockExpireWaitingBridges.mockClear();
+    mockRetryFailedBridgeOpenings.mockClear();
     mockReconcileDeliveredInteractions.mockClear();
     mockReconcilePendingConfirmations.mockClear();
   });
@@ -111,6 +121,7 @@ describeEmbeddedPostgres("heartbeat legacy awaiting_human delivery reconciliatio
     const result = await heartbeat.reconcileAwaitingHumanApprovals();
 
     expect(mockExpireWaitingBridges).toHaveBeenCalledTimes(1);
+    expect(mockRetryFailedBridgeOpenings).toHaveBeenCalledTimes(1);
     expect(mockReconcileDeliveredInteractions).toHaveBeenCalledTimes(1);
     expect(mockReconcileDeliveredInteractions).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -184,6 +195,7 @@ describeEmbeddedPostgres("heartbeat legacy awaiting_human delivery reconciliatio
     const heartbeat = heartbeatService(db);
     const result = await heartbeat.reconcileAwaitingHumanApprovals();
 
+    expect(mockRetryFailedBridgeOpenings).toHaveBeenCalledTimes(1);
     expect(mockReconcileDeliveredInteractions).toHaveBeenCalledTimes(1);
     expect(mockReconcileDeliveredInteractions).toHaveBeenCalledWith([
       expect.objectContaining({

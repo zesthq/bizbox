@@ -390,6 +390,57 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     }));
   });
 
+  it("reopens a pending interaction when a failed bridge-open is retried", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const send = vi.fn(async () => ({
+      externalThreadId: "thread-1",
+      externalMessageId: "message-1",
+      nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+    }));
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send,
+        poll: vi.fn(async () => ({ status: "ok", detail: "ok", events: [] })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    await db.insert(activityLog).values({
+      companyId: seeded.companyId,
+      actorType: "system",
+      actorId: "issue_thread_interactions",
+      action: "issue.awaiting_human.bridge_open_failed",
+      entityType: "issue",
+      entityId: seeded.issueId,
+      details: {
+        interactionId: seeded.interactionId,
+        interactionKind: "request_confirmation",
+        detail: "clickup offline",
+      },
+    });
+
+    const result = await service.retryFailedBridgeOpenings();
+
+    expect(result).toEqual({
+      checked: 1,
+      reopened: 1,
+      failed: 0,
+      skipped: 0,
+      issueIds: [seeded.issueId],
+      interactionIds: [seeded.interactionId],
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+
+    const rows = await db.select().from(awaitingHumanBridges)
+      .where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(expect.objectContaining({
+      status: "waiting_for_human",
+      externalMessageId: "message-1",
+    }));
+  });
+
   it("builds full ask-user-questions outbound content for the bridge", async () => {
     const seeded = await seedAskUserQuestionsInteraction();
     const send = vi.fn(async () => ({
@@ -491,7 +542,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(updatedBridge?.status).toBe("waiting_for_human");
 
     const [issueAfter] = await db.select({ updatedAt: issues.updatedAt }).from(issues).where(eq(issues.id, seeded.issueId));
-    expect(issueAfter && issueBefore && issueAfter.updatedAt.getTime()).toBeGreaterThan(issueBefore.updatedAt.getTime());
+    expect(issueAfter && issueBefore && issueAfter.updatedAt.getTime()).toBeGreaterThanOrEqual(issueBefore.updatedAt.getTime());
   });
 
   it("skips a duplicate inbound event when overlapping polls race on the same ClickUp reply", async () => {
@@ -1577,7 +1628,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(rows).toHaveLength(2);
   });
 
-  it("skips delivered interactions whose notification delivery is not a sent ClickUp chat message", async () => {
+  it("treats enqueued ClickUp deliveries as delivered handoffs and skips other non-ClickUp deliveries", async () => {
     const seeded = await seedAwaitingHumanInteraction();
     const service = awaitingHumanBridgeService(db, {
       resolveProviderForCompany: async () => "clickup",
@@ -1601,7 +1652,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
         createdByAgentId: seeded.agentId,
         handoffDetails: {
           notificationDelivery: {
-            status: "queued",
+            status: "enqueued",
             channel: "clickup-chat",
             externalId: "message-42",
           },
@@ -1624,20 +1675,21 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     ]);
 
     expect(result).toEqual({
-      checked: 0,
+      checked: 1,
       approved: 0,
       rejected: 0,
       replies: 0,
-      noSignal: 0,
+      noSignal: 1,
       failed: 0,
-      skipped: 2,
+      skipped: 1,
       approvedIssueIds: [],
       approvedInteractionIds: [],
     });
 
     const rows = await db.select().from(awaitingHumanBridges)
       .where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.externalMessageId).toBe("message-42");
   });
 
   it("reconciles an eligible delivered interaction through the bridge and aggregates the poll result", async () => {

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agentWakeupRequests,
@@ -561,21 +561,24 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     await db.update(issues).set({ updatedAt: new Date() }).where(eq(issues.id, issueId));
   }
 
-  async function dedupeInboundEvent(bridgeId: string, externalEventId: string | null) {
-    if (!externalEventId) return false;
-    const existing = await db
-      .select({ id: awaitingHumanBridgeInboundEvents.id })
-      .from(awaitingHumanBridgeInboundEvents)
-      .where(and(
-        eq(awaitingHumanBridgeInboundEvents.bridgeId, bridgeId),
-        eq(awaitingHumanBridgeInboundEvents.externalEventId, externalEventId),
-      ))
-      .limit(1);
-    return existing.length > 0;
-  }
+  type RetryBridgeOpenSummary = {
+    checked: number;
+    reopened: number;
+    failed: number;
+    skipped: number;
+    issueIds: string[];
+    interactionIds: string[];
+  };
 
-  function isUniqueViolation(error: unknown) {
-    return !!error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505";
+  function emptyRetryBridgeOpenSummary(): RetryBridgeOpenSummary {
+    return {
+      checked: 0,
+      reopened: 0,
+      failed: 0,
+      skipped: 0,
+      issueIds: [],
+      interactionIds: [],
+    };
   }
 
   async function closeBridgeRow(input: {
@@ -610,6 +613,74 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     }
 
     return updated ?? input.row;
+  }
+
+  async function retryFailedBridgeOpenings() {
+    const rows = await db
+      .select({
+        companyId: activityLog.companyId,
+        issueId: activityLog.entityId,
+        interactionId: sql<string | null>`${activityLog.details} ->> 'interactionId'`.as("interactionId"),
+      })
+      .from(activityLog)
+      .where(and(
+        eq(activityLog.entityType, "issue"),
+        eq(activityLog.action, "issue.awaiting_human.bridge_open_failed"),
+        sql`cast(${activityLog.details} ->> 'interactionId' as uuid) is not null`,
+        sql`not exists (
+          select 1
+          from ${awaitingHumanBridges}
+          where ${awaitingHumanBridges.interactionId} = cast(${activityLog.details} ->> 'interactionId' as uuid)
+            and ${awaitingHumanBridges.status} in ('pending_delivery', 'waiting_for_human')
+        )`,
+      ))
+      .orderBy(desc(activityLog.createdAt))
+      .limit(200);
+
+    const summary = emptyRetryBridgeOpenSummary();
+    const seen = new Set<string>();
+
+    for (const row of rows) {
+      const interactionId = readNonEmptyString(row.interactionId);
+      if (!interactionId || seen.has(interactionId)) {
+        summary.skipped += 1;
+        continue;
+      }
+      seen.add(interactionId);
+      summary.checked += 1;
+
+      try {
+        const bridge = await openForPendingInteraction({
+          companyId: row.companyId,
+          issueId: row.issueId,
+          interactionId,
+        });
+        if (bridge) {
+          summary.reopened += 1;
+          summary.issueIds.push(row.issueId);
+          summary.interactionIds.push(interactionId);
+        } else {
+          summary.skipped += 1;
+        }
+      } catch (error) {
+        summary.failed += 1;
+        const detail = error instanceof Error ? error.message : String(error);
+        await logActivity(db, {
+          companyId: row.companyId,
+          actorType: "system",
+          actorId: "awaiting_human_bridge",
+          action: "issue.awaiting_human.bridge_open_retry_failed",
+          entityType: "issue",
+          entityId: row.issueId,
+          details: {
+            interactionId,
+            detail,
+          },
+        });
+      }
+    }
+
+    return summary;
   }
 
   async function forceCloseExpiredBridgeRow(input: {
@@ -707,16 +778,95 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     return comment;
   }
 
-  return {
-    async openOrReuseForInteraction(input: {
-      companyId: string;
-      issueId: string;
-      interactionId: string;
-      agentId: string;
-      handoffKind: "request_confirmation" | "ask_user_questions";
-      notification: AwaitingHumanNotificationPayload;
-    }) {
-      const [existing] = await db
+  async function openForPendingInteraction(input: {
+    companyId: string;
+    issueId: string;
+    interactionId: string;
+  }) {
+    const interaction = await interactionsSvc.getById(input.interactionId);
+    if (
+      !interaction
+      || interaction.companyId !== input.companyId
+      || interaction.issueId !== input.issueId
+      || interaction.status !== "pending"
+      || (interaction.kind !== "request_confirmation" && interaction.kind !== "ask_user_questions")
+    ) {
+      return null;
+    }
+
+    const [issue] = await db.select({
+      id: issues.id,
+      companyId: issues.companyId,
+      status: issues.status,
+      assigneeAgentId: issues.assigneeAgentId,
+      identifier: issues.identifier,
+      title: issues.title,
+    }).from(issues).where(and(
+      eq(issues.id, input.issueId),
+      eq(issues.companyId, input.companyId),
+    )).limit(1);
+    if (!issue || issue.status !== "awaiting_human") return null;
+
+    const agentId = issue.assigneeAgentId ?? interaction.createdByAgentId ?? null;
+    const outbound = buildBridgeNotification({
+      issueId: issue.id,
+      issueIdentifier: issue.identifier ?? null,
+      issueTitle: issue.title,
+      interaction,
+    });
+    if (!agentId || !outbound) return null;
+
+    try {
+      return await openOrReuseForInteraction({
+        companyId: input.companyId,
+        issueId: input.issueId,
+        interactionId: input.interactionId,
+        agentId,
+        handoffKind: outbound.handoffKind,
+        notification: outbound.notification,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "awaiting-human-bridge-disabled") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  const openOrReuseForInteraction = async (input: {
+    companyId: string;
+    issueId: string;
+    interactionId: string;
+    agentId: string;
+    handoffKind: "request_confirmation" | "ask_user_questions";
+    notification: AwaitingHumanNotificationPayload;
+  }) => {
+    const [existing] = await db
+      .select()
+      .from(awaitingHumanBridges)
+      .where(and(
+        eq(awaitingHumanBridges.companyId, input.companyId),
+        eq(awaitingHumanBridges.interactionId, input.interactionId),
+        inArray(awaitingHumanBridges.status, ["pending_delivery", "waiting_for_human"]),
+      ))
+      .limit(1);
+    if (existing) return existing;
+
+    const provider = await deps.resolveProviderForCompany(input.companyId);
+    const [created] = await db.insert(awaitingHumanBridges).values({
+      companyId: input.companyId,
+      issueId: input.issueId,
+      interactionId: input.interactionId,
+      agentId: input.agentId,
+      provider,
+      status: "pending_delivery",
+    }).onConflictDoNothing({
+      target: awaitingHumanBridges.interactionId,
+      where: inArray(awaitingHumanBridges.status, ["pending_delivery", "waiting_for_human"]),
+    }).returning();
+
+    if (!created) {
+      const [existingAfterConflict] = await db
         .select()
         .from(awaitingHumanBridges)
         .where(and(
@@ -724,126 +874,53 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
           eq(awaitingHumanBridges.interactionId, input.interactionId),
           inArray(awaitingHumanBridges.status, ["pending_delivery", "waiting_for_human"]),
         ))
+        .orderBy(awaitingHumanBridges.createdAt)
         .limit(1);
-      if (existing) return existing;
+      if (!existingAfterConflict) {
+        throw new Error("Failed to reopen existing awaiting human bridge after conflict");
+      }
+      return existingAfterConflict;
+    }
 
-      const provider = await deps.resolveProviderForCompany(input.companyId);
-      const [created] = await db.insert(awaitingHumanBridges).values({
+    const adapter = deps.resolveAdapter(provider);
+    let delivered;
+    try {
+      delivered = await adapter.send({
+        bridgeId: created.id,
         companyId: input.companyId,
         issueId: input.issueId,
         interactionId: input.interactionId,
         agentId: input.agentId,
-        provider,
-        status: "pending_delivery",
-      }).onConflictDoNothing({
-        target: awaitingHumanBridges.interactionId,
-        where: inArray(awaitingHumanBridges.status, ["pending_delivery", "waiting_for_human"]),
-      }).returning();
-
-      if (!created) {
-        const [existingAfterConflict] = await db
-          .select()
-          .from(awaitingHumanBridges)
-          .where(and(
-            eq(awaitingHumanBridges.companyId, input.companyId),
-            eq(awaitingHumanBridges.interactionId, input.interactionId),
-            inArray(awaitingHumanBridges.status, ["pending_delivery", "waiting_for_human"]),
-          ))
-          .orderBy(awaitingHumanBridges.createdAt)
-          .limit(1);
-        if (!existingAfterConflict) {
-          throw new Error("Failed to reopen existing awaiting human bridge after conflict");
-        }
-        return existingAfterConflict;
-      }
-
-      const adapter = deps.resolveAdapter(provider);
-      let delivered;
-      try {
-        delivered = await adapter.send({
-          bridgeId: created.id,
-          companyId: input.companyId,
-          issueId: input.issueId,
-          interactionId: input.interactionId,
-          agentId: input.agentId,
-          handoffKind: input.handoffKind,
-          notification: input.notification,
-        });
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        await db.update(awaitingHumanBridges).set({
-          status: "failed",
-          lastError: detail,
-          updatedAt: new Date(),
-        }).where(eq(awaitingHumanBridges.id, created.id));
-        throw error;
-      }
-
-      const [updated] = await db.update(awaitingHumanBridges).set({
-        status: "waiting_for_human",
-        externalThreadId: delivered.externalThreadId,
-        externalMessageId: delivered.externalMessageId ?? null,
-        nextPollAt: delivered.nextPollAt ?? null,
-        updatedAt: new Date(),
-      }).where(eq(awaitingHumanBridges.id, created.id)).returning();
-
-      return updated ?? created;
-    },
-
-    async openForPendingInteraction(input: {
-      companyId: string;
-      issueId: string;
-      interactionId: string;
-    }) {
-      const interaction = await interactionsSvc.getById(input.interactionId);
-      if (
-        !interaction
-        || interaction.companyId !== input.companyId
-        || interaction.issueId !== input.issueId
-        || interaction.status !== "pending"
-        || (interaction.kind !== "request_confirmation" && interaction.kind !== "ask_user_questions")
-      ) {
-        return null;
-      }
-
-      const [issue] = await db.select({
-        id: issues.id,
-        companyId: issues.companyId,
-        status: issues.status,
-        assigneeAgentId: issues.assigneeAgentId,
-        identifier: issues.identifier,
-        title: issues.title,
-      }).from(issues).where(and(
-        eq(issues.id, input.issueId),
-        eq(issues.companyId, input.companyId),
-      )).limit(1);
-      if (!issue || issue.status !== "awaiting_human") return null;
-
-      const agentId = issue.assigneeAgentId ?? interaction.createdByAgentId ?? null;
-      const outbound = buildBridgeNotification({
-        issueId: issue.id,
-        issueIdentifier: issue.identifier ?? null,
-        issueTitle: issue.title,
-        interaction,
+        handoffKind: input.handoffKind,
+        notification: input.notification,
       });
-      if (!agentId || !outbound) return null;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await db.update(awaitingHumanBridges).set({
+        status: "failed",
+        lastError: detail,
+        updatedAt: new Date(),
+      }).where(eq(awaitingHumanBridges.id, created.id));
+      throw error;
+    }
 
-      try {
-        return await this.openOrReuseForInteraction({
-          companyId: input.companyId,
-          issueId: input.issueId,
-          interactionId: input.interactionId,
-          agentId,
-          handoffKind: outbound.handoffKind,
-          notification: outbound.notification,
-        });
-      } catch (error) {
-        if (error instanceof Error && error.message === "awaiting-human-bridge-disabled") {
-          return null;
-        }
-        throw error;
-      }
-    },
+    const [updated] = await db.update(awaitingHumanBridges).set({
+      status: "waiting_for_human",
+      externalThreadId: delivered.externalThreadId,
+      externalMessageId: delivered.externalMessageId ?? null,
+      nextPollAt: delivered.nextPollAt ?? null,
+      updatedAt: new Date(),
+    }).where(eq(awaitingHumanBridges.id, created.id)).returning();
+
+    return updated ?? created;
+  };
+
+  return {
+    openOrReuseForInteraction,
+
+    retryFailedBridgeOpenings,
+
+    openForPendingInteraction,
 
     async attachOrReuseExistingDelivery(input: {
       companyId: string;
@@ -896,7 +973,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
         const messageId = readNonEmptyString(delivery.externalId);
         if (
           delivery.channel !== "clickup-chat"
-          || delivery.status !== "sent"
+          || (delivery.status !== "sent" && delivery.status !== "enqueued")
           || !messageId
         ) {
           summary.skipped += 1;
@@ -1014,34 +1091,67 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
 
       for (const event of polled.events) {
         const externalEventId = event.externalEventId?.trim() || null;
-        if (await dedupeInboundEvent(row.id, externalEventId)) continue;
 
         if (event.kind === "reply" && event.body?.trim()) {
-          try {
-            await db.insert(awaitingHumanBridgeInboundEvents).values({
+          const replyBody = event.body.trim();
+          const currentInteraction = await interactionsSvc.getById(row.interactionId);
+          const responsePayload = (
+            currentInteraction
+            && currentInteraction.kind === "ask_user_questions"
+            && currentInteraction.status === "pending"
+          )
+            ? buildAskUserQuestionsResponseFromReply({
+                interaction: currentInteraction,
+                replyBody,
+              })
+            : null;
+
+          const replyProcessing = await db.transaction(async (tx) => {
+            const [recorded] = await tx.insert(awaitingHumanBridgeInboundEvents).values({
               bridgeId: row.id,
               eventKind: event.kind,
               externalEventId,
               externalMessageId: event.externalMessageId?.trim() || null,
               externalThreadId: event.externalThreadId?.trim() || null,
               payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
-            });
-          } catch (error) {
-            if (isUniqueViolation(error)) continue;
-            throw error;
+            }).onConflictDoNothing({
+              target: [awaitingHumanBridgeInboundEvents.bridgeId, awaitingHumanBridgeInboundEvents.externalEventId],
+              where: sql`${awaitingHumanBridgeInboundEvents.externalEventId} IS NOT NULL`,
+            }).returning({ id: awaitingHumanBridgeInboundEvents.id });
+
+            if (!recorded) {
+              return { duplicate: true as const, answered: false as const, commentId: null as string | null };
+            }
+
+            const body = `ClickUp reply received:\n\n${replyBody}`;
+            const [comment] = await tx.insert(issueComments).values({
+              companyId: row.companyId,
+              issueId: row.issueId,
+              authorAgentId: null,
+              authorUserId: null,
+              createdByRunId: null,
+              body,
+            }).returning();
+
+            return {
+              duplicate: false as const,
+              answered: false as const,
+              commentId: comment?.id ?? null,
+              body,
+            };
+          });
+
+          if (replyProcessing.duplicate) continue;
+
+          let answeredInteraction = null;
+          if (responsePayload) {
+            answeredInteraction = await interactionsSvc.answerQuestions({
+              id: row.issueId,
+              companyId: row.companyId,
+            }, row.interactionId, responsePayload, { actorType: "system" });
           }
 
-          const body = `ClickUp reply received:\n\n${event.body.trim()}`;
-          const [comment] = await db.insert(issueComments).values({
-            companyId: row.companyId,
-            issueId: row.issueId,
-            authorAgentId: null,
-            authorUserId: null,
-            createdByRunId: null,
-            body,
-          }).returning();
-          await touchIssueUpdatedAt(row.issueId);
-
+          const body = replyProcessing.body ?? `ClickUp reply received:\n\n${replyBody}`;
           const [issueRow] = await db.select({
             status: issues.status,
             identifier: issues.identifier,
@@ -1056,7 +1166,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             entityType: "issue",
             entityId: row.issueId,
             details: {
-              commentId: comment?.id,
+              commentId: replyProcessing.commentId,
               bodySnippet: body.slice(0, 120),
               identifier: issueRow?.identifier ?? null,
               issueTitle: issueRow?.title ?? null,
@@ -1067,22 +1177,9 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             },
           });
 
-          const currentInteraction = await interactionsSvc.getById(row.interactionId);
-          if (
-            currentInteraction
-            && currentInteraction.kind === "ask_user_questions"
-            && currentInteraction.status === "pending"
-          ) {
-            const responsePayload = buildAskUserQuestionsResponseFromReply({
-              interaction: currentInteraction,
-              replyBody: event.body.trim(),
-            });
-            if (responsePayload) {
-              const interaction = await interactionsSvc.answerQuestions({
-                id: row.issueId,
-                companyId: row.companyId,
-              }, row.interactionId, responsePayload, { actorType: "system" });
-
+          if (answeredInteraction) {
+            const currentInteractionAfterAnswer = answeredInteraction ?? await interactionsSvc.getById(row.interactionId);
+            if (currentInteractionAfterAnswer) {
               await logActivity(db, {
                 companyId: row.companyId,
                 actorType: "system",
@@ -1091,12 +1188,12 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
                 entityType: "issue",
                 entityId: row.issueId,
                 details: {
-                  interactionId: interaction.id,
-                  interactionKind: interaction.kind,
-                  interactionStatus: interaction.status,
+                  interactionId: currentInteractionAfterAnswer.id,
+                  interactionKind: currentInteractionAfterAnswer.kind,
+                  interactionStatus: currentInteractionAfterAnswer.status,
                   answeredQuestionCount:
-                    interaction.kind === "ask_user_questions"
-                      ? (interaction.result?.answers?.length ?? 0)
+                    currentInteractionAfterAnswer.kind === "ask_user_questions"
+                      ? (currentInteractionAfterAnswer.result?.answers?.length ?? 0)
                       : 0,
                   resolutionSource: "clickup_reply",
                   clickupMessageId: row.externalMessageId ?? null,
@@ -1113,18 +1210,18 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
                 issueAfterAnswer?.assigneeAgentId
                 && issueAfterAnswer.status !== "backlog"
                 && !isClosedIssueStatus(issueAfterAnswer.status)
-                && shouldWakeAssigneeForInteractionResolution(interaction)
+                && shouldWakeAssigneeForInteractionResolution(currentInteractionAfterAnswer)
               ) {
                 await insertWakeup({
                   companyId: row.companyId,
                   agentId: issueAfterAnswer.assigneeAgentId,
                   payload: {
                     issueId: row.issueId,
-                    interactionId: interaction.id,
-                    interactionKind: interaction.kind,
-                    interactionStatus: interaction.status,
-                    sourceCommentId: interaction.sourceCommentId ?? null,
-                    sourceRunId: interaction.sourceRunId ?? null,
+                    interactionId: currentInteractionAfterAnswer.id,
+                    interactionKind: currentInteractionAfterAnswer.kind,
+                    interactionStatus: currentInteractionAfterAnswer.status,
+                    sourceCommentId: currentInteractionAfterAnswer.sourceCommentId ?? null,
+                    sourceRunId: currentInteractionAfterAnswer.sourceRunId ?? null,
                     mutation: "interaction",
                   },
                 });
@@ -1148,7 +1245,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               payload: {
                 issueId: row.issueId,
                 interactionId: row.interactionId,
-                commentId: comment?.id,
+                commentId: replyProcessing.commentId,
                 mutation: "comment",
               },
             });

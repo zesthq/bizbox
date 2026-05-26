@@ -5331,6 +5331,7 @@ export function heartbeatService(db: Db) {
 
   async function reconcileAwaitingHumanApprovals() {
     await awaitingHumanBridge.expireWaitingBridges();
+    await awaitingHumanBridge.retryFailedBridgeOpenings();
     const legacyDeliveredInteractions = await db
       .select({
         companyId: activityLog.companyId,
