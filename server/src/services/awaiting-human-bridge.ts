@@ -388,6 +388,10 @@ function shouldWakeAssigneeForInteractionResolution(
   return true;
 }
 
+export function shouldWakeOnReplyIssueStatus(issueStatus: string | null | undefined) {
+  return Boolean(issueStatus && issueStatus !== "backlog" && !isClosedIssueStatus(issueStatus));
+}
+
 function resolveBaseUrl() {
   const configured = process.env.BIZBOX_PUBLIC_URL?.trim();
   if (configured) {
@@ -1125,6 +1129,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       const result = {
         checked: 0,
         approved: 0,
+        rejected: 0,
         failed: 0,
         skipped: 0,
         noApproval: 0,
@@ -1135,6 +1140,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       const polled = await this.pollActiveBridges();
       result.checked += polled.checked;
       result.approved += polled.approved;
+      result.rejected += polled.rejected;
       result.failed += polled.failed;
       result.skipped += polled.skipped;
       result.noApproval += polled.noSignal;
@@ -1417,7 +1423,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             ) {
               await insertWakeup({
                 companyId: row.companyId,
-                agentId: row.agentId,
+                agentId: issueAfterReject.assigneeAgentId ?? row.agentId,
                 payload: {
                   issueId: row.issueId,
                   interactionId: rejectedInteraction.id,
@@ -1437,7 +1443,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             return summary;
           }
 
-          if (issueRow?.status !== "backlog" && !isClosedIssueStatus(issueRow?.status)) {
+          if (shouldWakeOnReplyIssueStatus(issueRow?.status)) {
             await insertWakeup({
               companyId: row.companyId,
               agentId: row.agentId,

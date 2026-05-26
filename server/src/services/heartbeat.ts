@@ -5379,6 +5379,7 @@ export function heartbeatService(db: Db) {
       : {
         checked: 0,
         approved: 0,
+        rejected: 0,
         failed: 0,
         skipped: 0,
         noSignal: 0,
@@ -5390,6 +5391,7 @@ export function heartbeatService(db: Db) {
     return {
       checked: legacyResult.checked + pendingResult.checked,
       approved: legacyResult.approved + pendingResult.approved,
+      rejected: legacyResult.rejected + pendingResult.rejected,
       failed: legacyResult.failed + pendingResult.failed,
       skipped: legacyResult.skipped + pendingResult.skipped,
       noApproval: legacyResult.noSignal + pendingResult.noApproval,

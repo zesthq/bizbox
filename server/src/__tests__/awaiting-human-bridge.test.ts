@@ -18,7 +18,10 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
-import { awaitingHumanBridgeService } from "../services/awaiting-human-bridge.js";
+import {
+  awaitingHumanBridgeService,
+  shouldWakeOnReplyIssueStatus,
+} from "../services/awaiting-human-bridge.js";
 import { issueThreadInteractionService } from "../services/issue-thread-interactions.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
@@ -284,6 +287,12 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
       },
     };
   }
+
+  it("does not wake a plain reply when the issue status is missing", () => {
+    expect(shouldWakeOnReplyIssueStatus(undefined)).toBe(false);
+    expect(shouldWakeOnReplyIssueStatus("backlog")).toBe(false);
+    expect(shouldWakeOnReplyIssueStatus("todo")).toBe(true);
+  });
 
   it("creates one active bridge for an interaction and reuses it while still open", async () => {
     const seeded = await seedAwaitingHumanInteraction();
@@ -1116,6 +1125,74 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
       closeOutcome: "rejected",
       closeReason: "No, change the plan.",
     }));
+  });
+
+  it("wakes the current assignee, not the original bridge agent, after a rejection on reassignment", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const reassignedAgentId = randomUUID();
+    await db.insert(agents).values({
+      id: reassignedAgentId,
+      companyId: seeded.companyId,
+      name: "Reassigned reviewer",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.update(issues).set({
+      assigneeAgentId: reassignedAgentId,
+    }).where(eq(issues.id, seeded.issueId));
+
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({
+          status: "ok",
+          detail: "ok",
+          events: [
+            {
+              kind: "reply",
+              externalEventId: "reject-1",
+              externalThreadId: "thread-1",
+              externalMessageId: "message-1",
+              body: "Please revise the plan.",
+              metadata: { clickupReplyId: "reject-1" },
+              receivedAt: new Date("2026-05-22T00:02:00.000Z"),
+            },
+          ],
+        })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    await service.pollActiveBridges(new Date("2026-05-22T00:03:00.000Z"));
+
+    const reassignedWakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, reassignedAgentId));
+    expect(reassignedWakes).toHaveLength(1);
+    expect(reassignedWakes[0]?.payload).toMatchObject({
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      interactionStatus: "rejected",
+      mutation: "interaction",
+    });
+
+    const originalWakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, seeded.agentId));
+    expect(originalWakes).toHaveLength(0);
   });
 
   it("retries a rejected signal after the wakeup insert fails instead of parking the interaction", async () => {
@@ -2371,5 +2448,49 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(result.approved).toBe(1);
     expect(result.issueIds).toEqual([seeded.issueId]);
     expect(result.interactionIds).toEqual([seeded.interactionId]);
+  });
+
+  it("counts rejected pending confirmations when reconciling pending bridges", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-42",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({
+          status: "ok",
+          detail: "ok",
+          events: [
+            {
+              kind: "reject_signal",
+              externalEventId: "reject-1",
+              externalThreadId: "thread-1",
+              externalMessageId: "message-42",
+              body: "No, please revise it.",
+              metadata: { resolutionSource: "clickup_reply" },
+            },
+          ],
+        })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    const result = await service.reconcilePendingConfirmations();
+
+    expect(result.checked).toBe(1);
+    expect(result.rejected).toBe(1);
+    expect(result.approved).toBe(0);
+    expect(result.noApproval).toBe(0);
   });
 });

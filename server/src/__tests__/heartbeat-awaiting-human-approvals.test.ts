@@ -349,7 +349,9 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
     const second = await heartbeat.reconcileAwaitingHumanApprovals();
 
     expect(first.approved).toBe(0);
+    expect(first.rejected).toBe(1);
     expect(second.approved).toBe(0);
+    expect(second.rejected).toBe(0);
 
     const comments = await db
       .select()
