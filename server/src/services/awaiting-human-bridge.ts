@@ -533,6 +533,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     reason?: string;
     requestedByActorType?: "system" | "user" | "agent";
     requestedByActorId?: string;
+    dbClient?: Db;
   }) {
     if (deps.requestWakeup) {
       await deps.requestWakeup({
@@ -545,7 +546,8 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       });
       return;
     }
-    await db.insert(agentWakeupRequests).values({
+    const client = input.dbClient ?? db;
+    await client.insert(agentWakeupRequests).values({
       companyId: input.companyId,
       agentId: input.agentId,
       source: "automation",
@@ -1375,53 +1377,58 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             }
           }
 
-          const { interaction, createdIssues, continuationIssue } = await interactionsSvc.acceptInteraction({
-            id: issue.id,
-            companyId: issue.companyId,
-            projectId: issue.projectId,
-            goalId: issue.goalId,
-          }, row.interactionId, {}, { actorType: "system" });
+          await db.transaction(async (tx) => {
+            const txDb = tx as unknown as Db;
+            const txInteractionsSvc = issueThreadInteractionService(txDb);
+            const { interaction, createdIssues, continuationIssue } = await txInteractionsSvc.acceptInteraction({
+              id: issue.id,
+              companyId: issue.companyId,
+              projectId: issue.projectId,
+              goalId: issue.goalId,
+            }, row.interactionId, {}, { actorType: "system" });
 
-          await finalizeAcceptedInteractionResolution({
-            db,
-            heartbeat: {
-              wakeup: async (agentId, wake) => {
-                await insertWakeup({
-                  companyId: row.companyId,
-                  agentId,
-                  payload: parseObject(wake.payload),
-                  reason: wake.reason ?? undefined,
-                  requestedByActorType: wake.requestedByActorType ?? undefined,
-                  requestedByActorId: wake.requestedByActorId ?? undefined,
-                });
+            await finalizeAcceptedInteractionResolution({
+              db: txDb,
+              heartbeat: {
+                wakeup: async (agentId, wake) => {
+                  await insertWakeup({
+                    companyId: row.companyId,
+                    agentId,
+                    payload: parseObject(wake.payload),
+                    reason: wake.reason ?? undefined,
+                    requestedByActorType: wake.requestedByActorType ?? undefined,
+                    requestedByActorId: wake.requestedByActorId ?? undefined,
+                    dbClient: txDb,
+                  });
+                },
               },
-            },
-            logActivity,
-            issue,
-            interaction,
-            createdIssues,
-            continuationIssue,
-            actor: {
-              actorType: "system",
-              actorId: "clickup_approval_poller",
-              agentId: null,
-              runId: null,
-            },
-            source: "clickup.awaiting_human.approval",
-            metadata: {
-              resolutionSource: typeof event.metadata?.resolutionSource === "string" ? event.metadata.resolutionSource : null,
-              clickupMessageId: row.externalMessageId ?? null,
-              clickupReaction: typeof event.metadata?.clickupReaction === "string" ? event.metadata.clickupReaction : null,
-            },
-          });
+              logActivity,
+              issue,
+              interaction,
+              createdIssues,
+              continuationIssue,
+              actor: {
+                actorType: "system",
+                actorId: "clickup_approval_poller",
+                agentId: null,
+                runId: null,
+              },
+              source: "clickup.awaiting_human.approval",
+              metadata: {
+                resolutionSource: typeof event.metadata?.resolutionSource === "string" ? event.metadata.resolutionSource : null,
+                clickupMessageId: row.externalMessageId ?? null,
+                clickupReaction: typeof event.metadata?.clickupReaction === "string" ? event.metadata.clickupReaction : null,
+              },
+            });
 
-          await db.insert(awaitingHumanBridgeInboundEvents).values({
-            bridgeId: row.id,
-            eventKind: event.kind,
-            externalEventId,
-            externalMessageId: event.externalMessageId?.trim() || null,
-            externalThreadId: event.externalThreadId?.trim() || null,
-            payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+            await tx.insert(awaitingHumanBridgeInboundEvents).values({
+              bridgeId: row.id,
+              eventKind: event.kind,
+              externalEventId,
+              externalMessageId: event.externalMessageId?.trim() || null,
+              externalThreadId: event.externalThreadId?.trim() || null,
+              payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+            });
           });
           await this.closeBridge({
             bridgeId: row.id,
@@ -1451,30 +1458,35 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             }
           }
 
-          const interaction = await interactionsSvc.rejectInteraction({
-            id: issue.id,
-            companyId: issue.companyId,
-          }, row.interactionId, {
-            reason: event.body?.trim() || undefined,
-          }, { actorType: "system" });
+          await db.transaction(async (tx) => {
+            const txDb = tx as unknown as Db;
+            const txInteractionsSvc = issueThreadInteractionService(txDb);
+            const interaction = await txInteractionsSvc.rejectInteraction({
+              id: issue.id,
+              companyId: issue.companyId,
+            }, row.interactionId, {
+              reason: event.body?.trim() || undefined,
+            }, { actorType: "system" });
 
-          await insertWakeup({
-            companyId: row.companyId,
-            agentId: row.agentId,
-            payload: {
-              issueId: row.issueId,
-              interactionId: row.interactionId,
-              interactionStatus: interaction.status,
-              mutation: "interaction",
-            },
-          });
-          await db.insert(awaitingHumanBridgeInboundEvents).values({
-            bridgeId: row.id,
-            eventKind: event.kind,
-            externalEventId,
-            externalMessageId: event.externalMessageId?.trim() || null,
-            externalThreadId: event.externalThreadId?.trim() || null,
-            payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+            await insertWakeup({
+              companyId: row.companyId,
+              agentId: row.agentId,
+              payload: {
+                issueId: row.issueId,
+                interactionId: row.interactionId,
+                interactionStatus: interaction.status,
+                mutation: "interaction",
+              },
+              dbClient: txDb,
+            });
+            await tx.insert(awaitingHumanBridgeInboundEvents).values({
+              bridgeId: row.id,
+              eventKind: event.kind,
+              externalEventId,
+              externalMessageId: event.externalMessageId?.trim() || null,
+              externalThreadId: event.externalThreadId?.trim() || null,
+              payload: { ...(event.raw ?? {}), ...(event.metadata ?? {}) },
+            });
           });
           await this.closeBridge({
             bridgeId: row.id,
@@ -1607,61 +1619,80 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
           }
         }
 
-        if (interaction) {
-          if (row.agentId) {
-            try {
-              await insertWakeup({
-                companyId: row.companyId,
-                agentId: row.agentId,
-                payload: {
-                  issueId: row.issueId,
-                  interactionId: interaction.id,
-                  interactionStatus: interaction.status,
-                  mutation: "interaction",
-                },
-              });
-            } catch (wakeupError) {
-              const wakeupDetail = wakeupError instanceof Error ? wakeupError.message : String(wakeupError);
-              await logActivity(db, {
-                companyId: row.companyId,
-                actorType: "system",
-                actorId: "awaiting_human_bridge",
-                action: "issue.awaiting_human.bridge_expire_wakeup_failed",
-                entityType: "issue",
-                entityId: row.issueId,
-                details: {
-                  bridgeId: row.id,
-                  interactionId: row.interactionId,
-                  provider: row.provider,
-                  detail: wakeupDetail,
-                },
-              });
-            }
-          }
+        const interactionStatus = interaction?.status ?? null;
+        if (row.agentId) {
           try {
-            await addSystemIssueComment({
+            await insertWakeup({
               companyId: row.companyId,
-              issueId: row.issueId,
-              interactionId: row.interactionId,
-              body: expiredBody,
+              agentId: row.agentId,
+              payload: {
+                bridgeId: row.id,
+                issueId: row.issueId,
+                interactionId: row.interactionId,
+                interactionStatus,
+                mutation: "interaction",
+                expirationReason: expiredBody,
+              },
             });
-          } catch (commentError) {
-            const commentDetail = commentError instanceof Error ? commentError.message : String(commentError);
+          } catch (wakeupError) {
+            const wakeupDetail = wakeupError instanceof Error ? wakeupError.message : String(wakeupError);
             await logActivity(db, {
               companyId: row.companyId,
               actorType: "system",
               actorId: "awaiting_human_bridge",
-              action: "issue.awaiting_human.bridge_expire_comment_failed",
+              action: "issue.awaiting_human.bridge_expire_wakeup_failed",
               entityType: "issue",
               entityId: row.issueId,
               details: {
                 bridgeId: row.id,
                 interactionId: row.interactionId,
                 provider: row.provider,
-                detail: commentDetail,
+                detail: wakeupDetail,
               },
             });
           }
+        }
+        try {
+          await addSystemIssueComment({
+            companyId: row.companyId,
+            issueId: row.issueId,
+            interactionId: row.interactionId,
+            body: expiredBody,
+          });
+        } catch (commentError) {
+          const commentDetail = commentError instanceof Error ? commentError.message : String(commentError);
+          await logActivity(db, {
+            companyId: row.companyId,
+            actorType: "system",
+            actorId: "awaiting_human_bridge",
+            action: "issue.awaiting_human.bridge_expire_comment_failed",
+            entityType: "issue",
+            entityId: row.issueId,
+            details: {
+              bridgeId: row.id,
+              interactionId: row.interactionId,
+              provider: row.provider,
+              detail: commentDetail,
+            },
+          });
+        }
+        if (!interaction) {
+          await logActivity(db, {
+            companyId: row.companyId,
+            actorType: "system",
+            actorId: "awaiting_human_bridge",
+            action: "issue.awaiting_human.bridge_expire_stuck",
+            entityType: "issue",
+            entityId: row.issueId,
+            details: {
+              bridgeId: row.id,
+              interactionId: row.interactionId,
+              provider: row.provider,
+              detail: failureDetail,
+              agentId: row.agentId ?? null,
+              interactionStatus,
+            },
+          });
         }
 
         if (forceCloseRow) {

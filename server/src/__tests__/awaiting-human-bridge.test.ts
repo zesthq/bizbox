@@ -46,6 +46,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     await db.delete(goals);
     await db.delete(agents);
     await db.delete(companies);
+    vi.restoreAllMocks();
   });
 
   afterAll(async () => {
@@ -1104,6 +1105,173 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     }));
   });
 
+  it("retries a rejected signal after the wakeup insert fails instead of parking the interaction", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    let failWakeupInsert = true;
+    const requestWakeup = vi.fn(async () => {
+      if (failWakeupInsert) {
+        failWakeupInsert = false;
+        throw new Error("agent wakeup insert failed");
+      }
+    });
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      requestWakeup,
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({
+          status: "ok",
+          detail: "ok",
+          events: [
+            {
+              kind: "reject_signal",
+              externalEventId: "reject-1",
+              externalThreadId: "thread-1",
+              externalMessageId: "message-1",
+              body: "No, change the plan.",
+              receivedAt: new Date("2026-05-22T00:02:00.000Z"),
+            },
+          ],
+        })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    const bridge = await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    const firstResult = await service.pollActiveBridges(new Date("2026-05-22T00:03:00.000Z"));
+    expect(firstResult.failed).toBe(1);
+
+    const [interactionAfterFailure] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, seeded.interactionId));
+    expect(interactionAfterFailure?.status).toBe("pending");
+
+    const wakesAfterFailure = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, seeded.agentId));
+    expect(wakesAfterFailure).toHaveLength(0);
+
+    const inboundAfterFailure = await db.select().from(awaitingHumanBridgeInboundEvents).where(eq(awaitingHumanBridgeInboundEvents.bridgeId, bridge.id));
+    expect(inboundAfterFailure).toHaveLength(0);
+
+    const secondResult = await service.pollActiveBridges(new Date("2026-05-22T00:09:00.000Z"));
+    expect(secondResult.rejected).toBe(1);
+
+    const [interactionAfterRetry] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, seeded.interactionId));
+    expect(interactionAfterRetry?.status).toBe("rejected");
+
+    expect(requestWakeup).toHaveBeenCalledTimes(2);
+    const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, seeded.agentId));
+    expect(wakes).toHaveLength(0);
+
+    const inboundEvents = await db.select().from(awaitingHumanBridgeInboundEvents).where(eq(awaitingHumanBridgeInboundEvents.bridgeId, bridge.id));
+    expect(inboundEvents).toHaveLength(1);
+
+    const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
+    expect(updatedBridge).toEqual(expect.objectContaining({
+      status: "closed",
+      closeOutcome: "rejected",
+    }));
+  });
+
+  it("retries an approval signal after the inbound event insert fails instead of logging a stuck 409 loop", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({
+          status: "ok",
+          detail: "ok",
+          events: [
+            {
+              kind: "approval_signal",
+              externalEventId: "approval-1",
+              externalThreadId: "thread-1",
+              externalMessageId: "message-1",
+              body: "approved",
+              receivedAt: new Date("2026-05-22T00:02:00.000Z"),
+            },
+          ],
+        })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    const bridge = await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    const originalTransaction = db.transaction.bind(db);
+    let failCommitOnce = true;
+    const transactionSpy = vi.spyOn(db as any, "transaction").mockImplementation((callback: any) =>
+      originalTransaction(async (tx: any) => {
+        const result = await callback(tx);
+        if (failCommitOnce) {
+          failCommitOnce = false;
+          throw new Error("inbound event insert failed");
+        }
+        return result;
+      }),
+    );
+
+    const firstResult = await service.pollActiveBridges(new Date("2026-05-22T00:03:00.000Z"));
+    expect(firstResult.failed).toBe(1);
+
+    const [interactionAfterFailure] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, seeded.interactionId));
+    expect(interactionAfterFailure?.status).toBe("pending");
+
+    const wakesAfterFailure = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, seeded.agentId));
+    expect(wakesAfterFailure).toHaveLength(0);
+
+    const inboundAfterFailure = await db.select().from(awaitingHumanBridgeInboundEvents).where(eq(awaitingHumanBridgeInboundEvents.bridgeId, bridge.id));
+    expect(inboundAfterFailure).toHaveLength(0);
+
+    const secondResult = await service.pollActiveBridges(new Date("2026-05-22T00:09:00.000Z"));
+    expect(secondResult.approved).toBe(1);
+
+    const [interactionAfterRetry] = await db.select().from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, seeded.interactionId));
+    expect(interactionAfterRetry?.status).toBe("accepted");
+
+    const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, seeded.agentId));
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]?.payload).toMatchObject({
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      interactionStatus: "accepted",
+    });
+
+    const inboundEvents = await db.select().from(awaitingHumanBridgeInboundEvents).where(eq(awaitingHumanBridgeInboundEvents.bridgeId, bridge.id));
+    expect(inboundEvents).toHaveLength(1);
+
+    const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
+    expect(updatedBridge).toEqual(expect.objectContaining({
+      status: "closed",
+      closeOutcome: "approved",
+    }));
+
+    transactionSpy.mockRestore();
+  });
+
   it("skips re-rejecting a replayed reject signal after the event was already recorded", async () => {
     const seeded = await seedAwaitingHumanInteraction();
     const service = awaitingHumanBridgeService(db, {
@@ -1429,6 +1597,86 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     expect(comments).toHaveLength(1);
     expect(comments[0]?.body).toContain("Awaiting human bridge timed out");
     expect(requestWakeup).toHaveBeenCalledTimes(1);
+  });
+
+  it("wakes the agent and logs a stuck expiration when both rejection attempts fail", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const close = vi.fn(async () => {});
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({ status: "ok", detail: "ok", events: [] })),
+        close,
+      }),
+    });
+
+    const bridge = await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    const originalUpdate = db.update.bind(db);
+    const updateSpy = vi.spyOn(db as any, "update").mockImplementation((table: any) => {
+      if (table === issueThreadInteractions) {
+        return {
+          set: () => ({
+            where: () => ({
+              returning: async () => {
+                throw new Error("interaction update failed");
+              },
+            }),
+          }),
+        } as any;
+      }
+      return originalUpdate(table);
+    });
+
+    await db.update(awaitingHumanBridges).set({
+      createdAt: new Date("2026-05-21T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-21T00:00:00.000Z"),
+    }).where(eq(awaitingHumanBridges.id, bridge.id));
+
+    await service.expireWaitingBridges(new Date("2026-05-22T12:00:00.000Z"), 60 * 60 * 1000);
+
+    const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, seeded.agentId));
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]?.payload).toMatchObject({
+      bridgeId: bridge.id,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      interactionStatus: null,
+      mutation: "interaction",
+      expirationReason: "Awaiting human bridge timed out before a human response was received.",
+    });
+
+    const comments = await db.select().from(issueComments).where(eq(issueComments.issueId, seeded.issueId));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.body).toContain("Awaiting human bridge timed out");
+
+    const [interaction] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, seeded.interactionId));
+    expect(interaction?.status).toBe("pending");
+
+    const [issue] = await db.select().from(issues).where(eq(issues.id, seeded.issueId));
+    expect(issue?.status).toBe("awaiting_human");
+
+    const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
+    expect(updatedBridge).toEqual(expect.objectContaining({
+      status: "closed",
+      closeOutcome: "expired",
+    }));
+
+    const events = await db.select().from(activityLog).where(eq(activityLog.entityId, seeded.issueId));
+    expect(events.some((event) => event.action === "issue.awaiting_human.bridge_expire_stuck")).toBe(true);
+
+    updateSpy.mockRestore();
   });
 
   it("closes the bridge even if adapter cleanup fails once", async () => {
