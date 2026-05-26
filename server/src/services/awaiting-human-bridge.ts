@@ -633,7 +633,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
           select 1
           from ${awaitingHumanBridges}
           where ${awaitingHumanBridges.interactionId} = cast(${activityLog.details} ->> 'interactionId' as uuid)
-            and ${awaitingHumanBridges.status} in ('pending_delivery', 'waiting_for_human', 'failed')
+            and ${awaitingHumanBridges.status} in ('pending_delivery', 'waiting_for_human')
         )`,
       ))
       .orderBy(desc(activityLog.createdAt))
@@ -652,11 +652,46 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       summary.checked += 1;
 
       try {
-        const bridge = await openForPendingInteraction({
+        const bridgeContext = await resolveOpenForPendingInteractionContext({
           companyId: row.companyId,
           issueId: row.issueId,
           interactionId,
         });
+        if (!bridgeContext) {
+          summary.skipped += 1;
+          continue;
+        }
+
+        const [failedBridge] = await db
+          .select()
+          .from(awaitingHumanBridges)
+          .where(and(
+            eq(awaitingHumanBridges.companyId, row.companyId),
+            eq(awaitingHumanBridges.interactionId, interactionId),
+            eq(awaitingHumanBridges.status, "failed"),
+          ))
+          .orderBy(desc(awaitingHumanBridges.createdAt))
+          .limit(1);
+
+        const bridge = failedBridge
+          ? await reopenFailedBridgeRowAndRedeliver({
+            bridge: failedBridge,
+            companyId: row.companyId,
+            issueId: row.issueId,
+            interactionId,
+            agentId: bridgeContext.agentId,
+            handoffKind: bridgeContext.outbound.handoffKind,
+            notification: bridgeContext.outbound.notification,
+          })
+          : await openOrReuseForInteraction({
+            companyId: row.companyId,
+            issueId: row.issueId,
+            interactionId,
+            agentId: bridgeContext.agentId,
+            handoffKind: bridgeContext.outbound.handoffKind,
+            notification: bridgeContext.outbound.notification,
+          });
+
         if (bridge) {
           summary.reopened += 1;
           summary.issueIds.push(row.issueId);
@@ -701,6 +736,86 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       updatedAt: now,
     }).where(eq(awaitingHumanBridges.id, input.row.id)).returning();
     return updated ?? input.row;
+  }
+
+  async function deliverBridgeRow(input: {
+    row: typeof awaitingHumanBridges.$inferSelect;
+    companyId: string;
+    issueId: string;
+    interactionId: string;
+    agentId: string;
+    handoffKind: "request_confirmation" | "ask_user_questions";
+    notification: AwaitingHumanNotificationPayload;
+  }) {
+    const adapter = deps.resolveAdapter(input.row.provider);
+    let delivered;
+    try {
+      delivered = await adapter.send({
+        bridgeId: input.row.id,
+        companyId: input.companyId,
+        issueId: input.issueId,
+        interactionId: input.interactionId,
+        agentId: input.agentId,
+        handoffKind: input.handoffKind,
+        notification: input.notification,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await db.update(awaitingHumanBridges).set({
+        status: "failed",
+        lastError: detail,
+        updatedAt: new Date(),
+      }).where(eq(awaitingHumanBridges.id, input.row.id));
+      throw error;
+    }
+
+    const [updated] = await db.update(awaitingHumanBridges).set({
+      status: "waiting_for_human",
+      externalThreadId: delivered.externalThreadId,
+      externalMessageId: delivered.externalMessageId ?? null,
+      nextPollAt: delivered.nextPollAt ?? null,
+      lastError: null,
+      updatedAt: new Date(),
+    }).where(eq(awaitingHumanBridges.id, input.row.id)).returning();
+
+    return updated ?? input.row;
+  }
+
+  async function reopenFailedBridgeRowAndRedeliver(input: {
+    bridge: typeof awaitingHumanBridges.$inferSelect;
+    companyId: string;
+    issueId: string;
+    interactionId: string;
+    agentId: string;
+    handoffKind: "request_confirmation" | "ask_user_questions";
+    notification: AwaitingHumanNotificationPayload;
+  }) {
+    const [reopened] = await db.update(awaitingHumanBridges).set({
+      status: "pending_delivery",
+      externalThreadId: null,
+      externalMessageId: null,
+      nextPollAt: null,
+      lastPolledAt: null,
+      closedAt: null,
+      closeOutcome: null,
+      closeReason: null,
+      lastError: null,
+      updatedAt: new Date(),
+    }).where(eq(awaitingHumanBridges.id, input.bridge.id)).returning();
+
+    if (!reopened) {
+      throw new Error("Failed to reopen existing awaiting human bridge after send failure");
+    }
+
+    return deliverBridgeRow({
+      row: reopened,
+      companyId: input.companyId,
+      issueId: input.issueId,
+      interactionId: input.interactionId,
+      agentId: input.agentId,
+      handoffKind: input.handoffKind,
+      notification: input.notification,
+    });
   }
 
   async function closeOpenBridgesForIssue(input: {
@@ -780,7 +895,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     return comment;
   }
 
-  async function openForPendingInteraction(input: {
+  async function resolveOpenForPendingInteractionContext(input: {
     companyId: string;
     issueId: string;
     interactionId: string;
@@ -817,15 +932,30 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       interaction,
     });
     if (!agentId || !outbound) return null;
+    return {
+      issue,
+      interaction,
+      agentId,
+      outbound,
+    };
+  }
+
+  async function openForPendingInteraction(input: {
+    companyId: string;
+    issueId: string;
+    interactionId: string;
+  }) {
+    const context = await resolveOpenForPendingInteractionContext(input);
+    if (!context) return null;
 
     try {
       return await openOrReuseForInteraction({
         companyId: input.companyId,
         issueId: input.issueId,
         interactionId: input.interactionId,
-        agentId,
-        handoffKind: outbound.handoffKind,
-        notification: outbound.notification,
+        agentId: context.agentId,
+        handoffKind: context.outbound.handoffKind,
+        notification: context.outbound.notification,
       });
     } catch (error) {
       if (error instanceof Error && error.message === "awaiting-human-bridge-disabled") {
@@ -884,37 +1014,15 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       return existingAfterConflict;
     }
 
-    const adapter = deps.resolveAdapter(provider);
-    let delivered;
-    try {
-      delivered = await adapter.send({
-        bridgeId: created.id,
-        companyId: input.companyId,
-        issueId: input.issueId,
-        interactionId: input.interactionId,
-        agentId: input.agentId,
-        handoffKind: input.handoffKind,
-        notification: input.notification,
-      });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      await db.update(awaitingHumanBridges).set({
-        status: "failed",
-        lastError: detail,
-        updatedAt: new Date(),
-      }).where(eq(awaitingHumanBridges.id, created.id));
-      throw error;
-    }
-
-    const [updated] = await db.update(awaitingHumanBridges).set({
-      status: "waiting_for_human",
-      externalThreadId: delivered.externalThreadId,
-      externalMessageId: delivered.externalMessageId ?? null,
-      nextPollAt: delivered.nextPollAt ?? null,
-      updatedAt: new Date(),
-    }).where(eq(awaitingHumanBridges.id, created.id)).returning();
-
-    return updated ?? created;
+    return deliverBridgeRow({
+      row: created,
+      companyId: input.companyId,
+      issueId: input.issueId,
+      interactionId: input.interactionId,
+      agentId: input.agentId,
+      handoffKind: input.handoffKind,
+      notification: input.notification,
+    });
   };
 
   return {

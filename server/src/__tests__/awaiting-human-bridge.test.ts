@@ -442,11 +442,17 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     }));
   });
 
-  it("stops retrying a failed bridge-open once the failed bridge row already exists", async () => {
+  it("retries a failed bridge-open by reopening the same row", async () => {
     const seeded = await seedAwaitingHumanInteraction();
-    const send = vi.fn(async () => {
-      throw new Error("clickup send failed");
-    });
+    const send = vi.fn()
+      .mockImplementationOnce(async () => {
+        throw new Error("clickup send failed");
+      })
+      .mockImplementationOnce(async () => ({
+        externalThreadId: "thread-1",
+        externalMessageId: "message-1",
+        nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+      }));
     const service = awaitingHumanBridgeService(db, {
       resolveProviderForCompany: async () => "clickup",
       resolveAdapter: () => ({
@@ -487,22 +493,29 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
       status: "failed",
       lastError: "clickup send failed",
     }));
+    expect(failedBridge?.id).toBeDefined();
 
     const second = await service.retryFailedBridgeOpenings();
 
     expect(second).toEqual({
-      checked: 0,
-      reopened: 0,
+      checked: 1,
+      reopened: 1,
       failed: 0,
       skipped: 0,
-      issueIds: [],
-      interactionIds: [],
+      issueIds: [seeded.issueId],
+      interactionIds: [seeded.interactionId],
     });
-    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(2);
 
     const rows = await db.select().from(awaitingHumanBridges)
       .where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
     expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(failedBridge?.id);
+    expect(rows[0]).toEqual(expect.objectContaining({
+      status: "waiting_for_human",
+      externalMessageId: "message-1",
+      lastError: null,
+    }));
   });
 
   it("builds full ask-user-questions outbound content for the bridge", async () => {
