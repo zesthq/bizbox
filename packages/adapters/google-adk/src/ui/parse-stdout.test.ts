@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseGoogleAdkStdoutLine } from "./parse-stdout";
+import { parseGoogleAdkStdoutLine } from "./parse-stdout.js";
 
 describe("parseGoogleAdkStdoutLine", () => {
   it("turns ADK JSONL into assistant and tool transcript entries", () => {

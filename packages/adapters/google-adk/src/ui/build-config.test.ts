@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGoogleAdkConfig } from "./build-config";
+import { buildGoogleAdkConfig } from "./build-config.js";
 
 describe("buildGoogleAdkConfig", () => {
   it("maps create-form values into an ADK adapter config", () => {
