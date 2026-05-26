@@ -1301,7 +1301,8 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             });
 
             if (
-              issueAfterReject?.status !== "backlog"
+              issueAfterReject
+              && issueAfterReject.status !== "backlog"
               && !isClosedIssueStatus(issueAfterReject.status)
             ) {
               await insertWakeup({
