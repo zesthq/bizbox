@@ -1100,11 +1100,16 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             && currentInteraction.kind === "ask_user_questions"
             && currentInteraction.status === "pending"
           )
-            ? buildAskUserQuestionsResponseFromReply({
+              ? buildAskUserQuestionsResponseFromReply({
                 interaction: currentInteraction,
                 replyBody,
               })
             : null;
+          const shouldRejectConfirmationReply = Boolean(
+            currentInteraction
+            && currentInteraction.kind === "request_confirmation"
+            && currentInteraction.status === "pending",
+          );
 
           const replyProcessing = await db.transaction(async (tx) => {
             const [recorded] = await tx.insert(awaitingHumanBridgeInboundEvents).values({
@@ -1133,6 +1138,11 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               body,
             }).returning();
 
+            await tx
+              .update(issues)
+              .set({ updatedAt: new Date() })
+              .where(eq(issues.id, row.issueId));
+
             return {
               duplicate: false as const,
               answered: false as const,
@@ -1149,6 +1159,15 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               id: row.issueId,
               companyId: row.companyId,
             }, row.interactionId, responsePayload, { actorType: "system" });
+          }
+          let rejectedInteraction: IssueThreadInteraction | null = null;
+          if (shouldRejectConfirmationReply && !responsePayload) {
+            rejectedInteraction = await interactionsSvc.rejectInteraction({
+              id: row.issueId,
+              companyId: row.companyId,
+            }, row.interactionId, {
+              reason: replyBody,
+            }, { actorType: "system" });
           }
 
           const body = replyProcessing.body ?? `ClickUp reply received:\n\n${replyBody}`;
@@ -1236,6 +1255,61 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               summary.replies += 1;
               return summary;
             }
+          }
+
+          if (rejectedInteraction) {
+            const [issueAfterReject] = await db.select({
+              assigneeAgentId: issues.assigneeAgentId,
+              status: issues.status,
+            }).from(issues).where(eq(issues.id, row.issueId)).limit(1);
+
+            await logActivity(db, {
+              companyId: row.companyId,
+              actorType: "system",
+              actorId: "clickup_approval_poller",
+              action: rejectedInteraction.status === "expired"
+                ? "issue.thread_interaction_expired"
+                : "issue.thread_interaction_rejected",
+              entityType: "issue",
+              entityId: row.issueId,
+              details: {
+                interactionId: rejectedInteraction.id,
+                interactionKind: rejectedInteraction.kind,
+                interactionStatus: rejectedInteraction.status,
+                rejectionReason:
+                  rejectedInteraction.kind === "request_confirmation"
+                    ? (rejectedInteraction.result?.reason ?? null)
+                    : null,
+                resolutionSource: "clickup_reply",
+                clickupMessageId: row.externalMessageId ?? null,
+                clickupReplyId: event.metadata?.clickupReplyId ?? externalEventId,
+              },
+            });
+
+            if (
+              issueAfterReject?.status !== "backlog"
+              && !isClosedIssueStatus(issueAfterReject.status)
+            ) {
+              await insertWakeup({
+                companyId: row.companyId,
+                agentId: row.agentId,
+                payload: {
+                  issueId: row.issueId,
+                  interactionId: rejectedInteraction.id,
+                  interactionStatus: rejectedInteraction.status,
+                  mutation: "interaction",
+                },
+              });
+            }
+
+            await this.closeBridge({
+              bridgeId: row.id,
+              outcome: "rejected",
+              reason: replyBody,
+            });
+
+            summary.rejected += 1;
+            return summary;
           }
 
           if (issueRow?.status !== "backlog" && !isClosedIssueStatus(issueRow?.status)) {

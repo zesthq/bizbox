@@ -3,12 +3,12 @@ import type { Db } from "@paperclipai/db";
 import { awaitingHumanNotificationOutbox } from "@paperclipai/db";
 import type { StorageService } from "../storage/types.js";
 import { getStorageService } from "../storage/index.js";
+import { awaitingHumanSettingsService } from "./awaiting-human-settings.js";
 import {
   createClickUpReviewTask,
   detectClickUpAwaitingHumanBridgeEvents,
   getClickUpChatMessageReactions,
   getClickUpChatMessageReplies,
-  readCompanyClickUpOverrides,
   readClickUpChatConfig,
   sendAwaitingHumanNotification,
   uploadClickUpReviewFile,
@@ -147,6 +147,7 @@ export async function processAwaitingHumanNotificationOutbox(
 
   const storage = opts.storage ?? getStorageService();
   const now = new Date();
+  const settings = awaitingHumanSettingsService(db);
 
   await db
     .update(awaitingHumanNotificationOutbox)
@@ -208,20 +209,30 @@ export async function processAwaitingHumanNotificationOutbox(
     let clickupAttachmentId = row.clickupAttachmentId;
     let clickupAttachmentUrl = row.clickupAttachmentUrl;
     let clickupMessageId = row.clickupMessageId;
-    const companyOverrides = await readCompanyClickUpOverrides(db, row.companyId);
-    if (!companyOverrides.bridgeEnabled || companyOverrides.provider !== "clickup") {
-      await db
-        .update(awaitingHumanNotificationOutbox)
-        .set({
-          status: "failed",
-          attempts: row.attempts + 1,
-          lastError: "awaiting-human-bridge-disabled",
-          nextAttemptAt: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(awaitingHumanNotificationOutbox.id, row.id));
-      failed += 1;
-      continue;
+    const storedSettings = await settings.getStored(row.companyId);
+    let companyOverrides: ClickUpAwaitingHumanConfigOverrides | undefined;
+    if (storedSettings) {
+      if (!storedSettings.enabled || storedSettings.provider !== "clickup") {
+        await db
+          .update(awaitingHumanNotificationOutbox)
+          .set({
+            status: "failed",
+            attempts: row.attempts + 1,
+            lastError: "awaiting-human-bridge-disabled",
+            nextAttemptAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+        failed += 1;
+        continue;
+      }
+
+      const runtime = await settings.resolveClickUpRuntimeConfig(row.companyId);
+      companyOverrides = {
+        personalToken: runtime.personalToken,
+        workspaceId: runtime.workspaceId,
+        channelId: runtime.channelId,
+      };
     }
 
     try {
