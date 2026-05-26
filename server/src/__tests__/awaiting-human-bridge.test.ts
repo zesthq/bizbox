@@ -106,7 +106,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
       agentId,
     });
 
-    return { companyId, issueId, interactionId: interaction.id, agentId };
+    return { companyId, issueId, interactionId: interaction.id, agentId, goalId };
   }
 
   async function seedAskUserQuestionsInteraction() {
@@ -1013,6 +1013,71 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     }));
   });
 
+  it("skips re-rejecting a replayed reject signal after the event was already recorded", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({
+          status: "ok",
+          detail: "ok",
+          events: [
+            {
+              kind: "reject_signal",
+              externalEventId: "reject-1",
+              externalThreadId: "thread-1",
+              externalMessageId: "message-1",
+              body: "No, change the plan.",
+            },
+          ],
+        })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    const bridge = await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    await interactionsSvc.rejectInteraction({
+      id: seeded.issueId,
+      companyId: seeded.companyId,
+    }, seeded.interactionId, {
+      reason: "No, change the plan.",
+    }, {
+      actorType: "system",
+    });
+
+    await db.insert(awaitingHumanBridgeInboundEvents).values({
+      bridgeId: bridge.id,
+      eventKind: "reject_signal",
+      externalEventId: "reject-1",
+      externalMessageId: "message-1",
+      externalThreadId: "thread-1",
+      payload: { body: "No, change the plan." },
+    });
+
+    const result = await service.pollActiveBridges(new Date("2026-05-22T00:03:00.000Z"));
+
+    expect(result.rejected).toBe(1);
+    const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
+    expect(updatedBridge).toEqual(expect.objectContaining({
+      status: "closed",
+      closeOutcome: "rejected",
+    }));
+    const inboundEvents = await db.select().from(awaitingHumanBridgeInboundEvents).where(eq(awaitingHumanBridgeInboundEvents.bridgeId, bridge.id));
+    expect(inboundEvents).toHaveLength(1);
+  });
+
   it("expires an overdue bridge, rejects the interaction, and wakes the agent", async () => {
     const seeded = await seedAwaitingHumanInteraction();
     const [issueBefore] = await db.select({ updatedAt: issues.updatedAt }).from(issues).where(eq(issues.id, seeded.issueId));
@@ -1626,6 +1691,71 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     const rows = await db.select().from(awaitingHumanBridges)
       .where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
     expect(rows).toHaveLength(2);
+  });
+
+  it("skips re-accepting a replayed approval signal after the event was already recorded", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send: vi.fn(async () => ({
+          externalThreadId: "thread-1",
+          externalMessageId: "message-1",
+          nextPollAt: new Date("2026-05-22T00:01:00.000Z"),
+        })),
+        poll: vi.fn(async () => ({
+          status: "ok",
+          detail: "ok",
+          events: [
+            {
+              kind: "approval_signal",
+              externalEventId: "approval-1",
+              externalThreadId: "thread-1",
+              externalMessageId: "message-1",
+              body: "approved",
+            },
+          ],
+        })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    const bridge = await service.openOrReuseForInteraction({
+      companyId: seeded.companyId,
+      issueId: seeded.issueId,
+      interactionId: seeded.interactionId,
+      agentId: seeded.agentId,
+      ...approvalNotification(),
+    });
+
+    await interactionsSvc.acceptInteraction({
+      id: seeded.issueId,
+      companyId: seeded.companyId,
+      goalId: seeded.goalId,
+      projectId: null,
+    }, seeded.interactionId, {}, {
+      actorType: "system",
+    });
+
+    await db.insert(awaitingHumanBridgeInboundEvents).values({
+      bridgeId: bridge.id,
+      eventKind: "approval_signal",
+      externalEventId: "approval-1",
+      externalMessageId: "message-1",
+      externalThreadId: "thread-1",
+      payload: { body: "approved" },
+    });
+
+    const result = await service.pollActiveBridges(new Date("2026-05-22T00:03:00.000Z"));
+
+    expect(result.approved).toBe(1);
+    const [updatedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.id, bridge.id));
+    expect(updatedBridge).toEqual(expect.objectContaining({
+      status: "closed",
+      closeOutcome: "approved",
+    }));
+    const inboundEvents = await db.select().from(awaitingHumanBridgeInboundEvents).where(eq(awaitingHumanBridgeInboundEvents.bridgeId, bridge.id));
+    expect(inboundEvents).toHaveLength(1);
   });
 
   it("treats enqueued ClickUp deliveries as delivered handoffs and skips other non-ClickUp deliveries", async () => {

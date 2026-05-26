@@ -1268,6 +1268,24 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
         if (!issue) continue;
 
         if (event.kind === "approval_signal") {
+          if (externalEventId) {
+            const [recorded] = await db.select({ id: awaitingHumanBridgeInboundEvents.id }).from(awaitingHumanBridgeInboundEvents).where(and(
+              eq(awaitingHumanBridgeInboundEvents.bridgeId, row.id),
+              eq(awaitingHumanBridgeInboundEvents.externalEventId, externalEventId),
+            )).limit(1);
+            if (recorded) {
+              await this.closeBridge({
+                bridgeId: row.id,
+                outcome: "approved",
+                reason: event.body?.trim() || null,
+              });
+              summary.approved += 1;
+              summary.approvedIssueIds.push(row.issueId);
+              summary.approvedInteractionIds.push(row.interactionId);
+              return summary;
+            }
+          }
+
           const { interaction, createdIssues, continuationIssue } = await interactionsSvc.acceptInteraction({
             id: issue.id,
             companyId: issue.companyId,
@@ -1328,6 +1346,22 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
         }
 
         if (event.kind === "reject_signal") {
+          if (externalEventId) {
+            const [recorded] = await db.select({ id: awaitingHumanBridgeInboundEvents.id }).from(awaitingHumanBridgeInboundEvents).where(and(
+              eq(awaitingHumanBridgeInboundEvents.bridgeId, row.id),
+              eq(awaitingHumanBridgeInboundEvents.externalEventId, externalEventId),
+            )).limit(1);
+            if (recorded) {
+              await this.closeBridge({
+                bridgeId: row.id,
+                outcome: "rejected",
+                reason: event.body?.trim() || null,
+              });
+              summary.rejected += 1;
+              return summary;
+            }
+          }
+
           const interaction = await interactionsSvc.rejectInteraction({
             id: issue.id,
             companyId: issue.companyId,
@@ -1423,43 +1457,27 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       )).orderBy(asc(awaitingHumanBridges.createdAt)).limit(200);
 
       for (const row of rows) {
-        let commentWritten = false;
+        const expiredBody = row.status === "failed"
+          ? "Awaiting human bridge failed to deliver before a human response was received."
+          : "Awaiting human bridge timed out before a human response was received.";
+        let interaction: Awaited<ReturnType<typeof interactionsSvc.rejectInteraction>> | null = null;
+        let forceCloseRow = false;
+        let failureDetail: string | null = null;
         try {
-          const expiredBody = row.status === "failed"
-            ? "Awaiting human bridge failed to deliver before a human response was received."
-            : "Awaiting human bridge timed out before a human response was received.";
           await this.closeBridge({
             bridgeId: row.id,
             outcome: "expired",
             reason: expiredBody,
           });
-          await addSystemIssueComment({
-            companyId: row.companyId,
-            issueId: row.issueId,
-            interactionId: row.interactionId,
-            body: expiredBody,
-          });
-          commentWritten = true;
-          const interaction = await interactionsSvc.rejectInteraction({
+          interaction = await interactionsSvc.rejectInteraction({
             id: row.issueId,
             companyId: row.companyId,
           }, row.interactionId, {
             reason: expiredBody,
           }, { actorType: "system" });
-          if (row.agentId) {
-            await insertWakeup({
-              companyId: row.companyId,
-              agentId: row.agentId,
-              payload: {
-                issueId: row.issueId,
-                interactionId: interaction.id,
-                interactionStatus: interaction.status,
-                mutation: "interaction",
-              },
-            });
-          }
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
+          forceCloseRow = true;
+          failureDetail = error instanceof Error ? error.message : String(error);
           await logActivity(db, {
             companyId: row.companyId,
             actorType: "system",
@@ -1471,13 +1489,9 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               bridgeId: row.id,
               interactionId: row.interactionId,
               provider: row.provider,
-              detail,
+              detail: failureDetail,
             },
           });
-          const expiredBody = row.status === "failed"
-            ? "Awaiting human bridge failed to deliver before a human response was received."
-            : "Awaiting human bridge timed out before a human response was received.";
-          let interaction: Awaited<ReturnType<typeof interactionsSvc.rejectInteraction>> | null = null;
           try {
             interaction = await interactionsSvc.rejectInteraction({
               id: row.issueId,
@@ -1502,49 +1516,89 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               },
             });
           }
-          if (!commentWritten) {
+        }
+
+        if (interaction) {
+          if (row.agentId) {
             try {
-              await addSystemIssueComment({
+              await insertWakeup({
                 companyId: row.companyId,
-                issueId: row.issueId,
-                interactionId: row.interactionId,
-                body: expiredBody,
+                agentId: row.agentId,
+                payload: {
+                  issueId: row.issueId,
+                  interactionId: interaction.id,
+                  interactionStatus: interaction.status,
+                  mutation: "interaction",
+                },
               });
-            } catch (commentError) {
-              const commentDetail = commentError instanceof Error ? commentError.message : String(commentError);
+            } catch (wakeupError) {
+              const wakeupDetail = wakeupError instanceof Error ? wakeupError.message : String(wakeupError);
               await logActivity(db, {
                 companyId: row.companyId,
                 actorType: "system",
                 actorId: "awaiting_human_bridge",
-                action: "issue.awaiting_human.bridge_expire_comment_failed",
+                action: "issue.awaiting_human.bridge_expire_wakeup_failed",
                 entityType: "issue",
                 entityId: row.issueId,
                 details: {
                   bridgeId: row.id,
                   interactionId: row.interactionId,
                   provider: row.provider,
-                  detail: commentDetail,
+                  detail: wakeupDetail,
                 },
               });
             }
           }
-          if (row.agentId && interaction) {
-            await insertWakeup({
+          try {
+            await addSystemIssueComment({
               companyId: row.companyId,
-              agentId: row.agentId,
-              payload: {
-                issueId: row.issueId,
-                interactionId: interaction.id,
-                interactionStatus: interaction.status,
-                mutation: "interaction",
+              issueId: row.issueId,
+              interactionId: row.interactionId,
+              body: expiredBody,
+            });
+          } catch (commentError) {
+            const commentDetail = commentError instanceof Error ? commentError.message : String(commentError);
+            await logActivity(db, {
+              companyId: row.companyId,
+              actorType: "system",
+              actorId: "awaiting_human_bridge",
+              action: "issue.awaiting_human.bridge_expire_comment_failed",
+              entityType: "issue",
+              entityId: row.issueId,
+              details: {
+                bridgeId: row.id,
+                interactionId: row.interactionId,
+                provider: row.provider,
+                detail: commentDetail,
               },
             });
           }
-          await forceCloseExpiredBridgeRow({
-            row,
-            reason: expiredBody,
-            detail,
-          });
+        }
+
+        if (forceCloseRow) {
+          try {
+            await forceCloseExpiredBridgeRow({
+              row,
+              reason: expiredBody,
+              detail: failureDetail,
+            });
+          } catch (forceCloseError) {
+            const forceCloseDetail = forceCloseError instanceof Error ? forceCloseError.message : String(forceCloseError);
+            await logActivity(db, {
+              companyId: row.companyId,
+              actorType: "system",
+              actorId: "awaiting_human_bridge",
+              action: "issue.awaiting_human.bridge_expire_force_close_failed",
+              entityType: "issue",
+              entityId: row.issueId,
+              details: {
+                bridgeId: row.id,
+                interactionId: row.interactionId,
+                provider: row.provider,
+                detail: forceCloseDetail,
+              },
+            });
+          }
         }
       }
     },
