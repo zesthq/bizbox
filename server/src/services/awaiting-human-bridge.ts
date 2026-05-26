@@ -1178,7 +1178,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
           });
 
           if (answeredInteraction) {
-            const currentInteractionAfterAnswer = answeredInteraction ?? await interactionsSvc.getById(row.interactionId);
+            const currentInteractionAfterAnswer = answeredInteraction;
             if (currentInteractionAfterAnswer) {
               await logActivity(db, {
                 companyId: row.companyId,

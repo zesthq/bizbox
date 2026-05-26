@@ -2853,6 +2853,12 @@ export function issueRoutes(
         logActivity,
         source: "issue.interaction.accept",
       });
+      await awaitingHumanBridge.closeOpenBridgesForIssue({
+        companyId: issue.companyId,
+        issueId: issue.id,
+        outcome: "superseded",
+        reason: "Issue thread interaction resolved via UI.",
+      });
 
       res.json(interaction);
     },
@@ -2877,6 +2883,12 @@ export function issueRoutes(
         actorType: actor.actorType,
         agentId: actor.agentId,
         userId: actor.actorType === "user" ? actor.actorId : null,
+      });
+      await awaitingHumanBridge.closeOpenBridgesForIssue({
+        companyId: issue.companyId,
+        issueId: issue.id,
+        outcome: "superseded",
+        reason: "Issue thread interaction resolved via UI.",
       });
 
       await logActivity(db, {

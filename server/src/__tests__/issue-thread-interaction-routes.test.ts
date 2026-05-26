@@ -24,6 +24,10 @@ const mockHeartbeatService = vi.hoisted(() => ({
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
+const mockAwaitingHumanBridge = vi.hoisted(() => ({
+  closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 1 })),
+  openForPendingInteraction: vi.fn(async () => null),
+}));
 
 vi.mock("@paperclipai/shared/telemetry", () => ({
   trackAgentTaskCompleted: vi.fn(),
@@ -90,6 +94,10 @@ function registerModuleMocks() {
       syncRunStatusForIssue: vi.fn(async () => undefined),
     }),
     workProductService: () => ({}),
+  }));
+
+  vi.doMock("../services/awaiting-human-bridge-runtime.js", () => ({
+    awaitingHumanBridgeRuntime: () => mockAwaitingHumanBridge,
   }));
 }
 
@@ -326,6 +334,13 @@ describe("issue thread interaction routes", () => {
         }),
       }),
     );
+    expect(mockAwaitingHumanBridge.closeOpenBridgesForIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        outcome: "superseded",
+      }),
+    );
   });
 
   it("answers questions and emits a continuation wake", async () => {
@@ -513,6 +528,13 @@ describe("issue thread interaction routes", () => {
 
     expect(res.status).toBe(200);
     expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+    expect(mockAwaitingHumanBridge.closeOpenBridgesForIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        outcome: "superseded",
+      }),
+    );
   });
 
   it("does not emit an accept-only continuation wake for rejected suggested tasks", async () => {
@@ -546,6 +568,13 @@ describe("issue thread interaction routes", () => {
 
     expect(res.status).toBe(200);
     expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+    expect(mockAwaitingHumanBridge.closeOpenBridgesForIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        issueId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        outcome: "superseded",
+      }),
+    );
   });
 
   it("allows agent-authored interaction creation and stamps the active run id", async () => {
