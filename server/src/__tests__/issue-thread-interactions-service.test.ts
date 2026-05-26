@@ -963,6 +963,72 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
     });
   });
 
+  it("records a visible activity entry when bridge opening fails after interaction create", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const issueId = randomUUID();
+    const agentId = randomUUID();
+    const openAwaitingHumanBridge = vi.fn(async () => {
+      throw new Error("clickup offline");
+    });
+    const svc = issueThreadInteractionService(db, { openAwaitingHumanBridge });
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: false });
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Bridge open failure visibility",
+      level: "task",
+      status: "active",
+    });
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Engineer",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      goalId,
+      title: "Parent issue",
+      status: "in_progress",
+      priority: "medium",
+      assigneeAgentId: agentId,
+    });
+
+    const created = await svc.create({
+      id: issueId,
+      companyId,
+    }, {
+      kind: "request_confirmation",
+      continuationPolicy: "wake_assignee",
+      payload: {
+        version: 1,
+        prompt: "Approve the rollout?",
+      },
+    }, {
+      agentId,
+    });
+
+    expect(openAwaitingHumanBridge).toHaveBeenCalledTimes(1);
+    expect(created).toBeTruthy();
+
+    const events = await db.select().from(activityLog).where(eq(activityLog.entityId, issueId));
+    expect(events.some((event) => event.action === "issue.awaiting_human.bridge_open_failed")).toBe(true);
+  });
+
   it("auto-parks an in_progress issue to awaiting_human when an agent creates a request_confirmation interaction", async () => {
     const companyId = randomUUID();
     const goalId = randomUUID();

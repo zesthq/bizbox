@@ -19,7 +19,7 @@ export const companyAwaitingHumanSettings = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => companies.id, { onDelete: "cascade" }),
-    enabled: boolean("enabled").notNull().default(true),
+    enabled: boolean("enabled").notNull().default(false),
     provider: text("provider").$type<AwaitingHumanProviderRecord | null>(),
     providerConfigJson: jsonb("provider_config_json").$type<AwaitingHumanProviderConfigRecord | null>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

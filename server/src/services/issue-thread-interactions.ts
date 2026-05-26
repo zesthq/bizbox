@@ -36,6 +36,7 @@ import {
   suggestTasksResultSchema,
 } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
+import { logActivity } from "./activity-log.js";
 import { logger } from "../middleware/logger.js";
 import { maybeLogAwaitingHumanHandoff } from "./awaiting-human-handoff.js";
 import { issueService } from "./issues.js";
@@ -945,6 +946,19 @@ export function issueThreadInteractionService(db: Db, deps: IssueThreadInteracti
                 interactionId: created.id,
               });
             } catch (err) {
+              await logActivity(db, {
+                companyId: issue.companyId,
+                actorType: "system",
+                actorId: "issue_thread_interactions",
+                action: "issue.awaiting_human.bridge_open_failed",
+                entityType: "issue",
+                entityId: issue.id,
+                details: {
+                  interactionId: created.id,
+                  interactionKind: data.kind,
+                  detail: err instanceof Error ? err.message : String(err),
+                },
+              });
               logger.warn(
                 { err, issueId: issue.id, interactionId: created.id, interactionKind: data.kind },
                 "failed to open awaiting human bridge after interaction create",

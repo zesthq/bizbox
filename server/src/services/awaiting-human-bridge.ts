@@ -583,14 +583,6 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
     outcome?: "approved" | "rejected" | "expired" | "superseded" | "cancelled" | null;
     reason?: string | null;
   }) {
-    await deps.resolveAdapter(input.row.provider).close({
-      bridgeId: input.row.id,
-      externalThreadId: input.row.externalThreadId ?? null,
-      externalMessageId: input.row.externalMessageId ?? null,
-      outcome: input.outcome ?? null,
-      reason: input.reason ?? null,
-    });
-
     const [updated] = await db.update(awaitingHumanBridges).set({
       status: "closed",
       closeOutcome: input.outcome ?? null,
@@ -599,6 +591,23 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       nextPollAt: null,
       updatedAt: new Date(),
     }).where(eq(awaitingHumanBridges.id, input.row.id)).returning();
+
+    try {
+      await deps.resolveAdapter(input.row.provider).close({
+        bridgeId: input.row.id,
+        externalThreadId: input.row.externalThreadId ?? null,
+        externalMessageId: input.row.externalMessageId ?? null,
+        outcome: input.outcome ?? null,
+        reason: input.reason ?? null,
+      });
+    } catch (error) {
+      logger.warn({
+        err: error,
+        bridgeId: input.row.id,
+        companyId: input.row.companyId,
+        issueId: input.row.issueId,
+      }, "failed to close awaiting_human bridge adapter after closing row");
+    }
 
     return updated ?? input.row;
   }
@@ -1317,6 +1326,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
       )).orderBy(asc(awaitingHumanBridges.createdAt)).limit(200);
 
       for (const row of rows) {
+        let commentWritten = false;
         try {
           const expiredBody = row.status === "failed"
             ? "Awaiting human bridge failed to deliver before a human response was received."
@@ -1332,6 +1342,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             interactionId: row.interactionId,
             body: expiredBody,
           });
+          commentWritten = true;
           const interaction = await interactionsSvc.rejectInteraction({
             id: row.issueId,
             companyId: row.companyId,
@@ -1394,29 +1405,31 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               },
             });
           }
-          try {
-            await addSystemIssueComment({
-              companyId: row.companyId,
-              issueId: row.issueId,
-              interactionId: row.interactionId,
-              body: expiredBody,
-            });
-          } catch (commentError) {
-            const commentDetail = commentError instanceof Error ? commentError.message : String(commentError);
-            await logActivity(db, {
-              companyId: row.companyId,
-              actorType: "system",
-              actorId: "awaiting_human_bridge",
-              action: "issue.awaiting_human.bridge_expire_comment_failed",
-              entityType: "issue",
-              entityId: row.issueId,
-              details: {
-                bridgeId: row.id,
+          if (!commentWritten) {
+            try {
+              await addSystemIssueComment({
+                companyId: row.companyId,
+                issueId: row.issueId,
                 interactionId: row.interactionId,
-                provider: row.provider,
-                detail: commentDetail,
-              },
-            });
+                body: expiredBody,
+              });
+            } catch (commentError) {
+              const commentDetail = commentError instanceof Error ? commentError.message : String(commentError);
+              await logActivity(db, {
+                companyId: row.companyId,
+                actorType: "system",
+                actorId: "awaiting_human_bridge",
+                action: "issue.awaiting_human.bridge_expire_comment_failed",
+                entityType: "issue",
+                entityId: row.issueId,
+                details: {
+                  bridgeId: row.id,
+                  interactionId: row.interactionId,
+                  provider: row.provider,
+                  detail: commentDetail,
+                },
+              });
+            }
           }
           if (row.agentId && interaction) {
             await insertWakeup({
