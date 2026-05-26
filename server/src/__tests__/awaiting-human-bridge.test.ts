@@ -441,6 +441,69 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     }));
   });
 
+  it("stops retrying a failed bridge-open once the failed bridge row already exists", async () => {
+    const seeded = await seedAwaitingHumanInteraction();
+    const send = vi.fn(async () => {
+      throw new Error("clickup send failed");
+    });
+    const service = awaitingHumanBridgeService(db, {
+      resolveProviderForCompany: async () => "clickup",
+      resolveAdapter: () => ({
+        send,
+        poll: vi.fn(async () => ({ status: "ok", detail: "ok", events: [] })),
+        close: vi.fn(async () => {}),
+      }),
+    });
+
+    await db.insert(activityLog).values({
+      companyId: seeded.companyId,
+      actorType: "system",
+      actorId: "issue_thread_interactions",
+      action: "issue.awaiting_human.bridge_open_failed",
+      entityType: "issue",
+      entityId: seeded.issueId,
+      details: {
+        interactionId: seeded.interactionId,
+        interactionKind: "request_confirmation",
+        detail: "clickup send failed",
+      },
+    });
+
+    const first = await service.retryFailedBridgeOpenings();
+
+    expect(first).toEqual({
+      checked: 1,
+      reopened: 0,
+      failed: 1,
+      skipped: 0,
+      issueIds: [],
+      interactionIds: [],
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+
+    const [failedBridge] = await db.select().from(awaitingHumanBridges).where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
+    expect(failedBridge).toEqual(expect.objectContaining({
+      status: "failed",
+      lastError: "clickup send failed",
+    }));
+
+    const second = await service.retryFailedBridgeOpenings();
+
+    expect(second).toEqual({
+      checked: 0,
+      reopened: 0,
+      failed: 0,
+      skipped: 0,
+      issueIds: [],
+      interactionIds: [],
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+
+    const rows = await db.select().from(awaitingHumanBridges)
+      .where(eq(awaitingHumanBridges.interactionId, seeded.interactionId));
+    expect(rows).toHaveLength(1);
+  });
+
   it("builds full ask-user-questions outbound content for the bridge", async () => {
     const seeded = await seedAskUserQuestionsInteraction();
     const send = vi.fn(async () => ({

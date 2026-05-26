@@ -631,7 +631,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
           select 1
           from ${awaitingHumanBridges}
           where ${awaitingHumanBridges.interactionId} = cast(${activityLog.details} ->> 'interactionId' as uuid)
-            and ${awaitingHumanBridges.status} in ('pending_delivery', 'waiting_for_human')
+            and ${awaitingHumanBridges.status} in ('pending_delivery', 'waiting_for_human', 'failed')
         )`,
       ))
       .orderBy(desc(activityLog.createdAt))
@@ -1112,6 +1112,7 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
           );
 
           const replyProcessing = await db.transaction(async (tx) => {
+            const txInteractionsSvc = issueThreadInteractionService(tx as unknown as Db);
             const [recorded] = await tx.insert(awaitingHumanBridgeInboundEvents).values({
               bridgeId: row.id,
               eventKind: event.kind,
@@ -1125,7 +1126,12 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
             }).returning({ id: awaitingHumanBridgeInboundEvents.id });
 
             if (!recorded) {
-              return { duplicate: true as const, answered: false as const, commentId: null as string | null };
+              return {
+                duplicate: true as const,
+                answered: false as const,
+                commentId: null as string | null,
+                resolvedInteraction: null as IssueThreadInteraction | null,
+              };
             }
 
             const body = `ClickUp reply received:\n\n${replyBody}`;
@@ -1143,31 +1149,39 @@ export function awaitingHumanBridgeService(db: Db, deps: AwaitingHumanBridgeDeps
               .set({ updatedAt: new Date() })
               .where(eq(issues.id, row.issueId));
 
+            let resolvedInteraction: IssueThreadInteraction | null = null;
+            if (responsePayload) {
+              resolvedInteraction = await txInteractionsSvc.answerQuestions({
+                id: row.issueId,
+                companyId: row.companyId,
+              }, row.interactionId, responsePayload, { actorType: "system" });
+            } else if (shouldRejectConfirmationReply) {
+              resolvedInteraction = await txInteractionsSvc.rejectInteraction({
+                id: row.issueId,
+                companyId: row.companyId,
+              }, row.interactionId, {
+                reason: replyBody,
+              }, { actorType: "system" });
+            }
+
             return {
               duplicate: false as const,
               answered: false as const,
               commentId: comment?.id ?? null,
               body,
+              resolvedInteraction,
             };
           });
 
           if (replyProcessing.duplicate) continue;
 
           let answeredInteraction = null;
-          if (responsePayload) {
-            answeredInteraction = await interactionsSvc.answerQuestions({
-              id: row.issueId,
-              companyId: row.companyId,
-            }, row.interactionId, responsePayload, { actorType: "system" });
+          if (responsePayload && replyProcessing.resolvedInteraction) {
+            answeredInteraction = replyProcessing.resolvedInteraction;
           }
           let rejectedInteraction: IssueThreadInteraction | null = null;
-          if (shouldRejectConfirmationReply && !responsePayload) {
-            rejectedInteraction = await interactionsSvc.rejectInteraction({
-              id: row.issueId,
-              companyId: row.companyId,
-            }, row.interactionId, {
-              reason: replyBody,
-            }, { actorType: "system" });
+          if (shouldRejectConfirmationReply && !responsePayload && replyProcessing.resolvedInteraction) {
+            rejectedInteraction = replyProcessing.resolvedInteraction;
           }
 
           const body = replyProcessing.body ?? `ClickUp reply received:\n\n${replyBody}`;
