@@ -74,6 +74,10 @@ function registerServiceMocks() {
   }));
 
   vi.doMock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
     accessService: () => mockAccessService,
     agentService: () => ({
       getById: vi.fn(async () => null),

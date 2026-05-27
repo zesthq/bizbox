@@ -13,6 +13,10 @@ const mockLogActivity = vi.hoisted(() => vi.fn());
 
 function registerModuleMocks() {
   vi.doMock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
     instanceSettingsService: () => mockInstanceSettingsService,
     logActivity: mockLogActivity,
   }));

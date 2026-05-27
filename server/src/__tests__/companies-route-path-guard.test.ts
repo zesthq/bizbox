@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import { companyRoutes } from "../routes/companies.js";
 
 vi.mock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
   companyService: () => ({
     list: vi.fn(),
     stats: vi.fn(),

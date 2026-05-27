@@ -4,9 +4,9 @@ import {
   detectClickUpAwaitingHumanBridgeEvents,
   getClickUpChatMessageReactions,
   getClickUpChatMessageReplies,
-  resolveAwaitingHumanReviewFile,
   sendAwaitingHumanNotification,
-} from "../services/awaiting-human-notifications.js";
+} from "../services/clickup-awaiting-human-transport.js";
+import { resolveAwaitingHumanReviewFile } from "../services/awaiting-human-review-files.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -29,7 +29,7 @@ afterEach(() => {
   delete process.env.CLICKUP_APPROVAL_POSITIVE_REPLY_KEYWORDS;
 });
 
-describe.skip("sendAwaitingHumanNotification", () => {
+describe("sendAwaitingHumanNotification", () => {
   it("posts the handoff to the configured ClickUp approval chat channel", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
@@ -521,7 +521,7 @@ describe.skip("sendAwaitingHumanNotification", () => {
   });
 });
 
-describe.skip("resolveAwaitingHumanReviewFile", () => {
+describe("resolveAwaitingHumanReviewFile", () => {
   it("prefers a human artifact deliverable", async () => {
     const db = dbWithExecuteResults([[
       {

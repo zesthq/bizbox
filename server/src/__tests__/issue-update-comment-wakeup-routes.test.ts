@@ -27,6 +27,10 @@ const mockIssueThreadInteractionService = vi.hoisted(() => ({
 }));
 
 vi.mock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
   accessService: () => ({
     canUser: vi.fn(async () => true),
     hasPermission: vi.fn(async () => true),
@@ -82,6 +86,9 @@ vi.mock("../services/index.js", () => ({
 
 function registerModuleMocks() {
   vi.doMock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+    }),
     accessService: () => ({
       canUser: vi.fn(async () => true),
       hasPermission: vi.fn(async () => true),

@@ -46,6 +46,10 @@ vi.mock("../middleware/logger.js", () => ({
 
 function registerModuleMocks() {
   vi.doMock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
     approvalService: () => mockApprovalService,
     builderProposalStore: () => mockBuilderProposalStore,
     heartbeatService: () => mockHeartbeatService,

@@ -8,6 +8,10 @@ import { accessRoutes } from "../routes/access.js";
 import { errorHandler } from "../middleware/index.js";
 
 vi.mock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
   accessService: () => ({
     isInstanceAdmin: vi.fn(),
     canUser: vi.fn(),

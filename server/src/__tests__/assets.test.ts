@@ -23,6 +23,10 @@ function registerModuleMocks() {
   }));
 
   vi.doMock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
     assetService: vi.fn(() => ({
       create: createAssetMock,
       getById: getAssetByIdMock,

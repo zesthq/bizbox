@@ -19,6 +19,10 @@ const mockWorkProductService = vi.hoisted(() => ({
 }));
 
 vi.mock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
   workProductService: () => mockWorkProductService,
   clampDeliverableLimit: (value: unknown) => {
     const n = typeof value === "number" ? value : Number(value);

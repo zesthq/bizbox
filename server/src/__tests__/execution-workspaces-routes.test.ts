@@ -17,6 +17,10 @@ const mockWorkspaceOperationService = vi.hoisted(() => ({
 
 function registerServiceMocks() {
   vi.doMock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
     executionWorkspaceService: () => mockExecutionWorkspaceService,
     logActivity: vi.fn(async () => undefined),
     workspaceOperationService: () => mockWorkspaceOperationService,

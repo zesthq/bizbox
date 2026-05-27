@@ -16,7 +16,7 @@ import { processAwaitingHumanNotificationOutbox } from "../services/awaiting-hum
 const originalFetch = globalThis.fetch;
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
-const describeEmbeddedPostgres = describe.skip;
+const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
 describeEmbeddedPostgres("awaitingHumanNotificationOutbox", () => {
   let db!: ReturnType<typeof createDb>;

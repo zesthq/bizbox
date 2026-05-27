@@ -9,6 +9,10 @@ const mockHeartbeatService = vi.hoisted(() => ({
 const mockLogActivity = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
   heartbeatService: () => mockHeartbeatService,
   logActivity: mockLogActivity,
 }));

@@ -21,6 +21,10 @@ const mockGoalGetById = vi.hoisted(() => vi.fn());
 const mockInviteCreate = vi.hoisted(() => vi.fn());
 
 vi.mock("../services/index.js", () => ({
+    awaitingHumanBridgeRuntime: () => ({
+      openForPendingInteraction: vi.fn(async () => null),
+      closeOpenBridgesForIssue: vi.fn(async () => ({ closedCount: 0 })),
+    }),
   agentService: () => ({
     getById: mockAgentGetById,
   }),

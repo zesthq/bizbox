@@ -42,6 +42,8 @@ vi.mock("../otel.js", () => ({
 }));
 import { heartbeatService } from "../services/heartbeat.js";
 import { issueThreadInteractionService } from "../services/issue-thread-interactions.js";
+import { registerAwaitingHumanBridgeAdapter } from "../services/awaiting-human-bridge-registry.js";
+import { clickupAwaitingHumanBridgeAdapter } from "../services/clickup-awaiting-human-bridge-adapter.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { secretService } from "../services/secrets.js";
 
@@ -90,7 +92,7 @@ vi.mock("../storage/index.js", () => ({
 }));
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
-const describeEmbeddedPostgres = describe.skip;
+const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
 describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   let db!: ReturnType<typeof createDb>;
@@ -99,6 +101,7 @@ describeEmbeddedPostgres("heartbeat awaiting_human ClickUp approvals", () => {
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
 
   beforeAll(async () => {
+    registerAwaitingHumanBridgeAdapter("clickup", clickupAwaitingHumanBridgeAdapter);
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-heartbeat-clickup-approvals-");
     db = createDb(tempDb.connectionString);
     heartbeat = heartbeatService(db);
