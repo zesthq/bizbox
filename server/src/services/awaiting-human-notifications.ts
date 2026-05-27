@@ -255,7 +255,7 @@ export async function processAwaitingHumanNotificationOutbox(
 
       if (reviewFile && config.reviewListId) {
         if (!clickupTaskId) {
-          const task = await createClickUpReviewTask(config, row.notification as unknown as AwaitingHumanNotificationPayload);
+          const task = await createClickUpReviewTask(companyOverrides ?? {}, row.notification as unknown as AwaitingHumanNotificationPayload);
           clickupTaskId = task.taskId;
           clickupTaskUrl = task.taskUrl;
           await db
@@ -267,7 +267,7 @@ export async function processAwaitingHumanNotificationOutbox(
         if (!clickupAttachmentId && clickupTaskId) {
           try {
             const file = await readAwaitingHumanReviewFileBody(db, storage, row.companyId, reviewFile);
-            const upload = await uploadClickUpReviewFile(config, clickupTaskId, reviewFile, file.body);
+            const upload = await uploadClickUpReviewFile(companyOverrides ?? {}, clickupTaskId, reviewFile, file.body);
             clickupAttachmentId = upload.attachmentId;
             clickupAttachmentUrl = upload.attachmentUrl;
             await db

@@ -13,6 +13,19 @@ import {
 } from "./helpers/embedded-postgres.js";
 import { processAwaitingHumanNotificationOutbox } from "../services/awaiting-human-notifications.js";
 
+const settingsFixtures = vi.hoisted(() => ({
+  companies: new Map<string, {
+    stored: { enabled: boolean; provider: "clickup" } | null;
+    runtime: {
+      enabled: boolean;
+      provider: "clickup";
+      personalToken: string;
+      workspaceId: string;
+      channelId: string;
+    };
+  }>(),
+}));
+
 vi.mock(import("../services/awaiting-human-review-files.js"), async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/awaiting-human-review-files.js")>();
   return {
@@ -23,6 +36,19 @@ vi.mock(import("../services/awaiting-human-review-files.js"), async (importOrigi
     })),
   };
 });
+
+vi.mock("../services/awaiting-human-settings.js", () => ({
+  awaitingHumanSettingsService: () => ({
+    getStored: async (companyId: string) => settingsFixtures.companies.get(companyId)?.stored ?? null,
+    resolveClickUpRuntimeConfig: async (companyId: string) => {
+      const entry = settingsFixtures.companies.get(companyId);
+      if (!entry) {
+        throw new Error("awaiting-human-bridge-disabled");
+      }
+      return entry.runtime;
+    },
+  }),
+}));
 
 const originalFetch = globalThis.fetch;
 
@@ -41,6 +67,7 @@ describeEmbeddedPostgres("awaitingHumanNotificationOutbox", () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     globalThis.fetch = originalFetch;
+    settingsFixtures.companies.clear();
     delete process.env.CLICKUP_PERSONAL_TOKEN;
     delete process.env.CLICKUP_WORKSPACE_ID;
     delete process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID;
@@ -93,7 +120,7 @@ describeEmbeddedPostgres("awaitingHumanNotificationOutbox", () => {
 
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ data: { id: "message-42" } }),
+      text: async () => JSON.stringify({ data: { id: "message-42" } }),
     });
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -186,7 +213,7 @@ describeEmbeddedPostgres("awaitingHumanNotificationOutbox", () => {
       if (url === "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels/channel-1/messages") {
         return {
           ok: true,
-          json: async () => ({ data: {} }),
+          text: async () => JSON.stringify({ data: {} }),
         };
       }
       throw new Error(`unexpected fetch:${url}`);
@@ -208,6 +235,117 @@ describeEmbeddedPostgres("awaitingHumanNotificationOutbox", () => {
       attempts: 8,
     }));
     expect(row.clickupMessageId).not.toBeNull();
+  });
+
+  it("uses company-specific ClickUp overrides for review task creation, upload, and send", async () => {
+    const companyId = randomUUID();
+    const issueId = randomUUID();
+    const deliverableId = randomUUID();
+    const taskId = "task-company";
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Awaiting human",
+      status: "todo",
+      priority: "medium",
+    });
+    await db.insert(awaitingHumanNotificationOutbox).values({
+      companyId,
+      issueId,
+      dedupeKey: "approval-company",
+      handoffKind: "request_confirmation",
+      status: "pending",
+      attempts: 0,
+      notification: {
+        title: "Awaiting human",
+        summary: "Please review.",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Reply in Bizbox.",
+        labels: ["awaiting_human", "request_confirmation"],
+      },
+      reviewFile: {
+        source: "artifact",
+        deliverableId,
+        title: "Final report",
+        filename: "final-report.md",
+        contentType: "text/markdown",
+        byteSize: 42,
+        contentPath: "/api/attachments/final-report/content",
+        deliverableUrl: "https://bizbox.example/api/attachments/final-report/content",
+      },
+    });
+
+    settingsFixtures.companies.set(companyId, {
+      stored: { enabled: true, provider: "clickup" },
+      runtime: {
+        enabled: true,
+        provider: "clickup",
+        personalToken: "token-company",
+        workspaceId: "workspace-company",
+        channelId: "channel-company",
+      },
+    });
+
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-global";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-global";
+    process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID = "channel-global";
+    process.env.CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID = "review-list-global";
+
+    const fetchMock = vi.fn(async (requestUrl: string | URL | Request) => {
+      const url = String(requestUrl);
+      if (url === "https://api.clickup.com/api/v2/list/review-list-global/task") {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ id: taskId, url: `https://app.clickup.com/t/${taskId}` }),
+        };
+      }
+      if (url === `https://api.clickup.com/api/v3/workspaces/workspace-company/attachments/${taskId}/attachments`) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            attachments: [
+              { id: "attachment-company", url: `https://app.clickup.com/t/${taskId}/f/attachment-company` },
+            ],
+          }),
+        };
+      }
+      if (url === "https://api.clickup.com/api/v3/workspaces/workspace-company/chat/channels/channel-company/messages") {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ data: { id: "message-company" } }),
+        };
+      }
+      throw new Error(`unexpected fetch:${url}`);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await processAwaitingHumanNotificationOutbox(db, { limit: 10 });
+
+    expect(result).toEqual({
+      processed: 1,
+      sent: 1,
+      failed: 0,
+    });
+    expect(fetchMock.mock.calls.map(([requestUrl]) => String(requestUrl))).toEqual([
+      "https://api.clickup.com/api/v2/list/review-list-global/task",
+      `https://api.clickup.com/api/v3/workspaces/workspace-company/attachments/${taskId}/attachments`,
+      "https://api.clickup.com/api/v3/workspaces/workspace-company/chat/channels/channel-company/messages",
+    ]);
+
+    const [row] = await db.select().from(awaitingHumanNotificationOutbox).where(eq(awaitingHumanNotificationOutbox.issueId, issueId));
+    expect(row).toEqual(expect.objectContaining({
+      status: "sent",
+      clickupTaskId: taskId,
+      clickupAttachmentId: "attachment-company",
+      clickupMessageId: "message-company",
+    }));
   });
 
   it("keeps failed rows in failed until their retry window opens", async () => {

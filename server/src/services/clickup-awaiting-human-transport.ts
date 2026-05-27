@@ -248,9 +248,17 @@ function replySignalsRejection(reply: ClickUpChatMessageReply) {
   if (!content) return false;
   return DEFAULT_CLICKUP_REJECTION_REPLY_KEYWORDS.some((keyword) => {
     if (content === keyword) return true;
-    return content.startsWith(`${keyword} `)
-      || content.endsWith(` ${keyword}`)
-      || content.includes(` ${keyword} `);
+    const matchPositions: number[] = [];
+    if (content.startsWith(`${keyword} `)) matchPositions.push(0);
+    let searchFrom = 0;
+    while (true) {
+      const index = content.indexOf(` ${keyword} `, searchFrom);
+      if (index === -1) break;
+      matchPositions.push(index + 1);
+      searchFrom = index + 1;
+    }
+    if (content.endsWith(` ${keyword}`)) matchPositions.push(content.length - keyword.length);
+    return matchPositions.some((position) => !hasNegatedApprovalPrefix(content, position));
   });
 }
 
@@ -432,7 +440,7 @@ export async function sendAwaitingHumanNotification(
       };
     }
 
-    const response = await fetch(
+    const response = await fetchText(
       `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/chat/channels/${encodeURIComponent(channelId)}/messages`,
       {
         method: "POST",
@@ -449,15 +457,16 @@ export async function sendAwaitingHumanNotification(
     );
 
     if (!response.ok) {
-      const body = await response.text();
       return {
         status: "failed",
         channel: "clickup-chat",
-        detail: `http-error:${response.status}:${truncateText(body, 240)}`,
+        detail: `http-error:${response.status}:${truncateText(response.text, 240)}`,
       };
     }
 
-    const payload = await response.json() as { id?: unknown; data?: { id?: unknown } };
+    const payload = response.text.trim().length > 0
+      ? JSON.parse(response.text) as { id?: unknown; data?: { id?: unknown } }
+      : {};
     const externalId = typeof payload.data?.id === "string"
       ? payload.data.id
       : typeof payload.id === "string"

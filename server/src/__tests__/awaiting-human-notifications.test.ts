@@ -10,6 +10,14 @@ import { resolveAwaitingHumanReviewFile } from "../services/awaiting-human-revie
 
 const originalFetch = globalThis.fetch;
 
+function clickupTextResponse(body: unknown, ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    text: async () => typeof body === "string" ? body : JSON.stringify(body),
+  };
+}
+
 function dbWithExecuteResults(results: unknown[][]): Db {
   const queue = [...results];
   return {
@@ -36,10 +44,7 @@ describe("sendAwaitingHumanNotification", () => {
     process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID = "channel-9";
 
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: { id: "message-42" } }),
-      });
+      .mockResolvedValueOnce(clickupTextResponse({ data: { id: "message-42" } }));
     globalThis.fetch = fetchMock as typeof fetch;
 
     const result = await sendAwaitingHumanNotification({
@@ -86,10 +91,7 @@ describe("sendAwaitingHumanNotification", () => {
   });
 
   it("uses explicit ClickUp transport overrides for token, workspace, and channel id", async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: { id: "message-override" } }),
-    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(clickupTextResponse({ data: { id: "message-override" } }));
     globalThis.fetch = fetchMock as typeof fetch;
 
     const result = await sendAwaitingHumanNotification({
@@ -126,10 +128,7 @@ describe("sendAwaitingHumanNotification", () => {
     process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID = "channel-9";
 
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: { id: "message-42" } }),
-      });
+      .mockResolvedValueOnce(clickupTextResponse({ data: { id: "message-42" } }));
     globalThis.fetch = fetchMock as typeof fetch;
 
     const result = await sendAwaitingHumanNotification({
@@ -194,10 +193,7 @@ describe("sendAwaitingHumanNotification", () => {
     process.env.CLICKUP_ENGINEERING_CHANNEL_ID = "channel-legacy";
 
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: { id: "message-45" } }),
-      });
+      .mockResolvedValueOnce(clickupTextResponse({ data: { id: "message-45" } }));
     globalThis.fetch = fetchMock as typeof fetch;
 
     const result = await sendAwaitingHumanNotification({
@@ -226,10 +222,7 @@ describe("sendAwaitingHumanNotification", () => {
     process.env.CLICKUP_ENGINEERING_CHANNEL_ID = "channel-legacy";
 
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: { id: "message-46" } }),
-      });
+      .mockResolvedValueOnce(clickupTextResponse({ data: { id: "message-46" } }));
     globalThis.fetch = fetchMock as typeof fetch;
 
     const result = await sendAwaitingHumanNotification({
@@ -274,6 +267,61 @@ describe("sendAwaitingHumanNotification", () => {
       channel: "clickup-chat",
       detail: "missing-target: CLICKUP_AWAITING_HUMAN_CHANNEL_ID (or CLICKUP_ENGINEERING_CHANNEL_ID)",
     });
+  });
+
+  it("aborts slow ClickUp message sends", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+    process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID = "channel-9";
+
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        if (!signal) {
+          return Promise.reject(new Error("missing abort signal"));
+        }
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(new Error("AbortError: ClickUp request timed out"));
+          }, { once: true });
+        });
+      });
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      const resultPromise = sendAwaitingHumanNotification({
+        companyId: "company-1",
+        issueId: "issue-1",
+        handoffKind: "request_confirmation",
+        notification: {
+          title: "BIZ-35 is waiting on human input",
+          summary: "Approve the exact GitHub reply before posting.",
+          link: "https://bizbox.example/issues/BIZ-35",
+          cta: "Open BIZ-35 in Bizbox and respond there.",
+          labels: ["awaiting_human", "request_confirmation"],
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await expect(resultPromise).resolves.toEqual({
+        status: "failed",
+        channel: "clickup-chat",
+        detail: "AbortError: ClickUp request timed out",
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels/channel-9/messages",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            Authorization: "token-123",
+          }),
+          signal: expect.any(Object),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retrieves ClickUp message replies for approval polling", async () => {
@@ -405,6 +453,40 @@ describe("sendAwaitingHumanNotification", () => {
           resolutionSource: "clickup_reply",
           clickupReplyId: "reply-1",
         },
+      }],
+    });
+  });
+
+  it("ignores negated rejection phrases", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: "reply-1", content: "not rejected" },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await detectClickUpAwaitingHumanBridgeEvents("message-42");
+
+    expect(result).toEqual({
+      status: "sent",
+      detail: "non-approval-reply-detected",
+      events: [{
+        kind: "reply",
+        externalEventId: "reply-1",
+        externalMessageId: "message-42",
+        body: "not rejected",
+        metadata: { clickupReplyId: "reply-1" },
       }],
     });
   });
