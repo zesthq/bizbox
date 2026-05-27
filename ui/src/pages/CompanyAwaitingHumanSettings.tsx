@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { Loader2, MessageSquare, Save } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { UpdateCompanyAwaitingHumanSettingsRequest } from "@paperclipai/shared";
 import { useCompany } from "@/context/CompanyContext";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
-import { companyAwaitingHumanSettingsApi } from "@/api/companyAwaitingHumanSettings";
+import {
+  companyAwaitingHumanSettingsApi,
+  type AwaitingHumanConnectionTestResult,
+} from "@/api/companyAwaitingHumanSettings";
 import { queryKeys } from "@/lib/queryKeys";
 import { Button } from "@/components/ui/button";
 import { Field, ToggleField } from "@/components/agent-config-primitives";
@@ -108,6 +112,17 @@ export function CompanyAwaitingHumanSettings() {
 
   const settings = settingsQuery.data;
   const normalizedProvider = provider === "none" ? null : "clickup";
+  const currentRequestPayload: UpdateCompanyAwaitingHumanSettingsRequest = {
+    enabled: bridgeEnabled && provider !== "none",
+    provider: provider === "none" ? null : "clickup",
+    providerConfig: provider === "clickup"
+      ? {
+        workspaceId: workspaceId.trim() || null,
+        channelId: channelId.trim() || null,
+      }
+      : null,
+    clickupPersonalToken: provider === "clickup" ? (personalToken.trim() || null) : null,
+  };
   const isDirty =
     bridgeEnabled !== (settings?.enabled ?? false)
     || normalizedProvider !== (settings?.provider ?? null)
@@ -116,6 +131,24 @@ export function CompanyAwaitingHumanSettings() {
     || channelId !== (settings?.providerConfig?.channelId ?? "");
   const providerEnabled = provider !== "none";
   const hasStoredClickUpToken = settings?.hasStoredAuthToken ?? false;
+  const testConnectionMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedCompanyId) {
+        throw new Error("No company selected");
+      }
+      return companyAwaitingHumanSettingsApi.testConnection(selectedCompanyId, currentRequestPayload);
+    },
+  });
+
+  function describeTestConnectionResult(result: AwaitingHumanConnectionTestResult) {
+    if (result.status === "sent") {
+      return "Test confirmation sent to ClickUp.";
+    }
+    if (result.status === "skipped") {
+      return `Test skipped: ${result.detail}`;
+    }
+    return `Test failed: ${result.detail}`;
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -226,6 +259,42 @@ export function CompanyAwaitingHumanSettings() {
                 className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
             </Field>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => testConnectionMutation.mutate()}
+                disabled={!providerEnabled || testConnectionMutation.isPending}
+              >
+                <MessageSquare className="mr-1.5 h-4 w-4" />
+                {testConnectionMutation.isPending ? "Sending..." : "Send test confirmation"}
+              </Button>
+              {testConnectionMutation.data ? (
+                <span
+                  className={`text-xs ${testConnectionMutation.data.status === "sent"
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : testConnectionMutation.data.status === "skipped"
+                      ? "text-muted-foreground"
+                      : "text-destructive"
+                  }`}
+                >
+                  {describeTestConnectionResult(testConnectionMutation.data)}
+                </span>
+              ) : null}
+              {testConnectionMutation.error ? (
+                <span className="text-xs text-destructive">
+                  {testConnectionMutation.error instanceof Error
+                    ? testConnectionMutation.error.message
+                    : "Test confirmation failed"}
+                </span>
+              ) : null}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Posts a confirmation message to ClickUp using the current transport settings without saving.
+            </p>
           </div>
         ) : null}
 

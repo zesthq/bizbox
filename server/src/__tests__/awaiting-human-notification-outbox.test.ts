@@ -81,6 +81,81 @@ describeEmbeddedPostgres("awaitingHumanNotificationOutbox", () => {
     await tempDb?.cleanup();
   });
 
+  it("delivers an outbox row with company ClickUp settings even when legacy env config is missing", async () => {
+    const companyId = randomUUID();
+    const issueId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Awaiting human",
+      status: "todo",
+      priority: "medium",
+    });
+    await db.insert(awaitingHumanNotificationOutbox).values({
+      companyId,
+      issueId,
+      dedupeKey: "approval-company-settings",
+      handoffKind: "request_confirmation",
+      status: "pending",
+      attempts: 0,
+      notification: {
+        title: "Awaiting human",
+        summary: "Please review.",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Reply in Bizbox.",
+        labels: ["awaiting_human", "request_confirmation"],
+      },
+    });
+
+    settingsFixtures.companies.set(companyId, {
+      stored: { enabled: true, provider: "clickup" },
+      runtime: {
+        enabled: true,
+        provider: "clickup",
+        personalToken: "token-company",
+        workspaceId: "workspace-company",
+        channelId: "channel-company",
+      },
+    });
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({ data: { id: "message-company" } }),
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await processAwaitingHumanNotificationOutbox(db, { limit: 10 });
+
+    expect(result).toEqual({
+      processed: 1,
+      sent: 1,
+      failed: 0,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.clickup.com/api/v3/workspaces/workspace-company/chat/channels/channel-company/messages",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "token-company",
+        }),
+      }),
+    );
+
+    const [row] = await db.select().from(awaitingHumanNotificationOutbox).where(eq(awaitingHumanNotificationOutbox.issueId, issueId));
+    expect(row).toEqual(expect.objectContaining({
+      status: "sent",
+      clickupMessageId: "message-company",
+      lastError: null,
+    }));
+  });
+
   it("delivers an outbox row with legacy env config when no company awaiting-human settings row exists", async () => {
     const companyId = randomUUID();
     const issueId = randomUUID();

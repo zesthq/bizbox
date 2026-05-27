@@ -78,6 +78,14 @@ export interface SendAwaitingHumanNotificationInput {
   notification: AwaitingHumanNotificationPayload;
 }
 
+export interface ClickUpTransportTestNotification {
+  title: string;
+  summary: string;
+  link: string;
+  body?: string | null;
+  cta?: string | null;
+}
+
 export interface AwaitingHumanNotificationResult {
   status: "sent" | "skipped" | "failed" | "enqueued";
   channel: "clickup-chat";
@@ -418,8 +426,35 @@ function renderClickUpMessage(notification: AwaitingHumanNotificationPayload) {
   return trimTotal(lines.join("\n"), CLICKUP_CHAT_MESSAGE_MAX_CHARS);
 }
 
-export async function sendAwaitingHumanNotification(
-  input: SendAwaitingHumanNotificationInput,
+function renderClickUpTransportTestMessage(notification: ClickUpTransportTestNotification) {
+  const title = truncateText(notification.title, MAX_TITLE_LENGTH);
+  const summary = truncateText(notification.summary, MAX_SUMMARY_LENGTH);
+  const bodySection = formatBodySection(notification.body);
+  const lines = [
+    `**${title}**`,
+    "",
+    summary,
+  ];
+
+  if (bodySection) {
+    lines.push("");
+    lines.push(bodySection);
+  }
+
+  lines.push("");
+  lines.push("No action needed. This is a transport test from Bizbox.");
+
+  if (notification.cta?.trim()) {
+    lines.push(truncateText(notification.cta, 180));
+  }
+
+  lines.push(`Open in Bizbox: ${notification.link.trim()}`);
+
+  return trimTotal(lines.join("\n"), CLICKUP_CHAT_MESSAGE_MAX_CHARS);
+}
+
+async function postClickUpChatMessage(
+  content: string,
   overrides?: ClickUpAwaitingHumanConfigOverrides,
 ): Promise<AwaitingHumanNotificationResult> {
   const config = readClickUpChatConfig(overrides);
@@ -450,7 +485,7 @@ export async function sendAwaitingHumanNotification(
         },
         body: JSON.stringify({
           type: "message",
-          content: renderClickUpMessage(input.notification),
+          content,
           content_format: "text/md",
         }),
       },
@@ -486,6 +521,20 @@ export async function sendAwaitingHumanNotification(
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function sendAwaitingHumanNotification(
+  input: SendAwaitingHumanNotificationInput,
+  overrides?: ClickUpAwaitingHumanConfigOverrides,
+): Promise<AwaitingHumanNotificationResult> {
+  return postClickUpChatMessage(renderClickUpMessage(input.notification), overrides);
+}
+
+export async function sendClickUpTransportTestMessage(
+  notification: ClickUpTransportTestNotification,
+  overrides?: ClickUpAwaitingHumanConfigOverrides,
+): Promise<AwaitingHumanNotificationResult> {
+  return postClickUpChatMessage(renderClickUpTransportTestMessage(notification), overrides);
 }
 
 function parseClickUpTaskResponse(rawText: string): { taskId: string; taskUrl: string | null } {

@@ -11,6 +11,10 @@ import {
   normalizeClickUpAwaitingHumanProviderConfig,
   validateClickUpAwaitingHumanProviderConfig,
 } from "./clickup-awaiting-human-settings-adapter.js";
+import {
+  sendClickUpTransportTestMessage,
+  type ClickUpTransportTestNotification,
+} from "./clickup-awaiting-human-transport.js";
 
 interface StoredClickUpProviderConfig {
   authTokenRef: { type: "secret_ref"; secretId: string; version?: number | "latest" } | null;
@@ -59,6 +63,14 @@ function trimToken(value: string | null | undefined) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+type ClickUpRuntimeConfigPreview = {
+  enabled: boolean;
+  provider: AwaitingHumanProvider | null;
+  personalToken: string | null;
+  workspaceId: string | null;
+  channelId: string | null;
+};
+
 export function awaitingHumanSettingsService(db: Db) {
   const secrets = secretService(db);
 
@@ -76,27 +88,62 @@ export function awaitingHumanSettingsService(db: Db) {
     return toPublicSettings(row ?? defaultStoredSettings(companyId));
   }
 
-  async function resolveClickUpRuntimeConfig(companyId: string) {
+  async function previewClickUpRuntimeConfig(
+    companyId: string,
+    patch?: UpdateCompanyAwaitingHumanSettingsRequest,
+  ): Promise<ClickUpRuntimeConfigPreview> {
     const row = await getStored(companyId);
     const effective = row ?? defaultStoredSettings(companyId);
-    if (!effective.enabled || effective.provider !== "clickup") {
-      throw new Error("awaiting-human-bridge-disabled");
+
+    const nextProvider = patch?.provider !== undefined ? patch.provider : effective.provider;
+    const nextEnabled = patch?.enabled !== undefined ? patch.enabled : effective.enabled;
+
+    let nextProviderConfig: StoredClickUpProviderConfig | null =
+      effective.provider === "clickup"
+        ? (effective.providerConfigJson ?? defaultStoredSettings(companyId).providerConfigJson)
+        : null;
+
+    if (patch?.provider !== undefined && patch.provider !== effective.provider && patch.providerConfig === undefined) {
+      nextProviderConfig = null;
     }
-    const config = normalizeClickUpAwaitingHumanProviderConfig(effective.providerConfigJson ?? null);
-    const personalToken = effective.providerConfigJson?.authTokenRef
-      ? await secrets.resolveSecretValue(
-        companyId,
-        effective.providerConfigJson.authTokenRef.secretId,
-        effective.providerConfigJson.authTokenRef.version ?? "latest",
-      )
-      : null;
+
+    if (patch?.providerConfig !== undefined) {
+      const normalizedConfig = normalizeClickUpAwaitingHumanProviderConfig(patch.providerConfig);
+      nextProviderConfig = nextProvider === "clickup"
+        ? {
+          authTokenRef: nextProviderConfig?.authTokenRef ?? null,
+          workspaceId: normalizedConfig?.workspaceId ?? null,
+          channelId: normalizedConfig?.channelId ?? null,
+        }
+        : null;
+    }
+
+    const nextToken = trimToken(patch?.clickupPersonalToken);
+    const personalToken = nextToken
+      || (nextProviderConfig?.authTokenRef
+        ? await secrets.resolveSecretValue(
+          companyId,
+          nextProviderConfig.authTokenRef.secretId,
+          nextProviderConfig.authTokenRef.version ?? "latest",
+        )
+        : null);
+    const config = normalizeClickUpAwaitingHumanProviderConfig(nextProviderConfig ?? null);
+
     return {
-      enabled: effective.enabled,
-      provider: effective.provider,
+      enabled: nextEnabled,
+      provider: nextProvider,
       personalToken,
       workspaceId: config?.workspaceId ?? null,
       channelId: config?.channelId ?? null,
     };
+  }
+
+  async function resolveClickUpRuntimeConfig(companyId: string) {
+    const config = await previewClickUpRuntimeConfig(companyId);
+    if (!config.enabled || config.provider !== "clickup") {
+      throw new Error("awaiting-human-bridge-disabled");
+    }
+    return config;
   }
 
   async function resolveProvider(companyId: string): Promise<AwaitingHumanProvider> {
@@ -196,11 +243,35 @@ export function awaitingHumanSettingsService(db: Db) {
 
     return get(companyId);
   }
+
+  async function testClickUpTransport(
+    companyId: string,
+    patch?: UpdateCompanyAwaitingHumanSettingsRequest,
+  ) {
+    const config = await previewClickUpRuntimeConfig(companyId, patch);
+    const notification: ClickUpTransportTestNotification = {
+      title: "Awaiting Human transport test",
+      summary: "Bizbox sent this confirmation through the ClickUp awaiting-human transport.",
+      body: [
+        `Provider: ${config.provider ?? "none"}`,
+        `Workspace ID: ${config.workspaceId ?? "instance default"}`,
+        `Channel ID: ${config.channelId ?? "instance default"}`,
+      ].map((line) => `- ${line}`).join("\n"),
+      cta: "No action needed. This is a transport test.",
+      link: "/company/settings/awaiting-human",
+    };
+    return sendClickUpTransportTestMessage(notification, {
+      personalToken: config.personalToken,
+      workspaceId: config.workspaceId,
+      channelId: config.channelId,
+    });
+  }
   return {
     get,
     update,
     resolveProvider,
     resolveClickUpRuntimeConfig,
+    testClickUpTransport,
     getStored,
   };
 }

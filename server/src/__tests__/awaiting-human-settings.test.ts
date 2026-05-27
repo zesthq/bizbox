@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   companyAwaitingHumanSettings,
   companySecretVersions,
@@ -14,6 +14,8 @@ import {
 } from "./helpers/embedded-postgres.js";
 import { awaitingHumanSettingsService } from "../services/awaiting-human-settings.js";
 import { secretService } from "../services/secrets.js";
+
+const originalFetch = globalThis.fetch;
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -32,6 +34,7 @@ describeEmbeddedPostgres("awaitingHumanSettingsService", () => {
     await db.delete(companySecrets);
     await db.delete(companyAwaitingHumanSettings);
     await db.delete(companies);
+    globalThis.fetch = originalFetch;
   });
 
   afterAll(async () => {
@@ -149,5 +152,71 @@ describeEmbeddedPostgres("awaitingHumanSettingsService", () => {
       providerConfig: null,
       hasStoredAuthToken: false,
     }));
+  });
+
+  it("sends a ClickUp transport test using stored credentials and preview overrides", async () => {
+    const companyId = randomUUID();
+    const secrets = secretService(db);
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const secret = await secrets.create(companyId, {
+      name: "awaiting-human-clickup-token",
+      provider: "local_encrypted",
+      value: "stored-token",
+    });
+
+    await db.insert(companyAwaitingHumanSettings).values({
+      companyId,
+      enabled: true,
+      provider: "clickup",
+      providerConfigJson: {
+        authTokenRef: { type: "secret_ref", secretId: secret.id, version: "latest" },
+        workspaceId: "workspace-stored",
+        channelId: "channel-stored",
+      },
+    });
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ data: { id: "message-test-1" } }),
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const service = awaitingHumanSettingsService(db);
+    const result = await service.testClickUpTransport(companyId, {
+      provider: "clickup",
+      providerConfig: {
+        workspaceId: "workspace-preview",
+        channelId: "channel-preview",
+      },
+    });
+
+    expect(result).toEqual({
+      status: "sent",
+      channel: "clickup-chat",
+      detail: "sent",
+      externalId: "message-test-1",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.clickup.com/api/v3/workspaces/workspace-preview/chat/channels/channel-preview/messages",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "stored-token",
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.content).toContain("Awaiting Human transport test");
+    expect(body.content).toContain("No action needed. This is a transport test from Bizbox.");
+    expect(body.content).toContain("Open in Bizbox: /company/settings/awaiting-human");
   });
 });

@@ -154,9 +154,6 @@ export async function processAwaitingHumanNotificationOutbox(
 ) {
   const limit = opts.limit ?? 20;
   const config = readClickUpChatConfig();
-  if (!config.personalToken || !config.workspaceId) {
-    return { processed: 0, sent: 0, failed: 0 };
-  }
 
   const storage = opts.storage ?? getStorageService();
   const now = new Date();

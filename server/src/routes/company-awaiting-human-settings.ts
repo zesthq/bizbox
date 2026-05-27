@@ -53,5 +53,37 @@ export function companyAwaitingHumanSettingsRoutes(db: Db) {
     res.json(updated);
   });
 
+  router.post("/connection-test", async (req, res) => {
+    assertBoard(req);
+    const companyId = (req.params as { companyId: string }).companyId;
+    assertCompanyAccess(req, companyId);
+    const company = await companies.getById(companyId);
+    if (!company) {
+      res.status(404).json({ error: "Company not found" });
+      return;
+    }
+    const body = patchCompanyAwaitingHumanSettingsSchema.parse(req.body);
+    const actor = getActorInfo(req);
+    const result = await settings.testClickUpTransport(companyId, body);
+    const redactedBody = "clickupPersonalToken" in body && body.clickupPersonalToken != null
+      ? { ...body, clickupPersonalToken: "[REDACTED]" }
+      : body;
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.awaiting_human_settings.connection_tested",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        ...redactedBody,
+        result,
+      },
+    });
+    res.json(result);
+  });
+
   return router;
 }
