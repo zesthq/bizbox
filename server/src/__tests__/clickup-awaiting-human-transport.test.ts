@@ -136,4 +136,45 @@ describe("getClickUpChatMessageReplies", () => {
       ],
     });
   });
+
+  it("aborts slow ClickUp reply polling requests", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        if (!signal) {
+          return Promise.reject(new Error("missing abort signal"));
+        }
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(new Error("AbortError: ClickUp request timed out"));
+          }, { once: true });
+        });
+      });
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      const resultPromise = getClickUpChatMessageReplies("message-42");
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await expect(resultPromise).resolves.toEqual({
+        status: "failed",
+        detail: "AbortError: ClickUp request timed out",
+        replies: [],
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/messages/message-42/replies",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "token-123",
+          }),
+          signal: expect.any(Object),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

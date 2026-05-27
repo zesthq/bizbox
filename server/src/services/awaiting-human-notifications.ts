@@ -50,6 +50,19 @@ function nextRetryAt(attempt: number, now = Date.now()): Date {
   return new Date(now + sec * 1000);
 }
 
+// Preserve the fact that ClickUp accepted the message even when it omits the id.
+const CLICKUP_MESSAGE_ID_SENTINEL = "__clickup_message_sent_without_external_id__";
+
+function encodeClickUpMessageId(externalId: string | null | undefined) {
+  const trimmed = externalId?.trim();
+  return trimmed ? trimmed : CLICKUP_MESSAGE_ID_SENTINEL;
+}
+
+function decodeClickUpMessageId(value: string | null | undefined) {
+  if (!value || value === CLICKUP_MESSAGE_ID_SENTINEL) return null;
+  return value;
+}
+
 export async function enqueueAwaitingHumanNotification(
   db: Db,
   input: EnqueueAwaitingHumanNotificationInput,
@@ -131,7 +144,7 @@ export async function enqueueAwaitingHumanNotification(
     status: row?.status === "sent" ? "sent" : "enqueued",
     channel: "clickup-chat",
     detail: row?.status === "sent" ? "already-sent" : "enqueued",
-    externalId: row?.clickupMessageId ?? null,
+    externalId: decodeClickUpMessageId(row?.clickupMessageId ?? null),
   };
 }
 
@@ -166,7 +179,7 @@ export async function processAwaitingHumanNotificationOutbox(
       and(
         eq(awaitingHumanNotificationOutbox.status, "failed"),
         lt(awaitingHumanNotificationOutbox.attempts, MAX_OUTBOX_ATTEMPTS),
-        sql`${awaitingHumanNotificationOutbox.nextAttemptAt} is not null`,
+        lte(awaitingHumanNotificationOutbox.nextAttemptAt, now),
       ),
     );
 
@@ -284,7 +297,7 @@ export async function processAwaitingHumanNotificationOutbox(
         if (message.status !== "sent") {
           throw new Error(message.detail);
         }
-        clickupMessageId = message.externalId ?? null;
+        clickupMessageId = encodeClickUpMessageId(message.externalId);
         await db
           .update(awaitingHumanNotificationOutbox)
           .set({ clickupMessageId, updatedAt: new Date() })
@@ -311,7 +324,7 @@ export async function processAwaitingHumanNotificationOutbox(
               ),
             }, companyOverrides);
             if (message.status === "sent") {
-              clickupMessageId = message.externalId ?? null;
+              clickupMessageId = encodeClickUpMessageId(message.externalId);
               await db
                 .update(awaitingHumanNotificationOutbox)
                 .set({ clickupMessageId, updatedAt: new Date() })

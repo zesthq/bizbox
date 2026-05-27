@@ -269,7 +269,10 @@ async function fetchText(url: string, init: RequestInit, timeoutSec = DEFAULT_CL
 async function fetchClickUpJson(
   config: ClickUpChatConfig,
   path: string,
+  timeoutSec = DEFAULT_CLICKUP_TIMEOUT_SEC,
 ): Promise<{ status: "ok"; payload: unknown } | { status: "failed"; detail: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutSec * 1000);
   try {
     const response = await fetch(
       `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}${path}`,
@@ -277,6 +280,7 @@ async function fetchClickUpJson(
         headers: {
           Authorization: config.personalToken,
         },
+        signal: controller.signal,
       },
     );
 
@@ -297,6 +301,8 @@ async function fetchClickUpJson(
       status: "failed",
       detail: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
