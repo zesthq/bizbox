@@ -63,6 +63,37 @@ function trimToken(value: string | null | undefined) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function resolveBaseUrl() {
+  const configured = process.env.BIZBOX_PUBLIC_URL?.trim();
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      parsed.search = "";
+      parsed.hash = "";
+      return parsed.toString().replace(/\/+$/, "");
+    } catch {
+      return null;
+    }
+  }
+
+  const apiUrl = process.env.BIZBOX_API_URL?.trim();
+  if (!apiUrl) return null;
+
+  try {
+    const parsed = new URL(apiUrl);
+    if (parsed.pathname === "/api") {
+      parsed.pathname = "";
+    } else {
+      parsed.pathname = parsed.pathname.replace(/\/api\/?$/, "");
+    }
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
 type ClickUpRuntimeConfigPreview = {
   enabled: boolean;
   provider: AwaitingHumanProvider | null;
@@ -249,6 +280,10 @@ export function awaitingHumanSettingsService(db: Db) {
     patch?: UpdateCompanyAwaitingHumanSettingsRequest,
   ) {
     const config = await previewClickUpRuntimeConfig(companyId, patch);
+    const baseUrl = resolveBaseUrl();
+    const link = baseUrl
+      ? new URL("/company/settings/awaiting-human", `${baseUrl}/`).toString()
+      : "/company/settings/awaiting-human";
     const notification: ClickUpTransportTestNotification = {
       title: "Awaiting Human transport test",
       summary: "Bizbox sent this confirmation through the ClickUp awaiting-human transport.",
@@ -258,7 +293,7 @@ export function awaitingHumanSettingsService(db: Db) {
         `Channel ID: ${config.channelId ?? "instance default"}`,
       ].map((line) => `- ${line}`).join("\n"),
       cta: "No action needed. This is a transport test.",
-      link: "/company/settings/awaiting-human",
+      link,
     };
     return sendClickUpTransportTestMessage(notification, {
       personalToken: config.personalToken,

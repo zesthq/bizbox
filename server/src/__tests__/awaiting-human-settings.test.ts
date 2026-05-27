@@ -35,6 +35,8 @@ describeEmbeddedPostgres("awaitingHumanSettingsService", () => {
     await db.delete(companyAwaitingHumanSettings);
     await db.delete(companies);
     globalThis.fetch = originalFetch;
+    delete process.env.BIZBOX_PUBLIC_URL;
+    delete process.env.BIZBOX_API_URL;
   });
 
   afterAll(async () => {
@@ -157,6 +159,7 @@ describeEmbeddedPostgres("awaitingHumanSettingsService", () => {
   it("sends a ClickUp transport test using stored credentials and preview overrides", async () => {
     const companyId = randomUUID();
     const secrets = secretService(db);
+    process.env.BIZBOX_PUBLIC_URL = "http://127.0.0.1:3200";
 
     await db.insert(companies).values({
       id: companyId,
@@ -217,6 +220,6 @@ describeEmbeddedPostgres("awaitingHumanSettingsService", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.content).toContain("Awaiting Human transport test");
     expect(body.content).toContain("No action needed. This is a transport test from Bizbox.");
-    expect(body.content).toContain("Open in Bizbox: /company/settings/awaiting-human");
+    expect(body.content).toContain("Open in Bizbox: http://127.0.0.1:3200/company/settings/awaiting-human");
   });
 });

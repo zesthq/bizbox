@@ -79,6 +79,36 @@ export function CompanyAwaitingHumanSettings() {
     },
   });
 
+  const settings = settingsQuery.data;
+  const normalizedProvider = provider === "none" ? null : "clickup";
+  const currentRequestPayload: UpdateCompanyAwaitingHumanSettingsRequest = {
+    enabled: bridgeEnabled && provider !== "none",
+    provider: provider === "none" ? null : "clickup",
+    providerConfig: provider === "clickup"
+      ? {
+        workspaceId: workspaceId.trim() || null,
+        channelId: channelId.trim() || null,
+      }
+      : null,
+    clickupPersonalToken: provider === "clickup" ? (personalToken.trim() || null) : null,
+  };
+  const isDirty =
+    bridgeEnabled !== (settings?.enabled ?? false)
+    || normalizedProvider !== (settings?.provider ?? null)
+    || personalToken.trim().length > 0
+    || workspaceId !== (settings?.providerConfig?.workspaceId ?? "")
+    || channelId !== (settings?.providerConfig?.channelId ?? "");
+  const providerEnabled = provider !== "none";
+  const hasStoredClickUpToken = settings?.hasStoredAuthToken ?? false;
+  const testConnectionMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedCompanyId) {
+        throw new Error("No company selected");
+      }
+      return companyAwaitingHumanSettingsApi.testConnection(selectedCompanyId, currentRequestPayload);
+    },
+  });
+
   if (!selectedCompany || !selectedCompanyId) {
     return (
       <div className="text-sm text-muted-foreground">
@@ -109,36 +139,6 @@ export function CompanyAwaitingHumanSettings() {
       </div>
     );
   }
-
-  const settings = settingsQuery.data;
-  const normalizedProvider = provider === "none" ? null : "clickup";
-  const currentRequestPayload: UpdateCompanyAwaitingHumanSettingsRequest = {
-    enabled: bridgeEnabled && provider !== "none",
-    provider: provider === "none" ? null : "clickup",
-    providerConfig: provider === "clickup"
-      ? {
-        workspaceId: workspaceId.trim() || null,
-        channelId: channelId.trim() || null,
-      }
-      : null,
-    clickupPersonalToken: provider === "clickup" ? (personalToken.trim() || null) : null,
-  };
-  const isDirty =
-    bridgeEnabled !== (settings?.enabled ?? false)
-    || normalizedProvider !== (settings?.provider ?? null)
-    || personalToken.trim().length > 0
-    || workspaceId !== (settings?.providerConfig?.workspaceId ?? "")
-    || channelId !== (settings?.providerConfig?.channelId ?? "");
-  const providerEnabled = provider !== "none";
-  const hasStoredClickUpToken = settings?.hasStoredAuthToken ?? false;
-  const testConnectionMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedCompanyId) {
-        throw new Error("No company selected");
-      }
-      return companyAwaitingHumanSettingsApi.testConnection(selectedCompanyId, currentRequestPayload);
-    },
-  });
 
   function describeTestConnectionResult(result: AwaitingHumanConnectionTestResult) {
     if (result.status === "sent") {
