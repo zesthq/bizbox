@@ -1,46 +1,37 @@
 import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { awaitingHumanNotificationOutbox } from "@paperclipai/db";
+import type { StorageService } from "../storage/types.js";
+import { getStorageService } from "../storage/index.js";
+import { awaitingHumanSettingsService } from "./awaiting-human-settings.js";
+import {
+  createClickUpReviewTask,
+  detectClickUpAwaitingHumanBridgeEvents,
+  getClickUpChatMessageReactions,
+  getClickUpChatMessageReplies,
+  readClickUpChatConfig,
+  sendAwaitingHumanNotification,
+  uploadClickUpReviewFile,
+  type AwaitingHumanNotificationPayload,
+  type AwaitingHumanNotificationResult,
+  type AwaitingHumanNotificationReviewFile,
+  type ClickUpAwaitingHumanConfigOverrides,
+} from "./clickup-awaiting-human-transport.js";
 import {
   normalizeReviewFile,
+  readAwaitingHumanReviewFileBody,
   resolveAwaitingHumanReviewFile,
+  withClickUpTaskUrl,
 } from "./awaiting-human-review-files.js";
 
 const MAX_OUTBOX_ATTEMPTS = 8;
 const STALE_OUTBOX_PROCESSING_MS = 5 * 60 * 1000;
-
-export interface AwaitingHumanNotificationReviewFile {
-  source: "artifact" | "document";
-  deliverableId: string;
-  title: string;
-  filename: string;
-  contentType: string;
-  byteSize: number;
-  contentPath: string;
-  deliverableUrl: string;
-  attachmentId?: string | null;
-  objectKey?: string | null;
-  sha256?: string | null;
-}
-
-export interface AwaitingHumanNotificationPayload {
-  title: string;
-  summary: string;
-  link: string;
-  cta: string;
-  labels: string[];
-  kind?: string | null;
-  audience?: string | null;
-  body?: string | null;
-  reviewFile?: AwaitingHumanNotificationReviewFile | null;
-}
-
-export interface AwaitingHumanNotificationResult {
-  status: "sent" | "skipped" | "failed" | "enqueued";
-  channel: string;
-  detail: string;
-  externalId?: string | null;
-}
+export type {
+  AwaitingHumanNotificationPayload,
+  AwaitingHumanNotificationResult,
+  AwaitingHumanNotificationReviewFile,
+  ClickUpAwaitingHumanConfigOverrides,
+};
 
 export interface SendAwaitingHumanNotificationInput {
   companyId: string;
@@ -133,21 +124,268 @@ export async function enqueueAwaitingHumanNotification(
     })
     .returning({
       status: awaitingHumanNotificationOutbox.status,
+      clickupMessageId: awaitingHumanNotificationOutbox.clickupMessageId,
     });
 
   return {
     status: row?.status === "sent" ? "sent" : "enqueued",
-    channel: "bridge",
+    channel: "clickup-chat",
     detail: row?.status === "sent" ? "already-sent" : "enqueued",
-    externalId: null,
+    externalId: row?.clickupMessageId ?? null,
   };
 }
 
 export async function processAwaitingHumanNotificationOutbox(
-  _db: Db,
-  _opts: { limit?: number; storage?: unknown } = {},
+  db: Db,
+  opts: { limit?: number; storage?: StorageService } = {},
 ) {
-  // Delivery is now handled by the awaiting-human bridge lifecycle.
-  // This function remains as a compatibility shim for heartbeat callers.
-  return { processed: 0, sent: 0, failed: 0 };
+  const limit = opts.limit ?? 20;
+  const config = readClickUpChatConfig();
+  if (!config.personalToken || !config.workspaceId) {
+    return { processed: 0, sent: 0, failed: 0 };
+  }
+
+  const storage = opts.storage ?? getStorageService();
+  const now = new Date();
+  const settings = awaitingHumanSettingsService(db);
+
+  await db
+    .update(awaitingHumanNotificationOutbox)
+    .set({ status: "pending", updatedAt: now })
+    .where(
+      and(
+        eq(awaitingHumanNotificationOutbox.status, "processing"),
+        lt(awaitingHumanNotificationOutbox.updatedAt, new Date(now.getTime() - STALE_OUTBOX_PROCESSING_MS)),
+      ),
+    );
+
+  await db
+    .update(awaitingHumanNotificationOutbox)
+    .set({ status: "retrying", updatedAt: now })
+    .where(
+      and(
+        eq(awaitingHumanNotificationOutbox.status, "failed"),
+        lt(awaitingHumanNotificationOutbox.attempts, MAX_OUTBOX_ATTEMPTS),
+        sql`${awaitingHumanNotificationOutbox.nextAttemptAt} is not null`,
+      ),
+    );
+
+  const rows = await db
+    .select()
+    .from(awaitingHumanNotificationOutbox)
+    .where(
+      and(
+        inArray(awaitingHumanNotificationOutbox.status, ["pending", "retrying", "partial_failed"]),
+        lt(awaitingHumanNotificationOutbox.attempts, MAX_OUTBOX_ATTEMPTS),
+        or(
+          sql`${awaitingHumanNotificationOutbox.nextAttemptAt} is null`,
+          lte(awaitingHumanNotificationOutbox.nextAttemptAt, now),
+        ),
+      ),
+    )
+    .orderBy(sql`${awaitingHumanNotificationOutbox.nextAttemptAt} ASC NULLS FIRST`, awaitingHumanNotificationOutbox.createdAt)
+    .limit(limit);
+
+  let processed = 0;
+  let sent = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const [claimed] = await db
+      .update(awaitingHumanNotificationOutbox)
+      .set({ status: "processing", updatedAt: new Date() })
+      .where(
+        and(
+          eq(awaitingHumanNotificationOutbox.id, row.id),
+          inArray(awaitingHumanNotificationOutbox.status, ["pending", "retrying", "partial_failed"]),
+        ),
+      )
+      .returning({ id: awaitingHumanNotificationOutbox.id });
+    if (!claimed) continue;
+    processed += 1;
+
+    let clickupTaskId = row.clickupTaskId;
+    let clickupTaskUrl = row.clickupTaskUrl;
+    let clickupAttachmentId = row.clickupAttachmentId;
+    let clickupAttachmentUrl = row.clickupAttachmentUrl;
+    let clickupMessageId = row.clickupMessageId;
+    const storedSettings = await settings.getStored(row.companyId);
+    let companyOverrides: ClickUpAwaitingHumanConfigOverrides | undefined;
+    if (storedSettings) {
+      if (!storedSettings.enabled || storedSettings.provider !== "clickup") {
+        await db
+          .update(awaitingHumanNotificationOutbox)
+          .set({
+            status: "failed",
+            attempts: row.attempts + 1,
+            lastError: "awaiting-human-bridge-disabled",
+            nextAttemptAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+        failed += 1;
+        continue;
+      }
+
+      const runtime = await settings.resolveClickUpRuntimeConfig(row.companyId);
+      companyOverrides = {
+        personalToken: runtime.personalToken,
+        workspaceId: runtime.workspaceId,
+        channelId: runtime.channelId,
+      };
+    }
+
+    try {
+      const reviewFile = normalizeReviewFile(row.reviewFile);
+      let deliveryNote: string | null = null;
+      let uploadError: Error | null = null;
+
+      if (reviewFile && config.reviewListId) {
+        if (!clickupTaskId) {
+          const task = await createClickUpReviewTask(config, row.notification as unknown as AwaitingHumanNotificationPayload);
+          clickupTaskId = task.taskId;
+          clickupTaskUrl = task.taskUrl;
+          await db
+            .update(awaitingHumanNotificationOutbox)
+            .set({ clickupTaskId, clickupTaskUrl, updatedAt: new Date() })
+            .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+        }
+
+        if (!clickupAttachmentId && clickupTaskId) {
+          try {
+            const file = await readAwaitingHumanReviewFileBody(db, storage, row.companyId, reviewFile);
+            const upload = await uploadClickUpReviewFile(config, clickupTaskId, reviewFile, file.body);
+            clickupAttachmentId = upload.attachmentId;
+            clickupAttachmentUrl = upload.attachmentUrl;
+            await db
+              .update(awaitingHumanNotificationOutbox)
+              .set({ clickupAttachmentId, clickupAttachmentUrl, updatedAt: new Date() })
+              .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+          } catch (error) {
+            uploadError = error instanceof Error ? error : new Error(String(error));
+          }
+        }
+      } else if (reviewFile && !config.reviewListId) {
+        deliveryNote = "skipped_upload: missing CLICKUP_AWAITING_HUMAN_REVIEW_LIST_ID";
+      }
+
+      if (!clickupMessageId) {
+        const message = await sendAwaitingHumanNotification({
+          companyId: row.companyId,
+          issueId: row.issueId,
+          handoffKind: row.handoffKind,
+          notification: withClickUpTaskUrl(
+            row.notification as unknown as AwaitingHumanNotificationPayload,
+            reviewFile,
+            clickupTaskUrl,
+            clickupAttachmentId,
+          ),
+        }, companyOverrides);
+        if (message.status !== "sent") {
+          throw new Error(message.detail);
+        }
+        clickupMessageId = message.externalId ?? null;
+        await db
+          .update(awaitingHumanNotificationOutbox)
+          .set({ clickupMessageId, updatedAt: new Date() })
+          .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+      }
+
+      if (uploadError) {
+        const attempts = row.attempts + 1;
+        const isPermanentFailure = attempts >= MAX_OUTBOX_ATTEMPTS;
+
+        // On the final attempt, if the chat message was never sent, deliver it
+        // without the attachment so the human is still notified about the review task.
+        if (isPermanentFailure && !clickupMessageId) {
+          try {
+            const message = await sendAwaitingHumanNotification({
+              companyId: row.companyId,
+              issueId: row.issueId,
+              handoffKind: row.handoffKind,
+              notification: withClickUpTaskUrl(
+                row.notification as unknown as AwaitingHumanNotificationPayload,
+                null, // omit file link — attachment upload failed
+                clickupTaskUrl,
+                null,
+              ),
+            }, companyOverrides);
+            if (message.status === "sent") {
+              clickupMessageId = message.externalId ?? null;
+              await db
+                .update(awaitingHumanNotificationOutbox)
+                .set({ clickupMessageId, updatedAt: new Date() })
+                .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+            }
+          } catch {
+            // Best-effort fallback; original uploadError still drives the final status.
+          }
+        }
+
+        await db
+          .update(awaitingHumanNotificationOutbox)
+          .set({
+            status: isPermanentFailure ? "failed" : "partial_failed",
+            attempts,
+            clickupTaskId,
+            clickupTaskUrl,
+            clickupAttachmentId,
+            clickupAttachmentUrl,
+            clickupMessageId,
+            lastError: uploadError.message,
+            nextAttemptAt: isPermanentFailure ? null : nextRetryAt(attempts),
+            updatedAt: new Date(),
+          })
+          .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+        failed += 1;
+        continue;
+      }
+
+      await db
+        .update(awaitingHumanNotificationOutbox)
+        .set({
+          status: "sent",
+          attempts: row.attempts + 1,
+          clickupTaskId,
+          clickupTaskUrl,
+          clickupAttachmentId,
+          clickupAttachmentUrl,
+          clickupMessageId,
+          lastError: deliveryNote,
+          nextAttemptAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+      sent += 1;
+    } catch (error) {
+      const attempts = row.attempts + 1;
+      const terminal = attempts >= MAX_OUTBOX_ATTEMPTS;
+      await db
+        .update(awaitingHumanNotificationOutbox)
+        .set({
+          status: terminal ? "failed" : clickupMessageId ? "partial_failed" : "retrying",
+          attempts,
+          clickupTaskId,
+          clickupTaskUrl,
+          clickupAttachmentId,
+          clickupAttachmentUrl,
+          clickupMessageId,
+          lastError: error instanceof Error ? error.message : String(error),
+          nextAttemptAt: terminal ? null : nextRetryAt(attempts),
+          updatedAt: new Date(),
+        })
+        .where(eq(awaitingHumanNotificationOutbox.id, row.id));
+      failed += 1;
+    }
+  }
+
+  return { processed, sent, failed };
 }
+
+export {
+  detectClickUpAwaitingHumanBridgeEvents,
+  getClickUpChatMessageReactions,
+  getClickUpChatMessageReplies,
+  resolveAwaitingHumanReviewFile,
+  sendAwaitingHumanNotification,
+};
