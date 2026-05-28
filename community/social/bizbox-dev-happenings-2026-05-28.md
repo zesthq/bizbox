@@ -7,7 +7,7 @@ status: approved
 audience: human
 channels: [x]
 canonical_url: "https://github.com/zesthq/bizbox"
-x_text: "Three PRs landed in Bizbox this week: Google ADK is now a first-class agent adapter, the awaiting-human bridge got company-scoped config, and bridge retry + reply dedupe are solid. The human-in-the-loop plumbing is getting done in the open. #buildinpublic #devtools #AI"
+x_text: "Three PRs in Bizbox this week: Google ADK is now a first-class agent adapter, the awaiting-human bridge got company-scoped config, and bridge retry + reply dedupe are solid. Building human-in-the-loop infra in the open. #buildinpublic #devtools"
 ---
 
 # Bizbox Dev Happenings — Thu 2026-05-28
