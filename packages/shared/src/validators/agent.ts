@@ -44,18 +44,6 @@ const adapterConfigSchema = z.record(z.unknown()).superRefine((value, ctx) => {
   }
 });
 
-const agentLoadoutSelectionSchema = z.object({
-  tools: z.array(z.string().trim().min(1)).optional(),
-  memory: z.array(z.string().trim().min(1)).optional(),
-  slotLayoutVersion: z.string().trim().min(1).optional(),
-}).catchall(z.unknown());
-
-const agentMetadataSchema = z.object({
-  nickname: z.string().trim().min(1).optional(),
-  portraitAssetPath: z.string().trim().min(1).optional(),
-  loadout: agentLoadoutSelectionSchema.optional(),
-}).catchall(z.unknown());
-
 export const createAgentSchema = z.object({
   name: z.string().min(1),
   role: z.enum(AGENT_ROLES).optional().default("general"),
@@ -69,7 +57,7 @@ export const createAgentSchema = z.object({
   runtimeConfig: z.record(z.unknown()).optional().default({}),
   budgetMonthlyCents: z.number().int().nonnegative().optional().default(0),
   permissions: agentPermissionsSchema.optional(),
-  metadata: agentMetadataSchema.optional().nullable(),
+  metadata: z.record(z.unknown()).optional().nullable(),
 });
 
 export type CreateAgent = z.infer<typeof createAgentSchema>;
