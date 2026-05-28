@@ -32,7 +32,7 @@ The adapter is responsible for provider-specific behavior only:
 - normalize inbound provider events
 - perform best-effort provider cleanup or status reactions
 
-ClickUp-specific reply parsing, reaction semantics, and message acknowledgement belong in the ClickUp adapter, not in the generic bridge.
+Provider-specific reply parsing, reaction semantics, and message acknowledgement belong in the provider's adapter, not in the generic bridge. The bridge core does not contain provider names, channel filters, or adapter-specific metadata fields.
 
 ## Scope
 
@@ -78,11 +78,11 @@ We are starting polling-first, not because webhook support is impossible, but be
 
 ## Deployment: Three-PR Chain
 
-The implementation is delivered as three chained PRs instead of one monolith:
+The implementation is delivered as three chained PRs:
 
-1. **PR 1 - Configuration**: `company_awaiting_human_settings` schema, CRUD service, route, and UI page. No runtime, no transport. Merges independently.
-2. **PR 2 - Bridge Core + Runner Cleanup**: bridge state/policy service, adapter registry, support modules (handoff builder, notification outbox, review file resolver), and runner/heartbeat cleanup that restores heartbeat to its pre-ClickUp role while removing the ClickUp notification additions from it. Depends on PR 1.
-3. **PR 3 - ClickUp Transport Adapter**: ClickUp-specific transport (`send`, `poll`, `normalize`) and adapter wrapper that registers via the bridge adapter registry. ClickUp-specific reactions live here. No core changes. Depends on PR 2.
+1. **PR 1 - Configuration** (merged): `company_awaiting_human_settings` schema, CRUD service, route, and UI page.
+2. **PR 2 - Bridge Core + Runner Cleanup** (merged): bridge state/policy service, adapter registry, support modules, and runner/heartbeat cleanup that restores heartbeat to its pre-ClickUp role. The bridge core is fully provider-agnostic — no hardcoded provider names, no provider-specific metadata fields, no channel filters. Provider availability is checked through the adapter registry at runtime.
+3. **PR 3 - ClickUp Transport Adapter** (pending): ClickUp-specific transport (`send`, `poll`, `normalize`) and adapter wrapper that registers via the bridge adapter registry. ClickUp-specific reactions live here. No core changes.
 
 The registry stores factories - `registerAwaitingHumanBridgeAdapter(type, (db) => adapter)` - so PR 3 plugs in ClickUp without touching PR 2 files. This decomposition keeps each PR's review surface under Greptile coherence thresholds: one narrative per PR, no reviewer context-switching between settings validation, bridge lifecycle, and transport I/O.
 
@@ -94,7 +94,7 @@ This decision gives us:
 
 - a narrow bridge interface that carries durable coordination state instead of provider behavior
 - a runner seam where bridge execution can change without rewriting provider adapters
-- provider-specific behavior concentrated in one adapter module
-- tests that can isolate bridge policy from ClickUp transport
+- provider-specific behavior concentrated in one adapter module per provider
+- tests that can isolate bridge policy from any transport adapter
 
-It also means the old ClickUp logic in `heartbeat.ts` must not be reintroduced in generic bridge code. If a change needs ClickUp-specific transport behavior, it belongs in the ClickUp adapter or its transport wrapper.
+It also means provider-specific logic must not be reintroduced in generic bridge code. If a change needs provider-specific transport behavior, it belongs in that provider's adapter. The bridge uses generic metadata keys (`externalMessageId`, `externalEventId`) in activity logs and resolution records, not provider-named fields.
