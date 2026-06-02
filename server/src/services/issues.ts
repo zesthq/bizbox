@@ -116,7 +116,6 @@ function normalizeSuggestedTaskFingerprintValue(value: unknown): unknown {
 function createSuggestedTaskFingerprint(input: {
   title: string;
   description: string | null;
-  status: string;
   priority: string;
   assigneeAgentId: string | null;
   assigneeUserId: string | null;
@@ -2396,7 +2395,6 @@ export function issueService(db: Db) {
           ? createSuggestedTaskFingerprint({
               title: normalizedTitle,
               description: normalizedDescription,
-              status: issueData.status ?? "todo",
               priority: issueData.priority ?? "medium",
               assigneeAgentId: resolvedAssigneeAgentId,
               assigneeUserId: resolvedAssigneeUserId,
@@ -2414,15 +2412,7 @@ export function issueService(db: Db) {
             eq(issues.companyId, parent.companyId),
             eq(issues.parentId, parent.id),
             eq(issues.originKind, "suggested_task"),
-            eq(issues.title, normalizedTitle),
-            eq(issues.status, issueData.status ?? "todo"),
-            eq(issues.priority, issueData.priority ?? "medium"),
-            normalizedDescription === null ? isNull(issues.description) : eq(issues.description, normalizedDescription),
-            resolvedAssigneeAgentId === null ? isNull(issues.assigneeAgentId) : eq(issues.assigneeAgentId, resolvedAssigneeAgentId),
-            resolvedAssigneeUserId === null ? isNull(issues.assigneeUserId) : eq(issues.assigneeUserId, resolvedAssigneeUserId),
-            resolvedProjectId === null ? isNull(issues.projectId) : eq(issues.projectId, resolvedProjectId),
-            resolvedGoalId === null ? isNull(issues.goalId) : eq(issues.goalId, resolvedGoalId),
-            resolvedBillingCode === null ? isNull(issues.billingCode) : eq(issues.billingCode, resolvedBillingCode),
+            eq(issues.originFingerprint, suggestedTaskFingerprint!),
             isNull(issues.hiddenAt),
           ))
           .orderBy(asc(issues.createdAt), asc(issues.id))

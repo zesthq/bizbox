@@ -1659,6 +1659,62 @@ describeEmbeddedPostgres("issueService.create workspace inheritance", () => {
       ]),
     );
   });
+
+  it("reuses an accepted suggested task child even after its status changes", async () => {
+    const companyId = randomUUID();
+    const goalId = randomUUID();
+    const parentIssueId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    await db.insert(goals).values({
+      id: goalId,
+      companyId,
+      title: "Suggested task dedupe",
+      level: "task",
+      status: "active",
+    });
+
+    await db.insert(issues).values({
+      id: parentIssueId,
+      companyId,
+      goalId,
+      title: "Parent issue",
+      status: "in_progress",
+      priority: "medium",
+      requestDepth: 1,
+    });
+
+    const first = await svc.createChild(parentIssueId, {
+      title: "Dedupe target",
+      status: "todo",
+      priority: "medium",
+      description: "Implement the helper.",
+      originKind: "suggested_task",
+    });
+
+    await db
+      .update(issues)
+      .set({ status: "in_progress" })
+      .where(eq(issues.id, first.issue.id));
+
+    const second = await svc.createChild(parentIssueId, {
+      title: "Dedupe target",
+      status: "todo",
+      priority: "medium",
+      description: "Implement the helper.",
+      originKind: "suggested_task",
+    });
+
+    expect(second.isReused).toBe(true);
+    expect(second.issue.id).toBe(first.issue.id);
+    expect(second.issue.status).toBe("in_progress");
+  });
 });
 
 describeEmbeddedPostgres("issueService blockers and dependency wake readiness", () => {
