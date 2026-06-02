@@ -288,6 +288,8 @@ describeEmbeddedPostgres("issueThreadInteractionService", () => {
         expect.objectContaining({ clientKey: "child", issueId: firstAccepted.interaction.result.createdTasks[1]?.issueId }),
       ],
     });
+    expect(firstAccepted.createdIssues).toHaveLength(2);
+    expect(secondAccepted.createdIssues).toEqual([]);
 
     const rootChildrenAfterReplay = await issuesSvc.list(companyId, { parentId: issueId });
     expect(rootChildrenAfterReplay).toHaveLength(1);

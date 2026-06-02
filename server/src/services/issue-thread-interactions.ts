@@ -1032,7 +1032,7 @@ export function issueThreadInteractionService(db: Db) {
             throw unprocessable(`Unable to resolve parent for suggested task ${task.clientKey}`);
           }
 
-          const { issue: createdIssue } = await issueService(tx as unknown as Db).createChild(parentIssueId, {
+          const { issue: createdIssue, isReused } = await issueService(tx as unknown as Db).createChild(parentIssueId, {
             title: task.title,
             description: task.description ?? null,
             status: "todo",
@@ -1060,11 +1060,13 @@ export function issueThreadInteractionService(db: Db) {
             parentIssueId,
             parentIdentifier,
           });
-          createdWakeTargets.push({
-            id: createdIssue.id,
-            assigneeAgentId: createdIssue.assigneeAgentId ?? null,
-            status: createdIssue.status,
-          });
+          if (!isReused) {
+            createdWakeTargets.push({
+              id: createdIssue.id,
+              assigneeAgentId: createdIssue.assigneeAgentId ?? null,
+              status: createdIssue.status,
+            });
+          }
         }
 
         const [updated] = await tx

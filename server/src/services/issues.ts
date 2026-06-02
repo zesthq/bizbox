@@ -2413,6 +2413,7 @@ export function issueService(db: Db) {
           .where(and(
             eq(issues.companyId, parent.companyId),
             eq(issues.parentId, parent.id),
+            eq(issues.originKind, "suggested_task"),
             eq(issues.title, normalizedTitle),
             eq(issues.status, issueData.status ?? "todo"),
             eq(issues.priority, issueData.priority ?? "medium"),
@@ -2444,6 +2445,7 @@ export function issueService(db: Db) {
           return {
             issue: existing,
             parentBlockerAdded: Boolean(blockParentUntilDone),
+            isReused: true,
           };
         }
       }
@@ -2462,7 +2464,7 @@ export function issueService(db: Db) {
           ? {
               originKind: "suggested_task",
               originId: parent.id,
-              originFingerprint: suggestedTaskFingerprint ?? "default",
+              originFingerprint: suggestedTaskFingerprint,
             }
           : {}),
         parentId: parent.id,
@@ -2490,6 +2492,7 @@ export function issueService(db: Db) {
       return {
         issue: child,
         parentBlockerAdded: Boolean(blockParentUntilDone),
+        isReused: false,
       };
     },
 
