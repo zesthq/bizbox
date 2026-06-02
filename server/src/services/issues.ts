@@ -2404,7 +2404,7 @@ export function issueService(db: Db) {
               goalId: resolvedGoalId,
               billingCode: resolvedBillingCode,
             })
-          : null;
+          : undefined;
 
       if (issueData.originKind === "suggested_task") {
         const existing = await db
