@@ -440,25 +440,29 @@ export function workflowService(db: Db) {
       // must not corrupt the run's terminal status. The agent invocation already
       // succeeded, so we log and continue rather than letting the outer catch
       // stamp the run as "failed".
-      try {
-        await createWorkflowSummaryDeliverable(db, {
-          companyId: workflow.companyId,
-          workflowId: workflow.id,
-          runId,
-          title: `${workflow.title} output`,
-          summary: result.summary ?? null,
-        });
-        await createWorkflowArtifactDeliverables(db, storage, {
-          companyId: workflow.companyId,
-          workflowId: workflow.id,
-          runId,
-          artifacts,
-        });
-      } catch (deliverableErr) {
-        console.error(
-          `[workflows] deliverable persistence failed for run ${runId} (run will still be marked succeeded):`,
-          deliverableErr,
-        );
+      // Deliverables are only created on success — a failed run must not produce
+      // any deliverable output.
+      if (!result.errorMessage) {
+        try {
+          await createWorkflowSummaryDeliverable(db, {
+            companyId: workflow.companyId,
+            workflowId: workflow.id,
+            runId,
+            title: `${workflow.title} output`,
+            summary: result.summary ?? null,
+          });
+          await createWorkflowArtifactDeliverables(db, storage, {
+            companyId: workflow.companyId,
+            workflowId: workflow.id,
+            runId,
+            artifacts,
+          });
+        } catch (deliverableErr) {
+          console.error(
+            `[workflows] deliverable persistence failed for run ${runId} (run will still be marked succeeded):`,
+            deliverableErr,
+          );
+        }
       }
 
       const phases = await db.select().from(workflowRunPhases).where(eq(workflowRunPhases.workflowRunId, runId)).orderBy(asc(workflowRunPhases.ordinal));
