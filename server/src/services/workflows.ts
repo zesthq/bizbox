@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, notInArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   workflowDeliverables,
+  workflowHandoffBridges,
   workflowHandoffs,
   workflowRunPhases,
   workflowRuns,
@@ -144,7 +145,10 @@ function toWorkflowPhase(row: typeof workflowRunPhases.$inferSelect): WorkflowPh
   };
 }
 
-function toWorkflowHandoff(row: typeof workflowHandoffs.$inferSelect): WorkflowHandoff {
+function toWorkflowHandoff(
+  row: typeof workflowHandoffs.$inferSelect,
+  bridgeStatus: "waiting_for_human" | "closed" | null = null,
+): WorkflowHandoff {
   return {
     id: row.id,
     companyId: row.companyId,
@@ -158,6 +162,7 @@ function toWorkflowHandoff(row: typeof workflowHandoffs.$inferSelect): WorkflowH
     decidedAt: row.decidedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    bridgeStatus,
   };
 }
 
@@ -680,6 +685,15 @@ export function workflowService(db: Db) {
       if (!workflowRow) return null;
       const phases = await db.select().from(workflowRunPhases).where(eq(workflowRunPhases.workflowRunId, runId)).orderBy(asc(workflowRunPhases.ordinal));
       const handoffs = await db.select().from(workflowHandoffs).where(eq(workflowHandoffs.workflowRunId, runId)).orderBy(asc(workflowHandoffs.createdAt));
+      const handoffIds = handoffs.map((h) => h.id);
+      const bridges = handoffIds.length > 0
+        ? await db.select({
+            workflowHandoffId: workflowHandoffBridges.workflowHandoffId,
+            status: workflowHandoffBridges.status,
+          }).from(workflowHandoffBridges)
+            .where(inArray(workflowHandoffBridges.workflowHandoffId, handoffIds))
+        : [];
+      const bridgeStatusByHandoffId = new Map(bridges.map((b) => [b.workflowHandoffId, b.status as "waiting_for_human" | "closed"]));
       const deliverables = await db.select().from(workflowDeliverables).where(eq(workflowDeliverables.workflowRunId, runId)).orderBy(desc(workflowDeliverables.createdAt));
       return {
         ...toWorkflowRun(runRow),
@@ -690,7 +704,7 @@ export function workflowService(db: Db) {
           runnerType: workflowRow.runnerType as "google_adk",
         },
         phases: phases.map(toWorkflowPhase),
-        handoffs: handoffs.map(toWorkflowHandoff),
+        handoffs: handoffs.map((h) => toWorkflowHandoff(h, bridgeStatusByHandoffId.get(h.id) ?? null)),
         deliverables: deliverables.map(toWorkflowDeliverableSummary),
       };
     },
@@ -776,7 +790,14 @@ export function workflowService(db: Db) {
 
     getHandoff: async (handoffId: string) => {
       const row = await db.select().from(workflowHandoffs).where(eq(workflowHandoffs.id, handoffId)).then((rows) => rows[0] ?? null);
-      return row ? toWorkflowHandoff(row) : null;
+      if (!row) return null;
+      const bridge = await db.select({ status: workflowHandoffBridges.status })
+        .from(workflowHandoffBridges)
+        .where(eq(workflowHandoffBridges.workflowHandoffId, handoffId))
+        .orderBy(asc(workflowHandoffBridges.createdAt))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      return toWorkflowHandoff(row, (bridge?.status as "waiting_for_human" | "closed") ?? null);
     },
 
     resolveHandoff: async (
