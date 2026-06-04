@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   workflowHandoffBridges,
@@ -162,34 +162,36 @@ async function resolveHandoffFromBridge(
 
   if (!handoff) return;
 
-  await db.update(workflowHandoffs).set({
-    status: resolution,
-    responseMarkdown: responseMarkdown ?? null,
-    decidedByUserId: "clickup_bridge",
-    decidedAt: now,
-    updatedAt: now,
-  }).where(and(
-    eq(workflowHandoffs.id, bridge.workflowHandoffId),
-    eq(workflowHandoffs.status, "pending"),
-  ));
+  await db.transaction(async (tx) => {
+    await tx.update(workflowHandoffs).set({
+      status: resolution,
+      responseMarkdown: responseMarkdown ?? null,
+      decidedByUserId: "clickup_bridge",
+      decidedAt: now,
+      updatedAt: now,
+    }).where(and(
+      eq(workflowHandoffs.id, bridge.workflowHandoffId),
+      eq(workflowHandoffs.status, "pending"),
+    ));
 
-  // Wake the run back to running state
-  await db.update(workflowRunPhases).set({
-    status: "running",
-    updatedAt: now,
-  }).where(and(
-    eq(workflowRunPhases.workflowRunId, bridge.workflowRunId),
-    eq(workflowRunPhases.phaseKey, handoff.phaseKey),
-    inArray(workflowRunPhases.status, ["awaiting_human"]),
-  ));
+    // Wake the run back to running state
+    await tx.update(workflowRunPhases).set({
+      status: "running",
+      updatedAt: now,
+    }).where(and(
+      eq(workflowRunPhases.workflowRunId, bridge.workflowRunId),
+      eq(workflowRunPhases.phaseKey, handoff.phaseKey),
+      inArray(workflowRunPhases.status, ["awaiting_human"]),
+    ));
 
-  await db.update(workflowRuns).set({
-    status: "running",
-    updatedAt: now,
-  }).where(and(
-    eq(workflowRuns.id, bridge.workflowRunId),
-    eq(workflowRuns.status, "awaiting_human"),
-  ));
+    await tx.update(workflowRuns).set({
+      status: "running",
+      updatedAt: now,
+    }).where(and(
+      eq(workflowRuns.id, bridge.workflowRunId),
+      eq(workflowRuns.status, "awaiting_human"),
+    ));
+  });
 
   await logActivity(db, {
     companyId: bridge.companyId,
@@ -496,7 +498,7 @@ export function workflowHandoffBridgeService(db: Db) {
       .select()
       .from(workflowHandoffBridges)
       .where(eq(workflowHandoffBridges.workflowHandoffId, workflowHandoffId))
-      .orderBy(asc(workflowHandoffBridges.createdAt))
+      .orderBy(desc(workflowHandoffBridges.createdAt))
       .limit(1);
     return bridge ?? null;
   }
