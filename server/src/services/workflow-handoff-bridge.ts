@@ -241,6 +241,11 @@ export function workflowHandoffBridgeService(db: Db) {
       attachmentTaskId: config.attachmentTaskId,
     };
 
+    const existingBridge = await getActiveBridge(handoff.id);
+    if (existingBridge) {
+      return existingBridge;
+    }
+
     const notification = buildHandoffNotification(handoff);
 
     const result = await sendAwaitingHumanNotification(
@@ -474,7 +479,7 @@ export function workflowHandoffBridgeService(db: Db) {
     return summary;
   }
 
-  async function getActivebridge(workflowHandoffId: string) {
+  async function getActiveBridge(workflowHandoffId: string) {
     const [bridge] = await db
       .select()
       .from(workflowHandoffBridges)
@@ -499,7 +504,7 @@ export function workflowHandoffBridgeService(db: Db) {
   return {
     openForHandoff,
     pollActiveBridges,
-    getActivebridge,
+    getActiveBridge,
     getBridgeForHandoff,
   };
 }

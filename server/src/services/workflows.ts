@@ -691,9 +691,19 @@ export function workflowService(db: Db) {
             workflowHandoffId: workflowHandoffBridges.workflowHandoffId,
             status: workflowHandoffBridges.status,
           }).from(workflowHandoffBridges)
-            .where(inArray(workflowHandoffBridges.workflowHandoffId, handoffIds))
+            .where(and(
+              inArray(workflowHandoffBridges.workflowHandoffId, handoffIds),
+              inArray(workflowHandoffBridges.status, ["pending_delivery", "waiting_for_human"]),
+            ))
+            .orderBy(desc(workflowHandoffBridges.createdAt))
         : [];
-      const bridgeStatusByHandoffId = new Map(bridges.map((b) => [b.workflowHandoffId, b.status as "waiting_for_human" | "closed"]));
+      const bridgeStatusByHandoffId = new Map(
+        bridges
+          .filter((b): b is typeof b & { status: "waiting_for_human" | "closed" } =>
+            b.status === "waiting_for_human" || b.status === "closed",
+          )
+          .map((b) => [b.workflowHandoffId, b.status]),
+      );
       const deliverables = await db.select().from(workflowDeliverables).where(eq(workflowDeliverables.workflowRunId, runId)).orderBy(desc(workflowDeliverables.createdAt));
       return {
         ...toWorkflowRun(runRow),
@@ -793,11 +803,17 @@ export function workflowService(db: Db) {
       if (!row) return null;
       const bridge = await db.select({ status: workflowHandoffBridges.status })
         .from(workflowHandoffBridges)
-        .where(eq(workflowHandoffBridges.workflowHandoffId, handoffId))
-        .orderBy(asc(workflowHandoffBridges.createdAt))
+        .where(and(
+          eq(workflowHandoffBridges.workflowHandoffId, handoffId),
+          inArray(workflowHandoffBridges.status, ["pending_delivery", "waiting_for_human"]),
+        ))
+        .orderBy(desc(workflowHandoffBridges.createdAt))
         .limit(1)
         .then((rows) => rows[0] ?? null);
-      return toWorkflowHandoff(row, (bridge?.status as "waiting_for_human" | "closed") ?? null);
+      const bridgeStatus = bridge?.status === "waiting_for_human" || bridge?.status === "pending_delivery"
+        ? "waiting_for_human" as const
+        : null;
+      return toWorkflowHandoff(row, bridgeStatus);
     },
 
     resolveHandoff: async (
