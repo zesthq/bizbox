@@ -10,6 +10,7 @@ import {
   type AwaitingHumanNotificationPayload,
 } from "./awaiting-human-notifications.js";
 import type { ApprovalFlowContext } from "./approval-flow-routing.js";
+import { awaitingHumanSettingsService } from "./awaiting-human-settings.js";
 import { logActivity } from "./activity-log.js";
 import { logger } from "../middleware/logger.js";
 
@@ -276,21 +277,47 @@ function resolveAudienceUserId(input: AwaitingHumanHandoffInput) {
   return userIds.length === 1 ? userIds[0] : null;
 }
 
-function buildNotification(
+async function resolveApprovalContext(
+  db: Db,
+  input: AwaitingHumanHandoffInput,
+): Promise<ApprovalFlowContext | null> {
+  if (input.approvalContext) {
+    return {
+      approvalName: input.approvalContext.approvalName ?? null,
+      approvalStage: input.approvalContext.approvalStage ?? null,
+      requiresSecondReview: input.approvalContext.requiresSecondReview ?? null,
+    };
+  }
+  if (input.handoffKind !== "request_confirmation") return null;
+
+  try {
+    const runtime = await awaitingHumanSettingsService(db).resolveClickUpRuntimeConfig(
+      input.updatedIssue.companyId,
+    );
+    const primaryReviewerUserId = runtime.primaryReviewerUserId?.trim() ?? "";
+    const secondaryReviewerUserId = runtime.secondaryReviewerUserId?.trim() ?? "";
+    if (!primaryReviewerUserId && !secondaryReviewerUserId) return null;
+
+    return {
+      approvalName: null,
+      approvalStage: null,
+      requiresSecondReview: Boolean(secondaryReviewerUserId),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function buildNotification(
+  db: Db,
   input: AwaitingHumanHandoffInput,
   link: string,
   needsHumanInput: string,
   audienceUserId: string | null,
-): AwaitingHumanNotificationPayload {
+): Promise<AwaitingHumanNotificationPayload> {
   const label = input.updatedIssue.identifier ?? truncateText(input.updatedIssue.title, 48);
   const isQuestionHandoff = input.handoffKind === "ask_user_questions";
-  const approvalContext = input.approvalContext
-    ? {
-      approvalName: input.approvalContext.approvalName ?? null,
-      approvalStage: input.approvalContext.approvalStage ?? null,
-      requiresSecondReview: input.approvalContext.requiresSecondReview ?? null,
-    }
-    : null;
+  const approvalContext = await resolveApprovalContext(db, input);
   return {
     title: truncateText(
       isQuestionHandoff
@@ -372,7 +399,13 @@ export async function maybeLogAwaitingHumanHandoff(
   if (await hasLoggedAwaitingHumanHandoff(db, input, dedupeKey)) return false;
   const audienceUserId = resolveAudienceUserId(input);
   const notificationLink = issueUrl ?? issuePath;
-  const notification = buildNotification(input, notificationLink, needsHumanInput, audienceUserId);
+  const notification = await buildNotification(
+    db,
+    input,
+    notificationLink,
+    needsHumanInput,
+    audienceUserId,
+  );
   const firstBlocker = input.blockers?.[0] ?? null;
 
   if (input.emitIssueUpdatedActivity) {
