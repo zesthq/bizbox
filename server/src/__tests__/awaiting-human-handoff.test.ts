@@ -16,12 +16,20 @@ vi.mock("../services/activity-log.js", () => ({
   logActivity: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockLoggerWarn = vi.hoisted(() => vi.fn());
+
 vi.mock("../services/awaiting-human-notifications.js", () => ({
   enqueueAwaitingHumanNotification: vi.fn().mockResolvedValue({
     status: "enqueued",
     channel: "clickup-chat",
     detail: "enqueued",
   }),
+}));
+
+vi.mock("../middleware/logger.js", () => ({
+  logger: {
+    warn: mockLoggerWarn,
+  },
 }));
 
 vi.mock("../services/awaiting-human-settings.js", () => ({
@@ -158,6 +166,51 @@ describe("maybeLogAwaitingHumanHandoff", () => {
         }),
       }),
     );
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        details: expect.objectContaining({
+          approvalContext: {
+            approvalName: "Policy approval",
+            approvalStage: null,
+            requiresSecondReview: true,
+          },
+        }),
+      }),
+    );
+  });
+
+  it("warns when ClickUp approval context lookup fails", async () => {
+    process.env.BIZBOX_PUBLIC_URL = "https://bizbox.example";
+    mockResolveClickUpRuntimeConfig.mockRejectedValueOnce(new Error("lookup failed"));
+
+    const created = await maybeLogAwaitingHumanHandoff(mockDbWithAwaitingHumanRows(), {
+      previousIssue: basePreviousIssue,
+      updatedIssue: baseUpdatedIssue,
+      source: "issue_thread_interactions.create",
+      handoffKind: "request_confirmation",
+      actor: baseActor,
+      interaction: {
+        id: "interaction-review-2",
+        kind: "request_confirmation",
+        title: null,
+        summary: null,
+        payload: {
+          version: 1,
+          prompt: "Approve the finance article before it goes to the final reviewer.",
+        },
+      },
+    });
+
+    expect(created).toBe(true);
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.any(Error),
+        companyId: "company-1",
+        issueId: "issue-1",
+      }),
+      "failed to resolve ClickUp approval context",
+    );
   });
 
   it("infers ClickUp reviewer routing for request_confirmation handoffs when reviewer IDs are configured", async () => {
@@ -196,6 +249,18 @@ describe("maybeLogAwaitingHumanHandoff", () => {
       expect.anything(),
       expect.objectContaining({
         notification: expect.objectContaining({
+          approvalContext: {
+            approvalName: null,
+            approvalStage: null,
+            requiresSecondReview: true,
+          },
+        }),
+      }),
+    );
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        details: expect.objectContaining({
           approvalContext: {
             approvalName: null,
             approvalStage: null,
