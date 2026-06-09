@@ -359,11 +359,14 @@ function renderClickUpTransportTestMessage(
   }
 
   if (notification.reviewerMentions?.length) {
-    const mentionLines = notification.reviewerMentions.map((mention) => {
-      const userMention = formatClickUpUserMention(mention.userId);
-      return `${mention.label}: ${userMention ?? "not configured"}`;
-    });
-    if (mentionLines.some((line) => !line.endsWith("not configured"))) {
+    const hasConfiguredReviewerMention = notification.reviewerMentions.some(
+      (mention) => formatClickUpUserMention(mention.userId) !== null,
+    );
+    if (hasConfiguredReviewerMention) {
+      const mentionLines = notification.reviewerMentions.map((mention) => {
+        const userMention = formatClickUpUserMention(mention.userId);
+        return `${mention.label}: ${userMention ?? "not configured"}`;
+      });
       lines.push("");
       lines.push("Reviewer mention test:");
       lines.push(...mentionLines);

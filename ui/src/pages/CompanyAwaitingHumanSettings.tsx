@@ -36,6 +36,7 @@ export function CompanyAwaitingHumanSettings() {
   const [attachmentTaskId, setAttachmentTaskId] = useState("");
   const [primaryReviewerUserId, setPrimaryReviewerUserId] = useState("");
   const [secondaryReviewerUserId, setSecondaryReviewerUserId] = useState("");
+  const [lastConnectionTestMode, setLastConnectionTestMode] = useState<ConnectionTestMode | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([
@@ -106,6 +107,9 @@ export function CompanyAwaitingHumanSettings() {
         clickupPersonalToken: provider === "clickup" ? (personalToken.trim() || null) : null,
         connectionTestMode,
       });
+    },
+    onMutate: (connectionTestMode) => {
+      setLastConnectionTestMode(connectionTestMode);
     },
   });
 
@@ -321,7 +325,7 @@ export function CompanyAwaitingHumanSettings() {
                   onClick={() => connectionTestMutation.mutate("channel")}
                   disabled={!providerEnabled || connectionTestMutation.isPending}
                 >
-                  {connectionTestMutation.isPending ? "Testing..." : "Test channel"}
+                  {connectionTestMutation.isPending && lastConnectionTestMode === "channel" ? "Testing..." : "Test channel"}
                 </Button>
                 <Button
                   size="sm"
@@ -329,7 +333,7 @@ export function CompanyAwaitingHumanSettings() {
                   onClick={() => connectionTestMutation.mutate("reviewers")}
                   disabled={!providerEnabled || !hasReviewerMentions || connectionTestMutation.isPending}
                 >
-                  {connectionTestMutation.isPending ? "Testing..." : "Test reviewers"}
+                  {connectionTestMutation.isPending && lastConnectionTestMode === "reviewers" ? "Testing..." : "Test reviewers"}
                 </Button>
               </div>
             </div>
