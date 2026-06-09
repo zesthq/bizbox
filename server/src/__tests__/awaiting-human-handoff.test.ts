@@ -213,6 +213,32 @@ describe("maybeLogAwaitingHumanHandoff", () => {
     );
   });
 
+  it("silently skips approval context resolution when ClickUp is disabled", async () => {
+    process.env.BIZBOX_PUBLIC_URL = "https://bizbox.example";
+    mockResolveClickUpRuntimeConfig.mockRejectedValueOnce(new Error("awaiting-human-bridge-disabled"));
+
+    const created = await maybeLogAwaitingHumanHandoff(mockDbWithAwaitingHumanRows(), {
+      previousIssue: basePreviousIssue,
+      updatedIssue: baseUpdatedIssue,
+      source: "issue_thread_interactions.create",
+      handoffKind: "request_confirmation",
+      actor: baseActor,
+      interaction: {
+        id: "interaction-review-3",
+        kind: "request_confirmation",
+        title: null,
+        summary: null,
+        payload: {
+          version: 1,
+          prompt: "Approve the finance article before it goes to the final reviewer.",
+        },
+      },
+    });
+
+    expect(created).toBe(true);
+    expect(mockLoggerWarn).not.toHaveBeenCalled();
+  });
+
   it("infers ClickUp reviewer routing for request_confirmation handoffs when reviewer IDs are configured", async () => {
     process.env.BIZBOX_PUBLIC_URL = "https://bizbox.example";
     mockResolveClickUpRuntimeConfig.mockResolvedValueOnce({

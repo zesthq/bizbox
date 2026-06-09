@@ -304,6 +304,9 @@ async function resolveApprovalContext(
       requiresSecondReview: Boolean(secondaryReviewerUserId),
     };
   } catch (err) {
+    if (err instanceof Error && err.message === "awaiting-human-bridge-disabled") {
+      return null;
+    }
     logger.warn(
       {
         err,
