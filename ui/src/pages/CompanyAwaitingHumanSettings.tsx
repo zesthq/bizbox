@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 
 type AwaitingHumanProviderValue = "none" | "clickup";
+type ConnectionTestMode = "channel" | "reviewers";
 
 export function CompanyAwaitingHumanSettings() {
   const { selectedCompany, selectedCompanyId } = useCompany();
@@ -85,8 +86,8 @@ export function CompanyAwaitingHumanSettings() {
     },
   });
 
-  const connectionTestMutation = useMutation<ClickUpAwaitingHumanConnectionTestResult, Error>({
-    mutationFn: async () => {
+  const connectionTestMutation = useMutation<ClickUpAwaitingHumanConnectionTestResult, Error, ConnectionTestMode>({
+    mutationFn: async (connectionTestMode) => {
       if (!selectedCompany) {
         throw new Error("No company selected");
       }
@@ -103,6 +104,7 @@ export function CompanyAwaitingHumanSettings() {
           }
           : null,
         clickupPersonalToken: provider === "clickup" ? (personalToken.trim() || null) : null,
+        connectionTestMode,
       });
     },
   });
@@ -150,6 +152,7 @@ export function CompanyAwaitingHumanSettings() {
     || primaryReviewerUserId !== (settings?.providerConfig?.primaryReviewerUserId ?? "")
     || secondaryReviewerUserId !== (settings?.providerConfig?.secondaryReviewerUserId ?? "");
   const providerEnabled = provider !== "none";
+  const hasReviewerMentions = primaryReviewerUserId.trim().length > 0 || secondaryReviewerUserId.trim().length > 0;
   const hasStoredClickUpToken = settings?.hasStoredAuthToken ?? false;
 
   return (
@@ -308,17 +311,27 @@ export function CompanyAwaitingHumanSettings() {
               <div className="space-y-0.5">
                 <p className="text-xs font-medium text-foreground">Connection test</p>
                 <p className="text-[11px] text-muted-foreground">
-                  Sends a test message to the configured ClickUp channel using current fields.
+                  Sends a test message to the configured ClickUp channel and, if present, mentions the configured primary and secondary reviewers.
                 </p>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => connectionTestMutation.mutate()}
-                disabled={!providerEnabled || connectionTestMutation.isPending}
-              >
-                {connectionTestMutation.isPending ? "Testing..." : "Test channel"}
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => connectionTestMutation.mutate("channel")}
+                  disabled={!providerEnabled || connectionTestMutation.isPending}
+                >
+                  {connectionTestMutation.isPending ? "Testing..." : "Test channel"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => connectionTestMutation.mutate("reviewers")}
+                  disabled={!providerEnabled || !hasReviewerMentions || connectionTestMutation.isPending}
+                >
+                  {connectionTestMutation.isPending ? "Testing..." : "Test reviewers"}
+                </Button>
+              </div>
             </div>
 
             {connectionTestMutation.data ? (

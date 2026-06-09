@@ -169,4 +169,61 @@ describe("PATCH /api/companies/:companyId/awaiting-human-settings", () => {
       action: "company.awaiting_human_settings.connection_tested",
     }));
   });
+
+  it("sends reviewer mention test message when requested", async () => {
+    mockCompanyService.getById.mockResolvedValueOnce({
+      id: "company-1",
+      name: "Bizbox",
+    });
+    mockAwaitingHumanSettingsService.resolveClickUpRuntimeConfig.mockRejectedValueOnce(new Error("awaiting-human-bridge-disabled"));
+    mockSendClickUpTransportTestMessage.mockResolvedValueOnce({
+      status: "sent",
+      channel: "clickup-chat",
+      detail: "sent",
+      externalId: "message-2",
+    });
+
+    const app = await createApp();
+
+    const res = await request(app)
+      .post("/api/companies/company-1/awaiting-human-settings/connection-test")
+      .send({
+        provider: "clickup",
+        connectionTestMode: "reviewers",
+        providerConfig: {
+          workspaceId: "workspace-1",
+          channelId: "channel-1",
+          primaryReviewerUserId: "primary-user-id",
+          secondaryReviewerUserId: "secondary-user-id",
+        },
+        clickupPersonalToken: "token-123",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      status: "sent",
+      channel: "clickup-chat",
+      detail: "ClickUp reviewer mention test succeeded. Message delivered to configured channel (message message-2).",
+      externalId: "message-2",
+    });
+    expect(mockSendClickUpTransportTestMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Bizbox ClickUp reviewer mention test",
+        summary: "Bizbox completed a reviewer mention test for ClickUp.",
+        body: "The configured bridge successfully delivered a reviewer mention test payload to the target ClickUp channel.",
+        cta: "No action is required.",
+        reviewerMentions: [
+          { label: "Primary reviewer", userId: "primary-user-id" },
+          { label: "Secondary reviewer", userId: "secondary-user-id" },
+        ],
+      }),
+      {
+        personalToken: "token-123",
+        workspaceId: "workspace-1",
+        channelId: "channel-1",
+        primaryReviewerUserId: "primary-user-id",
+        secondaryReviewerUserId: "secondary-user-id",
+      },
+    );
+  });
 });
