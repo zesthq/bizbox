@@ -682,8 +682,8 @@ export function CompanyExport() {
   const exportPreviewMutation = useMutation({
     mutationFn: () =>
       companiesApi.exportPreview(selectedCompanyId!, {
-         include: { company: true, agents: true, projects: true, issues: true, workflows: true },
-         sidebarOrder,
+        include: { company: true, agents: true, projects: true, issues: true, workflows: true },
+        sidebarOrder,
       }),
     onSuccess: (result) => {
       setExportData(result);

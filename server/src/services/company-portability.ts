@@ -2766,7 +2766,8 @@ function buildManifestFromPackageFiles(
     manifest.workflows.push(entry);
   }
 
-  manifest.envInputs = dedupeEnvInputs(manifest.envInputs);  return {
+  manifest.envInputs = dedupeEnvInputs(manifest.envInputs);
+  return {
     manifest,
     files: normalizedFiles,
     warnings,
@@ -3600,7 +3601,12 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           continue;
         }
         const slugBase = (wf.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")) || "workflow";
-        const workflowPath = `workflows/${slugBase}/WORKFLOW.yaml`;
+        let workflowPath = `workflows/${slugBase}/WORKFLOW.yaml`;
+        let counter = 2;
+        while (workflowPath in files) {
+          workflowPath = `workflows/${slugBase}-${counter}/WORKFLOW.yaml`;
+          counter++;
+        }
         const workflowEntry: Record<string, unknown> = { title: wf.title, adkPath };
         if (wf.description) workflowEntry.description = wf.description;
         const cwd = typeof runnerConfig.cwd === "string" ? runnerConfig.cwd : null;
