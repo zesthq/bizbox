@@ -278,7 +278,7 @@ export function CompanyAwaitingHumanSettings() {
 
             <Field
               label="Primary reviewer user ID"
-              hint="Optional. ClickUp user ID for the first approval pass. Leave blank to use the instance-level fallback."
+              hint="Optional. ClickUp user ID for the first approval pass. Also used as the fallback reviewer for single-step approvals when no secondary reviewer is set."
             >
               <input
                 type="text"
@@ -292,7 +292,7 @@ export function CompanyAwaitingHumanSettings() {
 
             <Field
               label="Secondary reviewer user ID"
-              hint="Optional. ClickUp user ID for a second approval pass. Leave blank to use the instance-level fallback."
+              hint="Optional. ClickUp user ID for the final approval pass in a two-step flow. Leave blank to fall back to the primary reviewer for single-step approvals."
             >
               <input
                 type="text"

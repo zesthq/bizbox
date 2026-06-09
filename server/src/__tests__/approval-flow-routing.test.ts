@@ -43,4 +43,25 @@ describe("resolveApprovalFlowRoute", () => {
       nextReviewerUserId: null,
     });
   });
+
+  it("falls back to the primary reviewer when a single-step approval has no secondary reviewer", () => {
+    const route = resolveApprovalFlowRoute(
+      {
+        approvalName: "General approval",
+        requiresSecondReview: false,
+      },
+      {
+        primaryReviewerUserId: "primary-user-id",
+        secondaryReviewerUserId: null,
+      },
+    );
+
+    expect(route).toEqual({
+      approvalName: "General approval",
+      approvalStage: "final",
+      requiresSecondReview: false,
+      currentReviewerUserId: "primary-user-id",
+      nextReviewerUserId: null,
+    });
+  });
 });

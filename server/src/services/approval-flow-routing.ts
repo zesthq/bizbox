@@ -32,7 +32,7 @@ export function resolveApprovalFlowRoute(
     ?? (requiresSecondReview ? "primary" : "final");
   const currentReviewerUserId = approvalStage === "primary"
     ? trimNullable(config.primaryReviewerUserId)
-    : trimNullable(config.secondaryReviewerUserId);
+    : trimNullable(config.secondaryReviewerUserId) ?? trimNullable(config.primaryReviewerUserId);
   const nextReviewerUserId = approvalStage === "primary" && requiresSecondReview
     ? trimNullable(config.secondaryReviewerUserId)
     : null;

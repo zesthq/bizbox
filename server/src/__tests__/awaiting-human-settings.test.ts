@@ -79,6 +79,51 @@ describeEmbeddedPostgres("awaitingHumanSettingsService", () => {
     await tempDb?.cleanup();
   });
 
+  it("uses an upsert when two first-time saves race for the same company", async () => {
+    const companyId = randomUUID();
+    await createCompany(db, companyId);
+
+    const service = awaitingHumanSettingsService(db);
+    const patch = {
+      enabled: true,
+      provider: "clickup" as const,
+      providerConfig: {
+        workspaceId: "workspace-123",
+        channelId: "channel-123",
+        attachmentTaskId: null,
+        primaryReviewerUserId: "primary-user-id",
+        secondaryReviewerUserId: "secondary-user-id",
+      },
+      clickupPersonalToken: "token-123",
+    };
+
+    const [first, second] = await Promise.all([
+      service.update(companyId, patch, { userId: "user-1", agentId: null }),
+      service.update(companyId, patch, { userId: "user-2", agentId: null }),
+    ]);
+
+    expect(first).toEqual(expect.objectContaining({
+      companyId,
+      enabled: true,
+      provider: "clickup",
+    }));
+    expect(second).toEqual(expect.objectContaining({
+      companyId,
+      enabled: true,
+      provider: "clickup",
+    }));
+
+    const settingsRows = await db.select().from(companyAwaitingHumanSettings).where(eq(companyAwaitingHumanSettings.companyId, companyId));
+    expect(settingsRows).toHaveLength(1);
+    expect(settingsRows[0]?.providerConfigJson).toEqual(expect.objectContaining({
+      workspaceId: "workspace-123",
+      channelId: "channel-123",
+      attachmentTaskId: null,
+      primaryReviewerUserId: "primary-user-id",
+      secondaryReviewerUserId: "secondary-user-id",
+    }));
+  });
+
   it("saves and returns generic approval reviewer IDs", async () => {
     const companyId = randomUUID();
     await createCompany(db, companyId);

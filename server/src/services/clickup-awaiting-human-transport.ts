@@ -279,7 +279,6 @@ function renderApprovalContextSection(
       `Next step: ${currentReviewerMention ?? "the reviewer"} checks first, then ${nextReviewerMention ?? "the secondary reviewer"} handles the final check if approved.`,
     );
   } else if (route.approvalStage === "final" && route.requiresSecondReview) {
-    const currentReviewerMention = formatClickUpUserMention(route.currentReviewerUserId);
     lines.push(
       `Next step: ${currentReviewerMention ?? "the reviewer"} handles the final check after the primary review clears.`,
     );
