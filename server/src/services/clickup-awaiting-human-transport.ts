@@ -514,15 +514,11 @@ function formatApprovalStage(stage: "primary" | "final") {
 
 function pickReviewerDisplayName(
   approvalReviewers: ClickUpReviewerTarget[] | undefined,
-  preferredIndex: number,
-  fallbackIndex: number,
+  reviewerLabel: string,
 ) {
-  const preferred = approvalReviewers?.[preferredIndex] ?? null;
-  const fallback = approvalReviewers?.[fallbackIndex] ?? null;
-  return preferred?.displayName
-    ?? preferred?.userId
-    ?? fallback?.displayName
-    ?? fallback?.userId
+  const reviewer = approvalReviewers?.find((candidate) => candidate.label === reviewerLabel) ?? null;
+  return reviewer?.displayName
+    ?? reviewer?.userId
     ?? null;
 }
 
@@ -543,14 +539,16 @@ function renderApprovalContextSection(
 
   const reviewerLabel = route.approvalStage === "primary" ? "Primary reviewer" : "Reviewer";
   const currentReviewerDisplayName = route.approvalStage === "primary"
-    ? pickReviewerDisplayName(approvalReviewers, 0, 1)
-    : pickReviewerDisplayName(approvalReviewers, 1, 0);
+    ? pickReviewerDisplayName(approvalReviewers, "Primary reviewer")
+    : route.requiresSecondReview
+      ? pickReviewerDisplayName(approvalReviewers, "Secondary reviewer")
+      : pickReviewerDisplayName(approvalReviewers, "Primary reviewer");
   lines.push(currentReviewerDisplayName
     ? `${reviewerLabel}: notified in a direct message to ${currentReviewerDisplayName}.`
     : `${reviewerLabel}: notified in a direct message.`);
 
   if (route.requiresSecondReview && route.approvalStage === "primary") {
-    const nextReviewerDisplayName = pickReviewerDisplayName(approvalReviewers, 1, 0);
+    const nextReviewerDisplayName = pickReviewerDisplayName(approvalReviewers, "Secondary reviewer");
     lines.push(nextReviewerDisplayName
       ? `Next step: the secondary reviewer, ${nextReviewerDisplayName}, will be notified if the approval is accepted.`
       : "Next step: the secondary reviewer will be notified if the approval is accepted.");
@@ -882,14 +880,6 @@ export async function sendAwaitingHumanNotificationReply(
     ),
     overrides,
   );
-  if (result.status === "sent" && approvalRoute) {
-    await maybeSendClickUpReviewerDirectMessages({
-      config,
-      title: input.notification.title,
-      threadLink: buildClickUpChatThreadLink(config.workspaceId, parentMessageId.trim()),
-      reviewers: approvalReviewers,
-    });
-  }
   const { messageLink: _messageLink, ...publicResult } = result;
   return publicResult;
 }
