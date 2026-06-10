@@ -804,6 +804,7 @@ export async function prepareInstrumentedWorkflowRuntime(input: {
   runToken: string;
 }) : Promise<PreparedWorkflowRuntime> {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), `bizbox-workflow-${input.runId}-`));
+  await fs.chmod(tempRoot, 0o755);
   const copiedRoot = path.join(tempRoot, "project");
   await fs.cp(input.analysis.rootDir, copiedRoot, { recursive: true });
 
@@ -817,7 +818,9 @@ export async function prepareInstrumentedWorkflowRuntime(input: {
     await instrumentPythonFile(path.join(copiedRoot, relativePath), entries);
   }
 
-  await fs.writeFile(path.join(tempRoot, "bizbox_workflow_runtime.py"), buildRuntimeHelperModule(), "utf8");
+  const runtimeHelperPath = path.join(tempRoot, "bizbox_workflow_runtime.py");
+  const siteCustomizePath = path.join(tempRoot, "sitecustomize.py");
+  await fs.writeFile(runtimeHelperPath, buildRuntimeHelperModule(), "utf8");
   // Use sitecustomize.py so the monkey-patch fires unconditionally before any user code runs.
   // .pth files are only processed from site-packages directories — not from arbitrary PYTHONPATH
   // entries — so the .pth approach silently does nothing in venv environments. sitecustomize.py,
@@ -825,7 +828,11 @@ export async function prepareInstrumentedWorkflowRuntime(input: {
   // interpreter itself, making it reliable in venvs. If the agent project already ships its own
   // sitecustomize.py it will be shadowed, but that is an acceptable trade-off given that the
   // alternative (input() hitting EOF in a non-interactive subprocess) is a hard crash.
-  await fs.writeFile(path.join(tempRoot, "sitecustomize.py"), "import bizbox_workflow_runtime\n", "utf8");
+  await fs.writeFile(siteCustomizePath, "import bizbox_workflow_runtime\n", "utf8");
+  await Promise.all([
+    fs.chmod(runtimeHelperPath, 0o644),
+    fs.chmod(siteCustomizePath, 0o644),
+  ]);
 
   const copiedAgentPath = (() => {
     const mapped = maybeMapIntoCopiedTree(input.analysis.rootDir, copiedRoot, input.analysis.executionTargetPath);
