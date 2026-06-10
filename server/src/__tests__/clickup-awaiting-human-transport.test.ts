@@ -492,13 +492,18 @@ describe("sendAwaitingHumanNotification review context", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        status: 201,
-        text: async () => JSON.stringify({ id: "message-review" }),
+        status: 200,
+        text: async () => JSON.stringify({ member: { user: { username: "Primary Lead" } } }),
       })
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: async () => JSON.stringify({ member: { user: { username: "Policy Owner" } } }),
+        text: async () => JSON.stringify({ member: { user: { username: "Secondary Lead" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "message-review" }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -509,11 +514,6 @@ describe("sendAwaitingHumanNotification review context", () => {
         ok: true,
         status: 201,
         text: async () => JSON.stringify({ id: "dm-message-primary" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ user: { name: "Secondary Lead" } }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -554,10 +554,22 @@ describe("sendAwaitingHumanNotification review context", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
     expect(body.content).toContain("Approval: Policy approval");
     expect(body.content).toContain("Approval stage: primary review");
-    expect(body.content).toContain("Primary reviewer: notified in a direct message to Policy Owner.");
-    expect(body.content).toContain("Next step: the secondary reviewer, Policy Owner, will be notified if the approval is accepted.");
+    expect(body.content).toContain("Primary reviewer: notified in a direct message to Primary Lead.");
+    expect(body.content).toContain("Next step: the secondary reviewer, Secondary Lead, will be notified if the approval is accepted.");
     expect(body.content).not.toContain("clickup://user/");
     expect(body.content).toContain("Next step:");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.clickup.com/api/v2/team/workspace-1/user/primary-user-id",
+      expect.anything(),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.clickup.com/api/v2/team/workspace-1/user/secondary-user-id",
+      expect.anything(),
+    );
+    expect(String(fetchMock.mock.calls[4]?.[1]?.body)).toContain("Hi Primary Lead,");
+    expect(String(fetchMock.mock.calls[6]?.[1]?.body)).toContain("Hi Secondary Lead,");
   });
 });
 
