@@ -146,10 +146,6 @@ function readClickUpUserName(payload: Record<string, unknown>) {
   return readString(user.username) ?? readString(user.name);
 }
 
-function buildClickUpChatThreadLink(workspaceId: string, messageId: string) {
-  return `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(workspaceId)}/chat/messages/${encodeURIComponent(messageId)}/replies`;
-}
-
 function parseClickUpCreateChatMessageResponse(rawText: string) {
   const payload = JSON.parse(rawText) as Record<string, unknown>;
   const data = payload.data && typeof payload.data === "object"
@@ -283,7 +279,7 @@ async function sendClickUpDirectMessage(
 async function maybeSendClickUpReviewerDirectMessages(input: {
   config: ClickUpChatConfig;
   title: string;
-  threadLink: string;
+  threadLink?: string | null;
   reviewers: ClickUpReviewerInput[];
 }) {
   const targets = input.reviewers
@@ -307,10 +303,11 @@ async function maybeSendClickUpReviewerDirectMessages(input: {
         `Hi ${displayName},`,
         "",
         `You were notified in ClickUp about ${truncateText(input.title, 120)}.`,
-        "",
-        `Original approval thread: ${input.threadLink}`,
-      ].join("\n");
-      await sendClickUpDirectMessage(input.config, dmChannel.channelId, dmContent);
+      ];
+      if (input.threadLink) {
+        dmContent.push("", `Original approval thread: ${input.threadLink}`);
+      }
+      await sendClickUpDirectMessage(input.config, dmChannel.channelId, dmContent.join("\n"));
     } catch (error) {
       logger.warn({
         userId: reviewer.userId,
@@ -835,17 +832,20 @@ export async function sendAwaitingHumanNotification(
       { label: "Secondary reviewer", userId: approvalRoute.nextReviewerUserId },
     ])
     : [];
+  const currentReviewerTargets = approvalRoute
+    ? approvalReviewers.filter((reviewer) => reviewer.userId === approvalRoute.currentReviewerUserId)
+    : [];
   const result = await postClickUpChatMessage(
     renderClickUpMessage(input.notification, config, { approvalReviewers }),
     overrides,
   );
   if (result.status === "sent" && approvalRoute && result.externalId) {
-    const threadLink = result.messageLink ?? buildClickUpChatThreadLink(config.workspaceId, result.externalId);
+    const threadLink = result.messageLink ?? readString(input.notification.link);
     await maybeSendClickUpReviewerDirectMessages({
       config,
       title: input.notification.title,
       threadLink,
-      reviewers: approvalReviewers,
+      reviewers: currentReviewerTargets,
     });
   }
   const { messageLink: _messageLink, ...publicResult } = result;
@@ -894,7 +894,7 @@ export async function sendClickUpTransportTestMessage(
     overrides,
   );
   if (result.status === "sent" && result.externalId && notification.reviewerTargets?.length) {
-    const threadLink = result.messageLink ?? buildClickUpChatThreadLink(config.workspaceId, result.externalId);
+    const threadLink = result.messageLink ?? readString(notification.link);
     await maybeSendClickUpReviewerDirectMessages({
       config,
       title: notification.title,

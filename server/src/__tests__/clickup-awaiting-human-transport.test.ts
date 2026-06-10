@@ -569,7 +569,7 @@ describe("sendAwaitingHumanNotification review context", () => {
       expect.anything(),
     );
     expect(String(fetchMock.mock.calls[4]?.[1]?.body)).toContain("Hi Primary Lead,");
-    expect(String(fetchMock.mock.calls[6]?.[1]?.body)).toContain("Hi Secondary Lead,");
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("keeps the primary reviewer label un-attributed when only a secondary reviewer is configured", async () => {
@@ -626,7 +626,7 @@ describe("sendAwaitingHumanNotification review context", () => {
     expect(body.content).toContain("Primary reviewer: notified in a direct message.");
     expect(body.content).toContain("Next step: the secondary reviewer, Secondary Lead, will be notified if the approval is accepted.");
     expect(body.content).not.toContain("Primary reviewer: notified in a direct message to Secondary Lead.");
-    expect(String(fetchMock.mock.calls[3]?.[1]?.body)).toContain("Hi Secondary Lead,");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -863,7 +863,7 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
     expect(String(fetchMock.mock.calls[3]?.[1]?.body)).toContain("Hi Primary Lead,");
     expect(String(fetchMock.mock.calls[6]?.[1]?.body)).toContain("Hi Secondary Lead,");
     expect(String(fetchMock.mock.calls[3]?.[1]?.body)).toContain(
-      "Original approval thread: https://api.clickup.com/api/v3/workspaces/workspace-1/chat/messages/message-reviewers/replies",
+      "Original approval thread: https://bizbox.example/company/settings/awaiting-human",
     );
   });
 
