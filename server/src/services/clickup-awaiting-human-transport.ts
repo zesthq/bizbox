@@ -28,7 +28,7 @@ export interface ClickUpTransportTestNotification {
   link: string;
   body?: string | null;
   cta?: string | null;
-  reviewerMentions?: Array<{
+  reviewerTargets?: Array<{
     label: string;
     userId: string | null | undefined;
   }>;
@@ -66,6 +66,16 @@ export interface ClickUpChatMessageReply {
   content: string | null;
   dateMs: number | null;
 }
+
+type ClickUpTransportMessageResult = AwaitingHumanNotificationResult & {
+  messageLink: string | null;
+};
+
+type ClickUpReviewerTarget = {
+  label: string;
+  userId: string;
+  displayName?: string | null;
+};
 
 function compactWhitespace(value: string) {
   return value.split(/\s+/).filter(Boolean).join(" ");
@@ -115,6 +125,188 @@ function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : null;
+}
+
+function readClickUpUserName(payload: Record<string, unknown>) {
+  const member = payload.member && typeof payload.member === "object"
+    ? payload.member as Record<string, unknown>
+    : null;
+  const user = member?.user && typeof member.user === "object"
+    ? member.user as Record<string, unknown>
+    : payload.user && typeof payload.user === "object"
+      ? payload.user as Record<string, unknown>
+      : null;
+  if (!user) return null;
+  return readString(user.username) ?? readString(user.name);
+}
+
+function buildClickUpChatThreadLink(workspaceId: string, messageId: string) {
+  return `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(workspaceId)}/chat/messages/${encodeURIComponent(messageId)}/replies`;
+}
+
+function parseClickUpCreateChatMessageResponse(rawText: string) {
+  const payload = JSON.parse(rawText) as Record<string, unknown>;
+  const data = payload.data && typeof payload.data === "object"
+    ? payload.data as Record<string, unknown>
+    : payload;
+  const messageId = readString(data.id) ?? readString(payload.id);
+  if (!messageId) {
+    throw new Error(`clickup chat message response missing message id:${rawText.slice(0, 240)}`);
+  }
+  const replyLink = readString(
+    (data.links && typeof data.links === "object" ? (data.links as Record<string, unknown>).replies : null)
+      ?? (payload.links && typeof payload.links === "object" ? (payload.links as Record<string, unknown>).replies : null),
+  );
+  return {
+    messageId,
+    messageLink: replyLink ?? readString(data.url) ?? readString(payload.url) ?? null,
+  };
+}
+
+function parseClickUpCreateChatChannelResponse(rawText: string) {
+  const payload = JSON.parse(rawText) as Record<string, unknown>;
+  const data = payload.data && typeof payload.data === "object"
+    ? payload.data as Record<string, unknown>
+    : payload;
+  const channelId = readString(data.id) ?? readString(payload.id);
+  if (!channelId) {
+    throw new Error(`clickup DM channel response missing channel id:${rawText.slice(0, 240)}`);
+  }
+  return { channelId };
+}
+
+async function fetchClickUpUserDisplayName(
+  config: ClickUpChatConfig,
+  userId: string,
+) {
+  const response = await fetchText(
+    `https://api.clickup.com/api/v2/team/${encodeURIComponent(config.workspaceId)}/user/${encodeURIComponent(userId)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: config.personalToken,
+        Accept: "application/json",
+      },
+    },
+  );
+  if (!response.ok || !response.text.trim()) return null;
+  try {
+    const payload = JSON.parse(response.text) as Record<string, unknown>;
+    const name = readClickUpUserName(payload);
+    return name && name.trim().length > 0 ? name.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveClickUpReviewerTargets(
+  config: ClickUpChatConfig,
+  reviewers: Array<{ label: string; userId: string | null | undefined }>,
+): Promise<ClickUpReviewerTarget[]> {
+  const targets = reviewers
+    .map((reviewer) => {
+      const userId = readString(reviewer.userId);
+      return userId ? { label: reviewer.label, userId } : null;
+    })
+    .filter((reviewer): reviewer is { label: string; userId: string } => reviewer !== null);
+
+  return Promise.all(targets.map(async (reviewer) => ({
+    label: reviewer.label,
+    userId: reviewer.userId,
+    displayName: await fetchClickUpUserDisplayName(config, reviewer.userId),
+  })));
+}
+
+async function createClickUpDirectMessageChannel(
+  config: ClickUpChatConfig,
+  userId: string,
+) {
+  const response = await fetchText(
+    `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/chat/channels/direct_message`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: config.personalToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_ids: [userId],
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`http-error:${response.status}:${truncateText(response.text, 240)}`);
+  }
+  return parseClickUpCreateChatChannelResponse(response.text);
+}
+
+async function sendClickUpDirectMessage(
+  config: ClickUpChatConfig,
+  channelId: string,
+  content: string,
+) {
+  const response = await fetchText(
+    `https://api.clickup.com/api/v3/workspaces/${encodeURIComponent(config.workspaceId)}/chat/channels/${encodeURIComponent(channelId)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: config.personalToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "message",
+        content,
+        content_format: "text/md",
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`http-error:${response.status}:${truncateText(response.text, 240)}`);
+  }
+
+  return parseClickUpCreateChatMessageResponse(response.text);
+}
+
+async function maybeSendClickUpReviewerDirectMessages(input: {
+  config: ClickUpChatConfig;
+  title: string;
+  threadLink: string;
+  reviewers: Array<ClickUpReviewerTarget | { label: string; userId: string | null | undefined }>;
+}) {
+  const targets = input.reviewers
+    .map((reviewer) => {
+      const userId = readString(reviewer.userId);
+      return userId
+        ? {
+          label: reviewer.label,
+          userId,
+          displayName: "displayName" in reviewer ? reviewer.displayName ?? null : null,
+        }
+        : null;
+    })
+    .filter((reviewer): reviewer is ClickUpReviewerTarget => reviewer !== null);
+
+  for (const reviewer of targets) {
+    try {
+      const displayName = reviewer.displayName ?? await fetchClickUpUserDisplayName(input.config, reviewer.userId) ?? reviewer.userId;
+      const dmChannel = await createClickUpDirectMessageChannel(input.config, reviewer.userId);
+      const dmContent = [
+        `Hi ${displayName},`,
+        "",
+        `You were notified in ClickUp about ${truncateText(input.title, 120)}.`,
+        "",
+        `Original approval thread: ${input.threadLink}`,
+      ].join("\n");
+      await sendClickUpDirectMessage(input.config, dmChannel.channelId, dmContent);
+    } catch (error) {
+      logger.warn({
+        userId: reviewer.userId,
+        label: reviewer.label,
+        err: error,
+      }, "clickup awaiting human reviewer DM failed");
+    }
+  }
 }
 
 async function readCompanyClickUpOverrides(
@@ -303,18 +495,29 @@ function extractReplyRowsFromRows(rows: ClickUpReplyMessageResponse[]): ClickUpC
 function extractReplyRows(payload: ClickUpGetChatMessageRepliesResponse): ClickUpChatMessageReply[] {
   return extractReplyRowsFromRows(Array.isArray(payload.data) ? payload.data : []);
 }
-function formatClickUpUserMention(userId: string | null | undefined) {
-  const trimmed = readString(userId);
-  return trimmed ? `clickup://user/${trimmed}` : null;
-}
 
 function formatApprovalStage(stage: "primary" | "final") {
   return stage === "primary" ? "primary review" : "final check";
 }
 
+function pickReviewerDisplayName(
+  approvalReviewers: ClickUpReviewerTarget[] | undefined,
+  preferredIndex: number,
+  fallbackIndex: number,
+) {
+  const preferred = approvalReviewers?.[preferredIndex] ?? null;
+  const fallback = approvalReviewers?.[fallbackIndex] ?? null;
+  return preferred?.displayName
+    ?? fallback?.displayName
+    ?? preferred?.userId
+    ?? fallback?.userId
+    ?? null;
+}
+
 function renderApprovalContextSection(
   notification: AwaitingHumanNotificationPayload,
   config: ClickUpChatConfig,
+  approvalReviewers?: ClickUpReviewerTarget[],
 ) {
   const approvalContext = notification.approvalContext;
   if (!approvalContext) return null;
@@ -326,29 +529,23 @@ function renderApprovalContextSection(
   }
   lines.push(`Approval stage: ${formatApprovalStage(route.approvalStage)}`);
 
-  const currentReviewerMention = formatClickUpUserMention(route.currentReviewerUserId);
-  if (currentReviewerMention) {
-    lines.push(`Reviewer: ${currentReviewerMention}`);
-  } else {
-    lines.push("Reviewer: not configured");
-  }
+  const reviewerLabel = route.approvalStage === "primary" ? "Primary reviewer" : "Reviewer";
+  const currentReviewerDisplayName = route.approvalStage === "primary"
+    ? pickReviewerDisplayName(approvalReviewers, 0, 1)
+    : pickReviewerDisplayName(approvalReviewers, 1, 0);
+  lines.push(currentReviewerDisplayName
+    ? `${reviewerLabel}: notified in a direct message to ${currentReviewerDisplayName}.`
+    : `${reviewerLabel}: notified in a direct message.`);
 
-  if (route.nextReviewerUserId) {
-    const nextReviewerMention = formatClickUpUserMention(route.nextReviewerUserId);
-    lines.push(`Next reviewer: ${nextReviewerMention ?? "not configured"}`);
-  }
-
-  if (route.approvalStage === "primary" && route.requiresSecondReview) {
-    const nextReviewerMention = formatClickUpUserMention(route.nextReviewerUserId);
-    lines.push(
-      `Next step: ${currentReviewerMention ?? "the reviewer"} checks first, then ${nextReviewerMention ?? "the secondary reviewer"} handles the final check if approved.`,
-    );
-  } else if (route.approvalStage === "final" && route.requiresSecondReview) {
-    lines.push(
-      `Next step: ${currentReviewerMention ?? "the reviewer"} handles the final check after the primary review clears.`,
-    );
+  if (route.requiresSecondReview && route.approvalStage === "primary") {
+    const nextReviewerDisplayName = pickReviewerDisplayName(approvalReviewers, 1, 0);
+    lines.push(nextReviewerDisplayName
+      ? `Next step: the secondary reviewer, ${nextReviewerDisplayName}, will be notified if the approval is accepted.`
+      : "Next step: the secondary reviewer will be notified if the approval is accepted.");
+  } else if (route.requiresSecondReview && route.approvalStage === "final") {
+    lines.push("Next step: the final reviewer handles the approval after the primary review clears.");
   } else {
-    lines.push(`Next step: ${currentReviewerMention ?? "the reviewer"} handles the approval.`);
+    lines.push("Next step: the reviewer handles the approval in ClickUp.");
   }
 
   return lines.join("\n");
@@ -361,6 +558,7 @@ function renderClickUpMessage(
     maxChars?: number;
     preserveBody?: boolean;
     includeCtaWithBody?: boolean;
+    approvalReviewers?: ClickUpReviewerTarget[];
   },
 ) {
   const maxChars = options?.maxChars ?? CLICKUP_CHAT_MESSAGE_MAX_CHARS;
@@ -368,7 +566,7 @@ function renderClickUpMessage(
   const bodySection = options?.preserveBody
     ? formatFullBodySection(notification.body)
     : formatBodySection(notification.body);
-  const approvalSection = renderApprovalContextSection(notification, config);
+  const approvalSection = renderApprovalContextSection(notification, config, options?.approvalReviewers);
   const lines = [`**${title}**`];
 
   if (bodySection) {
@@ -430,18 +628,17 @@ function renderClickUpTransportTestMessage(
     lines.push(bodySection);
   }
 
-  if (notification.reviewerMentions?.length) {
-    const hasConfiguredReviewerMention = notification.reviewerMentions.some(
-      (mention) => formatClickUpUserMention(mention.userId) !== null,
+  if (notification.reviewerTargets?.length) {
+    const hasConfiguredReviewerTarget = notification.reviewerTargets.some(
+      (mention) => readString(mention.userId) !== null,
     );
-    if (hasConfiguredReviewerMention) {
-      const mentionLines = notification.reviewerMentions.map((mention) => {
-        const userMention = formatClickUpUserMention(mention.userId);
-        return `${mention.label}: ${userMention ?? "not configured"}`;
+    if (hasConfiguredReviewerTarget) {
+      const reviewerLines = notification.reviewerTargets.map((mention) => {
+        return `${mention.label}: notified in a direct message${readString(mention.userId) ? "" : " (not configured)"}`;
       });
       lines.push("");
-      lines.push("Reviewer mention test:");
-      lines.push(...mentionLines);
+      lines.push("Reviewer notification test:");
+      lines.push(...reviewerLines);
     }
   }
 
@@ -458,13 +655,14 @@ function renderClickUpTransportTestMessage(
 async function postClickUpChatMessage(
   content: string,
   overrides?: ClickUpAwaitingHumanConfigOverrides,
-): Promise<AwaitingHumanNotificationResult> {
+): Promise<ClickUpTransportMessageResult> {
   const config = readClickUpChatConfig(overrides);
   if (!config.personalToken) {
     return {
       status: "skipped",
       channel: "clickup-chat",
       detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+      messageLink: null,
     };
   }
   if (!config.workspaceId) {
@@ -472,6 +670,7 @@ async function postClickUpChatMessage(
       status: "skipped",
       channel: "clickup-chat",
       detail: "missing-target: CLICKUP_WORKSPACE_ID",
+      messageLink: null,
     };
   }
 
@@ -483,6 +682,7 @@ async function postClickUpChatMessage(
         channel: "clickup-chat",
         detail:
           "missing-target: CLICKUP_AWAITING_HUMAN_CHANNEL_ID (or CLICKUP_ENGINEERING_CHANNEL_ID)",
+        messageLink: null,
       };
     }
 
@@ -507,24 +707,27 @@ async function postClickUpChatMessage(
         status: "failed",
         channel: "clickup-chat",
         detail: `http-error:${response.status}:${truncateText(response.text, 240)}`,
+        messageLink: null,
       };
     }
 
-    const externalId = response.text.trim().length > 0
-      ? parseClickUpCreateChatMessageResponse(response.text).messageId
+    const parsedMessage = response.text.trim().length > 0
+      ? parseClickUpCreateChatMessageResponse(response.text)
       : null;
 
     return {
       status: "sent",
       channel: "clickup-chat",
       detail: "sent",
-      externalId,
+      externalId: parsedMessage?.messageId ?? null,
+      messageLink: parsedMessage?.messageLink ?? null,
     };
   } catch (error) {
     return {
       status: "failed",
       channel: "clickup-chat",
       detail: error instanceof Error ? error.message : String(error),
+      messageLink: null,
     };
   }
 }
@@ -533,13 +736,14 @@ async function postClickUpChatMessageReply(
   parentMessageId: string,
   content: string,
   overrides?: ClickUpAwaitingHumanConfigOverrides,
-): Promise<AwaitingHumanNotificationResult> {
+): Promise<ClickUpTransportMessageResult> {
   const config = readClickUpChatConfig(overrides);
   if (!config.personalToken) {
     return {
       status: "skipped",
       channel: "clickup-chat",
       detail: "missing-credential: CLICKUP_PERSONAL_TOKEN",
+      messageLink: null,
     };
   }
   if (!config.workspaceId) {
@@ -547,6 +751,7 @@ async function postClickUpChatMessageReply(
       status: "skipped",
       channel: "clickup-chat",
       detail: "missing-target: CLICKUP_WORKSPACE_ID",
+      messageLink: null,
     };
   }
 
@@ -556,6 +761,7 @@ async function postClickUpChatMessageReply(
       status: "skipped",
       channel: "clickup-chat",
       detail: "missing-target: parent-message-id",
+      messageLink: null,
     };
   }
 
@@ -581,24 +787,27 @@ async function postClickUpChatMessageReply(
         status: "failed",
         channel: "clickup-chat",
         detail: `http-error:${response.status}:${truncateText(response.text, 240)}`,
+        messageLink: null,
       };
     }
 
-    const externalId = response.text.trim().length > 0
-      ? parseClickUpCreateChatMessageResponse(response.text).messageId
+    const parsedMessage = response.text.trim().length > 0
+      ? parseClickUpCreateChatMessageResponse(response.text)
       : null;
 
     return {
       status: "sent",
       channel: "clickup-chat",
       detail: "sent",
-      externalId,
+      externalId: parsedMessage?.messageId ?? null,
+      messageLink: parsedMessage?.messageLink ?? null,
     };
   } catch (error) {
     return {
       status: "failed",
       channel: "clickup-chat",
       detail: error instanceof Error ? error.message : String(error),
+      messageLink: null,
     };
   }
 }
@@ -608,10 +817,29 @@ export async function sendAwaitingHumanNotification(
   overrides?: ClickUpAwaitingHumanConfigOverrides,
 ): Promise<AwaitingHumanNotificationResult> {
   const config = readClickUpChatConfig(overrides);
-  return postClickUpChatMessage(
-    renderClickUpMessage(input.notification, config),
+  const approvalContext = input.notification.approvalContext;
+  const approvalRoute = approvalContext ? resolveApprovalFlowRoute(approvalContext, config) : null;
+  const approvalReviewers = approvalRoute
+    ? await resolveClickUpReviewerTargets(config, [
+      { label: "Primary reviewer", userId: approvalRoute.currentReviewerUserId },
+      { label: "Secondary reviewer", userId: approvalRoute.nextReviewerUserId },
+    ])
+    : [];
+  const result = await postClickUpChatMessage(
+    renderClickUpMessage(input.notification, config, { approvalReviewers }),
     overrides,
   );
+  if (result.status === "sent" && approvalRoute && result.externalId) {
+    const threadLink = result.messageLink ?? buildClickUpChatThreadLink(config.workspaceId, result.externalId);
+    await maybeSendClickUpReviewerDirectMessages({
+      config,
+      title: input.notification.title,
+      threadLink,
+      reviewers: approvalReviewers,
+    });
+  }
+  const { messageLink: _messageLink, ...publicResult } = result;
+  return publicResult;
 }
 
 export async function sendAwaitingHumanNotificationReply(
@@ -620,7 +848,15 @@ export async function sendAwaitingHumanNotificationReply(
   overrides?: ClickUpAwaitingHumanConfigOverrides,
 ): Promise<AwaitingHumanNotificationResult> {
   const config = readClickUpChatConfig(overrides);
-  return postClickUpChatMessageReply(
+  const approvalContext = input.notification.approvalContext;
+  const approvalRoute = approvalContext ? resolveApprovalFlowRoute(approvalContext, config) : null;
+  const approvalReviewers = approvalRoute
+    ? await resolveClickUpReviewerTargets(config, [
+      { label: "Primary reviewer", userId: approvalRoute.currentReviewerUserId },
+      { label: "Secondary reviewer", userId: approvalRoute.nextReviewerUserId },
+    ])
+    : [];
+  const result = await postClickUpChatMessageReply(
     parentMessageId,
     renderClickUpMessage(
       input.notification,
@@ -629,25 +865,44 @@ export async function sendAwaitingHumanNotificationReply(
         maxChars: CLICKUP_CHAT_REPLY_MESSAGE_MAX_CHARS,
         preserveBody: true,
         includeCtaWithBody: true,
+        approvalReviewers,
       },
     ),
     overrides,
   );
+  if (result.status === "sent" && approvalRoute) {
+    await maybeSendClickUpReviewerDirectMessages({
+      config,
+      title: input.notification.title,
+      threadLink: buildClickUpChatThreadLink(config.workspaceId, parentMessageId.trim()),
+      reviewers: approvalReviewers,
+    });
+  }
+  const { messageLink: _messageLink, ...publicResult } = result;
+  return publicResult;
 }
 
 export async function sendClickUpTransportTestMessage(
   notification: ClickUpTransportTestNotification,
   overrides?: ClickUpAwaitingHumanConfigOverrides,
 ): Promise<AwaitingHumanNotificationResult> {
-  return postClickUpChatMessage(
+  const config = readClickUpChatConfig(overrides);
+  const result = await postClickUpChatMessage(
     renderClickUpTransportTestMessage(notification),
     overrides,
   );
+  if (result.status === "sent" && result.externalId && notification.reviewerTargets?.length) {
+    const threadLink = result.messageLink ?? buildClickUpChatThreadLink(config.workspaceId, result.externalId);
+    await maybeSendClickUpReviewerDirectMessages({
+      config,
+      title: notification.title,
+      threadLink,
+      reviewers: notification.reviewerTargets,
+    });
+  }
+  const { messageLink: _messageLink, ...publicResult } = result;
+  return publicResult;
 }
-
-type ClickUpCreateChatMessageResponse = {
-  id: string;
-};
 
 type ClickUpAttachmentsAttachment = {
   date_updated: number;
@@ -673,13 +928,6 @@ type ClickUpApiErrorResponse = {
   trace_id: number | null;
   timestamp: number;
 };
-
-function parseClickUpCreateChatMessageResponse(rawText: string) {
-  const payload = JSON.parse(rawText) as ClickUpCreateChatMessageResponse;
-  return {
-    messageId: payload.id,
-  };
-}
 
 function parseClickUpAttachmentResponse(rawText: string) {
   const payload = JSON.parse(rawText) as ClickUpAttachmentsAttachment;
