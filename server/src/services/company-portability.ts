@@ -68,6 +68,7 @@ import { projectService } from "./projects.js";
 import { routineService } from "./routines.js";
 import { secretService } from "./secrets.js";
 import { workflowService } from "./workflows.js";
+import { resolveManagedWorkflowDir } from "../home-paths.js";
 
 /** Build OrgNode tree from manifest agent list (slug + reportsToSlug). */
 function buildOrgTreeFromManifest(agents: CompanyPortabilityManifest["agents"]): OrgNode[] {
@@ -2762,6 +2763,7 @@ function buildManifestFromPackageFiles(
       workingDirectory: asString(parsed.workingDirectory) ?? null,
       command: asString(parsed.command) ?? null,
       model: asString(parsed.model) ?? null,
+      path: path.posix.dirname(workflowPath),
     };
     manifest.workflows.push(entry);
   }
@@ -4771,6 +4773,27 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
             reason: wp.reason,
           });
           void updated; // used for side effect
+          // Materialize workflow bundle files to managed dir
+          if (manifestWorkflow.path) {
+            try {
+              const managedDir = resolveManagedWorkflowDir({ companyId: targetCompany.id, workflowId: wp.existingWorkflowId });
+              await fs.rm(managedDir, { recursive: true, force: true });
+              await fs.mkdir(managedDir, { recursive: true });
+              const bundlePrefix = manifestWorkflow.path.endsWith("/") ? manifestWorkflow.path : `${manifestWorkflow.path}/`;
+              for (const [filePath, fileEntry] of Object.entries(plan.source.files)) {
+                if (!filePath.startsWith(bundlePrefix)) continue;
+                const relativePath = filePath.slice(bundlePrefix.length);
+                if (!relativePath) continue;
+                const absolutePath = path.resolve(managedDir, relativePath);
+                const resolvedRelative = path.relative(managedDir, absolutePath);
+                if (resolvedRelative === ".." || resolvedRelative.startsWith(`..${path.sep}`)) continue;
+                await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+                await fs.writeFile(absolutePath, portableFileToBuffer(fileEntry, filePath));
+              }
+            } catch (err) {
+              warnings.push(`Failed to materialize workflow bundle for ${manifestWorkflow.title}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
           continue;
         }
 
@@ -4791,6 +4814,26 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           action: "created",
           reason: null,
         });
+        // Materialize workflow bundle files to managed dir
+        if (manifestWorkflow.path) {
+          try {
+            const managedDir = resolveManagedWorkflowDir({ companyId: targetCompany.id, workflowId: created.id });
+            await fs.mkdir(managedDir, { recursive: true });
+            const bundlePrefix = manifestWorkflow.path.endsWith("/") ? manifestWorkflow.path : `${manifestWorkflow.path}/`;
+            for (const [filePath, fileEntry] of Object.entries(plan.source.files)) {
+              if (!filePath.startsWith(bundlePrefix)) continue;
+              const relativePath = filePath.slice(bundlePrefix.length);
+              if (!relativePath) continue;
+              const absolutePath = path.resolve(managedDir, relativePath);
+              const resolvedRelative = path.relative(managedDir, absolutePath);
+              if (resolvedRelative === ".." || resolvedRelative.startsWith(`..${path.sep}`)) continue;
+              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+              await fs.writeFile(absolutePath, portableFileToBuffer(fileEntry, filePath));
+            }
+          } catch (err) {
+            warnings.push(`Failed to materialize workflow bundle for ${manifestWorkflow.title}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
     }
 
