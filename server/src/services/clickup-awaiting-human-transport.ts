@@ -74,6 +74,12 @@ type ClickUpTransportMessageResult = AwaitingHumanNotificationResult & {
 type ClickUpReviewerTarget = {
   label: string;
   userId: string;
+  displayName: string | null;
+};
+
+type ClickUpReviewerInput = {
+  label: string;
+  userId: string | null | undefined;
   displayName?: string | null;
 };
 
@@ -217,6 +223,12 @@ async function resolveClickUpReviewerTargets(
   })));
 }
 
+function isClickUpReviewerTarget(
+  reviewer: ClickUpReviewerTarget | null,
+): reviewer is ClickUpReviewerTarget {
+  return reviewer !== null;
+}
+
 async function createClickUpDirectMessageChannel(
   config: ClickUpChatConfig,
   userId: string,
@@ -272,7 +284,7 @@ async function maybeSendClickUpReviewerDirectMessages(input: {
   config: ClickUpChatConfig;
   title: string;
   threadLink: string;
-  reviewers: Array<ClickUpReviewerTarget | { label: string; userId: string | null | undefined }>;
+  reviewers: ClickUpReviewerInput[];
 }) {
   const targets = input.reviewers
     .map((reviewer) => {
@@ -281,11 +293,11 @@ async function maybeSendClickUpReviewerDirectMessages(input: {
         ? {
           label: reviewer.label,
           userId,
-          displayName: "displayName" in reviewer ? reviewer.displayName ?? null : null,
+          displayName: reviewer.displayName ?? null,
         }
         : null;
     })
-    .filter((reviewer): reviewer is ClickUpReviewerTarget => reviewer !== null);
+    .filter(isClickUpReviewerTarget);
 
   for (const reviewer of targets) {
     try {
@@ -508,8 +520,8 @@ function pickReviewerDisplayName(
   const preferred = approvalReviewers?.[preferredIndex] ?? null;
   const fallback = approvalReviewers?.[fallbackIndex] ?? null;
   return preferred?.displayName
-    ?? fallback?.displayName
     ?? preferred?.userId
+    ?? fallback?.displayName
     ?? fallback?.userId
     ?? null;
 }
