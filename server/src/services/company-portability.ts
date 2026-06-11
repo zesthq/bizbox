@@ -1400,6 +1400,24 @@ function portableFileToBuffer(entry: CompanyPortabilityFileEntry, filePath: stri
   throw unprocessable(`Unsupported file entry encoding for ${filePath}`);
 }
 
+async function materializeWorkflowBundle(
+  managedDir: string,
+  bundlePath: string,
+  files: Record<string, CompanyPortabilityFileEntry>,
+): Promise<void> {
+  const bundlePrefix = bundlePath.endsWith("/") ? bundlePath : `${bundlePath}/`;
+  for (const [filePath, fileEntry] of Object.entries(files)) {
+    if (!filePath.startsWith(bundlePrefix)) continue;
+    const relativePath = filePath.slice(bundlePrefix.length);
+    if (!relativePath) continue;
+    const absolutePath = path.resolve(managedDir, relativePath);
+    const resolvedRelative = path.relative(managedDir, absolutePath);
+    if (resolvedRelative === ".." || resolvedRelative.startsWith(`..${path.sep}`)) continue;
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, portableFileToBuffer(fileEntry, filePath));
+  }
+}
+
 function bufferToPortableBinaryFile(buffer: Buffer, contentType: string | null): CompanyPortabilityFileEntry {
   return {
     encoding: "base64",
@@ -4774,22 +4792,12 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           });
           void updated; // used for side effect
           // Materialize workflow bundle files to managed dir
-          if (manifestWorkflow.path) {
+          if (manifestWorkflow.path && manifestWorkflow.path !== ".") {
             try {
               const managedDir = resolveManagedWorkflowDir({ companyId: targetCompany.id, workflowId: wp.existingWorkflowId });
               await fs.rm(managedDir, { recursive: true, force: true });
               await fs.mkdir(managedDir, { recursive: true });
-              const bundlePrefix = manifestWorkflow.path.endsWith("/") ? manifestWorkflow.path : `${manifestWorkflow.path}/`;
-              for (const [filePath, fileEntry] of Object.entries(plan.source.files)) {
-                if (!filePath.startsWith(bundlePrefix)) continue;
-                const relativePath = filePath.slice(bundlePrefix.length);
-                if (!relativePath) continue;
-                const absolutePath = path.resolve(managedDir, relativePath);
-                const resolvedRelative = path.relative(managedDir, absolutePath);
-                if (resolvedRelative === ".." || resolvedRelative.startsWith(`..${path.sep}`)) continue;
-                await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-                await fs.writeFile(absolutePath, portableFileToBuffer(fileEntry, filePath));
-              }
+              await materializeWorkflowBundle(managedDir, manifestWorkflow.path, plan.source.files);
             } catch (err) {
               warnings.push(`Failed to materialize workflow bundle for ${manifestWorkflow.title}: ${err instanceof Error ? err.message : String(err)}`);
             }
@@ -4815,21 +4823,11 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           reason: null,
         });
         // Materialize workflow bundle files to managed dir
-        if (manifestWorkflow.path) {
+        if (manifestWorkflow.path && manifestWorkflow.path !== ".") {
           try {
             const managedDir = resolveManagedWorkflowDir({ companyId: targetCompany.id, workflowId: created.id });
             await fs.mkdir(managedDir, { recursive: true });
-            const bundlePrefix = manifestWorkflow.path.endsWith("/") ? manifestWorkflow.path : `${manifestWorkflow.path}/`;
-            for (const [filePath, fileEntry] of Object.entries(plan.source.files)) {
-              if (!filePath.startsWith(bundlePrefix)) continue;
-              const relativePath = filePath.slice(bundlePrefix.length);
-              if (!relativePath) continue;
-              const absolutePath = path.resolve(managedDir, relativePath);
-              const resolvedRelative = path.relative(managedDir, absolutePath);
-              if (resolvedRelative === ".." || resolvedRelative.startsWith(`..${path.sep}`)) continue;
-              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-              await fs.writeFile(absolutePath, portableFileToBuffer(fileEntry, filePath));
-            }
+            await materializeWorkflowBundle(managedDir, manifestWorkflow.path, plan.source.files);
           } catch (err) {
             warnings.push(`Failed to materialize workflow bundle for ${manifestWorkflow.title}: ${err instanceof Error ? err.message : String(err)}`);
           }

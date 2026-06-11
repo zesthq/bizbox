@@ -1359,8 +1359,8 @@ function WorkflowRunConsoleCard({
         </div>
 
         {runDetail.error || runDetail.stderrExcerpt || runDetail.resultJson ? (
-          <div className="space-y-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-4">
-            <div className="text-xs font-medium uppercase tracking-wide text-red-700 dark:text-red-300">
+          <div className="space-y-3 rounded-2xl border border-border/30 bg-muted/30 p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Stderr details
             </div>
             {runDetail.error ? (
@@ -1369,7 +1369,7 @@ function WorkflowRunConsoleCard({
               </div>
             ) : null}
             {runDetail.stderrExcerpt ? (
-              <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl bg-background/80 p-3 text-xs text-red-700 dark:text-red-200">
+              <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl bg-background/80 p-3 text-xs text-foreground/80">
                 {runDetail.stderrExcerpt}
               </pre>
             ) : null}
