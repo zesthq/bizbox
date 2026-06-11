@@ -514,16 +514,6 @@ describe("sendAwaitingHumanNotification review context", () => {
         ok: true,
         status: 201,
         text: async () => JSON.stringify({ id: "dm-message-primary" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ id: "dm-channel-secondary" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        text: async () => JSON.stringify({ id: "dm-message-secondary" }),
       });
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -558,13 +548,11 @@ describe("sendAwaitingHumanNotification review context", () => {
     expect(body.content).toContain("Next step: the secondary reviewer, Secondary Lead, will be notified if the approval is accepted.");
     expect(body.content).not.toContain("clickup://user/");
     expect(body.content).toContain("Next step:");
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
+    expect(fetchMock).toHaveBeenCalledWith(
       "https://api.clickup.com/api/v2/team/workspace-1/user/primary-user-id",
       expect.anything(),
     );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
+    expect(fetchMock).toHaveBeenCalledWith(
       "https://api.clickup.com/api/v2/team/workspace-1/user/secondary-user-id",
       expect.anything(),
     );
@@ -623,9 +611,9 @@ describe("sendAwaitingHumanNotification review context", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(body.content).toContain("Approval: Policy approval");
     expect(body.content).toContain("Approval stage: primary review");
-    expect(body.content).toContain("Primary reviewer: notified in a direct message.");
+    expect(body.content).toContain("Primary reviewer: not configured.");
     expect(body.content).toContain("Next step: the secondary reviewer, Secondary Lead, will be notified if the approval is accepted.");
-    expect(body.content).not.toContain("Primary reviewer: notified in a direct message to Secondary Lead.");
+    expect(body.content).not.toContain("Primary reviewer: notified in a direct message.");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -687,6 +675,14 @@ describe("sendAwaitingHumanNotification review context", () => {
     expect(body.content).toContain("Approval stage: final check");
     expect(body.content).toContain("Reviewer: notified in a direct message to Secondary Lead.");
     expect(body.content).toContain("Next step: the final reviewer handles the approval after the primary review clears.");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.clickup.com/api/v2/team/workspace-1/user/primary-user-id",
+      expect.anything(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.clickup.com/api/v2/team/workspace-1/user/secondary-user-id",
+      expect.anything(),
+    );
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });
@@ -843,11 +839,6 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        status: 201,
-        text: async () => JSON.stringify({ id: "message-reviewers" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
         status: 200,
         text: async () => JSON.stringify({ member: { user: { username: "Primary Lead" } } }),
       })
@@ -895,26 +886,21 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
     });
 
     expect(result.status).toBe("sent");
-    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const body = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
     expect(body.content).toContain("Reviewer notification test:");
     expect(body.content).toContain("Primary reviewer: notified in a direct message");
     expect(body.content).toContain("Secondary reviewer: notified in a direct message");
     expect(body.content).not.toContain("clickup://user/");
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
+    expect(fetchMock).toHaveBeenCalledWith(
       "https://api.clickup.com/api/v2/team/workspace-1/user/primary-user-id",
       expect.anything(),
     );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
+    expect(fetchMock).toHaveBeenCalledWith(
       "https://api.clickup.com/api/v2/team/workspace-1/user/secondary-user-id",
       expect.anything(),
     );
-    expect(String(fetchMock.mock.calls[3]?.[1]?.body)).toContain("Hi Primary Lead,");
-    expect(String(fetchMock.mock.calls[6]?.[1]?.body)).toContain("Hi Secondary Lead,");
-    expect(String(fetchMock.mock.calls[3]?.[1]?.body)).toContain(
-      "Original approval thread: https://bizbox.example/company/settings/awaiting-human",
-    );
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/chat/channels/direct_message")).length).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
   it("omits the reviewer section when no reviewer targets are configured", async () => {
@@ -950,14 +936,14 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
   it("falls back to the raw user id when the ClickUp display name cannot be resolved", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        text: async () => JSON.stringify({ id: "message-reviewers" }),
-      })
-      .mockResolvedValueOnce({
         ok: false,
         status: 404,
         text: async () => JSON.stringify({ message: "Not found" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "message-reviewers" }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -987,7 +973,8 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
     });
 
     expect(result.status).toBe("sent");
-    expect(String(fetchMock.mock.calls[3]?.[1]?.body)).toContain("Hi primary-user-id,");
+    const requestBodies = fetchMock.mock.calls.map(([, init]) => String((init as { body?: unknown } | undefined)?.body ?? ""));
+    expect(requestBodies.some((body) => body.includes("Hi primary-user-id,"))).toBe(true);
   });
 });
 

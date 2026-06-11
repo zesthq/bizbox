@@ -539,9 +539,9 @@ function renderApprovalContextSection(
     (candidate) => candidate.userId === route.currentReviewerUserId,
   ) ?? null;
   const currentReviewerDisplayName = currentReviewer?.displayName ?? currentReviewer?.userId ?? null;
-  lines.push(currentReviewerDisplayName
-    ? `${reviewerLabel}: notified in a direct message to ${currentReviewerDisplayName}.`
-    : `${reviewerLabel}: notified in a direct message.`);
+  lines.push(route.currentReviewerUserId
+    ? `${reviewerLabel}: notified in a direct message to ${currentReviewerDisplayName ?? "the reviewer"}.`
+    : `${reviewerLabel}: not configured.`);
 
   if (route.requiresSecondReview && route.approvalStage === "primary") {
     const nextReviewerDisplayName = pickReviewerDisplayName(approvalReviewers, "Secondary reviewer");
@@ -879,17 +879,20 @@ export async function sendClickUpTransportTestMessage(
   overrides?: ClickUpAwaitingHumanConfigOverrides,
 ): Promise<AwaitingHumanNotificationResult> {
   const config = readClickUpChatConfig(overrides);
+  const reviewerTargets = notification.reviewerTargets?.length
+    ? await resolveClickUpReviewerTargets(config, notification.reviewerTargets)
+    : [];
   const result = await postClickUpChatMessage(
     renderClickUpTransportTestMessage(notification),
     overrides,
   );
-  if (result.status === "sent" && result.externalId && notification.reviewerTargets?.length) {
+  if (result.status === "sent" && result.externalId && reviewerTargets.length) {
     const threadLink = result.messageLink ?? readString(notification.link);
     await maybeSendClickUpReviewerDirectMessages({
       config,
       title: notification.title,
       threadLink,
-      reviewers: notification.reviewerTargets,
+      reviewers: reviewerTargets,
     });
   }
   const { messageLink: _messageLink, ...publicResult } = result;
