@@ -540,7 +540,7 @@ function renderApprovalContextSection(
   ) ?? null;
   const currentReviewerDisplayName = currentReviewer?.displayName ?? currentReviewer?.userId ?? null;
   lines.push(route.currentReviewerUserId
-    ? `${reviewerLabel}: notified in a direct message to ${currentReviewerDisplayName ?? "the reviewer"}.`
+    ? `${reviewerLabel}: a direct message will be sent to ${currentReviewerDisplayName ?? "the reviewer"}.`
     : `${reviewerLabel}: not configured.`);
 
   if (route.requiresSecondReview && route.approvalStage === "primary") {
@@ -640,7 +640,9 @@ function renderClickUpTransportTestMessage(
     );
     if (hasConfiguredReviewerTarget) {
       const reviewerLines = notification.reviewerTargets.map((mention) => {
-        return `${mention.label}: notified in a direct message${readString(mention.userId) ? "" : " (not configured)"}`;
+        return readString(mention.userId)
+          ? `${mention.label}: a direct message will be sent`
+          : `${mention.label}: not configured`;
       });
       lines.push("");
       lines.push("Reviewer notification test:");

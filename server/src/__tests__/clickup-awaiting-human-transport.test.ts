@@ -544,7 +544,7 @@ describe("sendAwaitingHumanNotification review context", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
     expect(body.content).toContain("Approval: Policy approval");
     expect(body.content).toContain("Approval stage: primary review");
-    expect(body.content).toContain("Primary reviewer: notified in a direct message to Primary Lead.");
+    expect(body.content).toContain("Primary reviewer: a direct message will be sent to Primary Lead.");
     expect(body.content).toContain("Next step: the secondary reviewer, Secondary Lead, will be notified if the approval is accepted.");
     expect(body.content).not.toContain("clickup://user/");
     expect(body.content).toContain("Next step:");
@@ -673,7 +673,7 @@ describe("sendAwaitingHumanNotification review context", () => {
     expect(result.status).toBe("sent");
     const body = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
     expect(body.content).toContain("Approval stage: final check");
-    expect(body.content).toContain("Reviewer: notified in a direct message to Secondary Lead.");
+    expect(body.content).toContain("Reviewer: a direct message will be sent to Secondary Lead.");
     expect(body.content).toContain("Next step: the final reviewer handles the approval after the primary review clears.");
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.clickup.com/api/v2/team/workspace-1/user/primary-user-id",
@@ -845,17 +845,22 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
+        text: async () => JSON.stringify({ member: { user: { username: "Secondary Lead" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "message-reviewers" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
         text: async () => JSON.stringify({ id: "dm-channel-primary" }),
       })
       .mockResolvedValueOnce({
         ok: true,
         status: 201,
         text: async () => JSON.stringify({ id: "dm-message-primary" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ member: { user: { username: "Secondary Lead" } } }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -888,8 +893,8 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
     expect(result.status).toBe("sent");
     const body = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
     expect(body.content).toContain("Reviewer notification test:");
-    expect(body.content).toContain("Primary reviewer: notified in a direct message");
-    expect(body.content).toContain("Secondary reviewer: notified in a direct message");
+    expect(body.content).toContain("Primary reviewer: a direct message will be sent");
+    expect(body.content).toContain("Secondary reviewer: a direct message will be sent");
     expect(body.content).not.toContain("clickup://user/");
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.clickup.com/api/v2/team/workspace-1/user/primary-user-id",
@@ -899,8 +904,49 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
       "https://api.clickup.com/api/v2/team/workspace-1/user/secondary-user-id",
       expect.anything(),
     );
+    expect(String(fetchMock.mock.calls[4]?.[1]?.body)).toContain("Hi Primary Lead,");
+    expect(String(fetchMock.mock.calls[6]?.[1]?.body)).toContain("Hi Secondary Lead,");
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/chat/channels/direct_message")).length).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(7);
+  });
+
+  it("does not claim reviewer DM delivery when a direct message fails", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ member: { user: { username: "Primary Lead" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "message-reviewers" }),
+      })
+      .mockRejectedValueOnce(new Error("ClickUp DM unavailable"));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await sendClickUpTransportTestMessage({
+      title: "Bizbox ClickUp reviewer notification test",
+      summary: "Bizbox completed a reviewer notification test for ClickUp.",
+      link: "https://bizbox.example/company/settings/awaiting-human",
+      reviewerTargets: [
+        { label: "Primary reviewer", userId: "primary-user-id" },
+      ],
+    }, {
+      personalToken: "token-123",
+      workspaceId: "workspace-1",
+      channelId: "channel-9",
+    });
+
+    expect(result.status).toBe("sent");
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(body.content).toContain("Primary reviewer: a direct message will be sent");
+    expect(body.content).not.toContain("notified in a direct message");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "primary-user-id" }),
+      "clickup awaiting human reviewer DM failed",
+    );
   });
 
   it("omits the reviewer section when no reviewer targets are configured", async () => {
