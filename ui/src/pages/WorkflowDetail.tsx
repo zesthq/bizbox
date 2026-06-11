@@ -1361,7 +1361,7 @@ function WorkflowRunConsoleCard({
         {runDetail.error || runDetail.stderrExcerpt || runDetail.resultJson ? (
           <div className="space-y-3 rounded-2xl border border-border/30 bg-muted/30 p-4">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Stderr details
+              {runDetail.error || runDetail.stderrExcerpt ? "Stderr details" : "Run details"}
             </div>
             {runDetail.error ? (
               <div className="text-sm text-red-700 dark:text-red-200">

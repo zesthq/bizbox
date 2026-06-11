@@ -3636,6 +3636,27 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         const model = typeof runnerConfig.model === "string" ? runnerConfig.model : null;
         if (model) workflowEntry.model = model;
         files[workflowPath] = buildYamlFile(workflowEntry);
+
+        // Bundle managed workflow directory files (mirrors import materializeWorkflowBundle)
+        const bundlePrefix = workflowPath.slice(0, -"WORKFLOW.yaml".length); // e.g. "workflows/<slug>/"
+        try {
+          const managedDir = resolveManagedWorkflowDir({ companyId, workflowId: wf.id });
+          const dirEntries = await fs.readdir(managedDir, { recursive: true, withFileTypes: true });
+          for (const entry of dirEntries) {
+            if (!entry.isFile()) continue;
+            const entryDir = (entry as { parentPath?: string; path?: string }).parentPath ?? (entry as { path?: string }).path ?? managedDir;
+            const absoluteFilePath = path.join(entryDir, entry.name);
+            const relativePath = path.relative(managedDir, absoluteFilePath).replace(/\\/g, "/");
+            if (!relativePath || relativePath.startsWith("..")) continue;
+            const content = await fs.readFile(absoluteFilePath);
+            files[`${bundlePrefix}${relativePath}`] = bufferToPortableBinaryFile(content, null);
+          }
+        } catch (err: unknown) {
+          // Managed dir may not exist if the workflow was never materialized — skip silently
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            warnings.push(`Could not read managed workflow dir for "${wf.title}": ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
     }
 

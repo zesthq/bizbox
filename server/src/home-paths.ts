@@ -102,9 +102,9 @@ export function resolveManagedWorkflowDir(input: {
   return path.resolve(
     resolvePaperclipInstanceRoot(),
     "companies",
-    companyId,
+    sanitizeFriendlyPathSegment(companyId, "company"),
     "workflows",
-    workflowId,
+    sanitizeFriendlyPathSegment(workflowId, "workflow"),
   );
 }
 
