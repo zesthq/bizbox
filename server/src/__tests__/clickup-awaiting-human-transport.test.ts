@@ -628,6 +628,67 @@ describe("sendAwaitingHumanNotification review context", () => {
     expect(body.content).not.toContain("Primary reviewer: notified in a direct message to Secondary Lead.");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps the secondary reviewer name visible in final-stage approval messages", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ member: { user: { username: "Primary Lead" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ member: { user: { username: "Secondary Lead" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "message-final" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "dm-channel-secondary" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "dm-message-secondary" }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await sendAwaitingHumanNotification({
+      companyId: "company-1",
+      issueId: "issue-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title: "BIZ-35 needs confirmation",
+        summary: "Please review the approval item.",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Reply in Bizbox.",
+        labels: ["awaiting_human", "request_confirmation"],
+        approvalContext: {
+          approvalName: "Policy approval",
+          approvalStage: "final",
+          requiresSecondReview: true,
+        },
+      },
+    }, {
+      personalToken: "token-123",
+      workspaceId: "workspace-1",
+      channelId: "channel-9",
+      primaryReviewerUserId: "primary-user-id",
+      secondaryReviewerUserId: "secondary-user-id",
+    });
+
+    expect(result.status).toBe("sent");
+    const body = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(body.content).toContain("Approval stage: final check");
+    expect(body.content).toContain("Reviewer: notified in a direct message to Secondary Lead.");
+    expect(body.content).toContain("Next step: the final reviewer handles the approval after the primary review clears.");
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
 });
 
 describe("sendAwaitingHumanNotificationReply", () => {
@@ -733,6 +794,62 @@ describe("sendAwaitingHumanNotificationReply", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)).content).toContain("Approval: Policy approval");
+  });
+
+  it("keeps the secondary reviewer name visible in final-stage approval replies", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ member: { user: { username: "Primary Lead" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ member: { user: { username: "Secondary Lead" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "question-reply-2" }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await sendAwaitingHumanNotificationReply("thread-root-1", {
+      companyId: "company-1",
+      issueId: "handoff-1",
+      handoffKind: "approval",
+      notification: {
+        title: "Workflow approval required",
+        summary: "Landing page approval required",
+        body: "Please approve this change.",
+        link: "",
+        cta: "Reply with: approve or reject.",
+        labels: ["workflow_handoff", "approval"],
+        approvalContext: {
+          approvalName: "Policy approval",
+          approvalStage: "final",
+          requiresSecondReview: true,
+        },
+      },
+    }, {
+      personalToken: "token-123",
+      workspaceId: "workspace-1",
+      channelId: "channel-9",
+      primaryReviewerUserId: "primary-user-id",
+      secondaryReviewerUserId: "secondary-user-id",
+    });
+
+    expect(result).toEqual({
+      status: "sent",
+      channel: "clickup-chat",
+      detail: "sent",
+      externalId: "question-reply-2",
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(body.content).toContain("Approval stage: final check");
+    expect(body.content).toContain("Reviewer: notified in a direct message to Secondary Lead.");
+    expect(body.content).toContain("Next step: the final reviewer handles the approval after the primary review clears.");
   });
 
   it("keeps long workflow approval replies intact instead of applying the short channel-message cap", async () => {

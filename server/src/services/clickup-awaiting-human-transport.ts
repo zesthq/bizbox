@@ -828,8 +828,8 @@ export async function sendAwaitingHumanNotification(
   const approvalRoute = approvalContext ? resolveApprovalFlowRoute(approvalContext, config) : null;
   const approvalReviewers = approvalRoute
     ? await resolveClickUpReviewerTargets(config, [
-      { label: "Primary reviewer", userId: approvalRoute.currentReviewerUserId },
-      { label: "Secondary reviewer", userId: approvalRoute.nextReviewerUserId },
+      { label: "Primary reviewer", userId: config.primaryReviewerUserId },
+      { label: "Secondary reviewer", userId: config.secondaryReviewerUserId },
     ])
     : [];
   const currentReviewerTargets = approvalRoute
@@ -862,8 +862,8 @@ export async function sendAwaitingHumanNotificationReply(
   const approvalRoute = approvalContext ? resolveApprovalFlowRoute(approvalContext, config) : null;
   const approvalReviewers = approvalRoute
     ? await resolveClickUpReviewerTargets(config, [
-      { label: "Primary reviewer", userId: approvalRoute.currentReviewerUserId },
-      { label: "Secondary reviewer", userId: approvalRoute.nextReviewerUserId },
+      { label: "Primary reviewer", userId: config.primaryReviewerUserId },
+      { label: "Secondary reviewer", userId: config.secondaryReviewerUserId },
     ])
     : [];
   const result = await postClickUpChatMessageReply(
