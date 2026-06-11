@@ -535,11 +535,10 @@ function renderApprovalContextSection(
   lines.push(`Approval stage: ${formatApprovalStage(route.approvalStage)}`);
 
   const reviewerLabel = route.approvalStage === "primary" ? "Primary reviewer" : "Reviewer";
-  const currentReviewerDisplayName = route.approvalStage === "primary"
-    ? pickReviewerDisplayName(approvalReviewers, "Primary reviewer")
-    : route.requiresSecondReview
-      ? pickReviewerDisplayName(approvalReviewers, "Secondary reviewer")
-      : pickReviewerDisplayName(approvalReviewers, "Primary reviewer");
+  const currentReviewer = approvalReviewers?.find(
+    (candidate) => candidate.userId === route.currentReviewerUserId,
+  ) ?? null;
+  const currentReviewerDisplayName = currentReviewer?.displayName ?? currentReviewer?.userId ?? null;
   lines.push(currentReviewerDisplayName
     ? `${reviewerLabel}: notified in a direct message to ${currentReviewerDisplayName}.`
     : `${reviewerLabel}: notified in a direct message.`);
@@ -858,14 +857,6 @@ export async function sendAwaitingHumanNotificationReply(
   overrides?: ClickUpAwaitingHumanConfigOverrides,
 ): Promise<AwaitingHumanNotificationResult> {
   const config = readClickUpChatConfig(overrides);
-  const approvalContext = input.notification.approvalContext;
-  const approvalRoute = approvalContext ? resolveApprovalFlowRoute(approvalContext, config) : null;
-  const approvalReviewers = approvalRoute
-    ? await resolveClickUpReviewerTargets(config, [
-      { label: "Primary reviewer", userId: config.primaryReviewerUserId },
-      { label: "Secondary reviewer", userId: config.secondaryReviewerUserId },
-    ])
-    : [];
   const result = await postClickUpChatMessageReply(
     parentMessageId,
     renderClickUpMessage(
@@ -875,7 +866,6 @@ export async function sendAwaitingHumanNotificationReply(
         maxChars: CLICKUP_CHAT_REPLY_MESSAGE_MAX_CHARS,
         preserveBody: true,
         includeCtaWithBody: true,
-        approvalReviewers,
       },
     ),
     overrides,

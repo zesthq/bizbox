@@ -744,22 +744,11 @@ describe("sendAwaitingHumanNotificationReply", () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
 
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ member: { user: { username: "Primary Lead" } } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ member: { user: { username: "Secondary Lead" } } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        text: async () => JSON.stringify({ id: "question-reply-1" }),
-      });
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      text: async () => JSON.stringify({ id: "question-reply-1" }),
+    });
     globalThis.fetch = fetchMock as typeof fetch;
 
     const result = await sendAwaitingHumanNotificationReply("thread-root-1", {
@@ -792,64 +781,8 @@ describe("sendAwaitingHumanNotificationReply", () => {
       detail: "sent",
       externalId: "question-reply-1",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)).content).toContain("Approval: Policy approval");
-  });
-
-  it("keeps the secondary reviewer name visible in final-stage approval replies", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ member: { user: { username: "Primary Lead" } } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ member: { user: { username: "Secondary Lead" } } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        text: async () => JSON.stringify({ id: "question-reply-2" }),
-      });
-    globalThis.fetch = fetchMock as typeof fetch;
-
-    const result = await sendAwaitingHumanNotificationReply("thread-root-1", {
-      companyId: "company-1",
-      issueId: "handoff-1",
-      handoffKind: "approval",
-      notification: {
-        title: "Workflow approval required",
-        summary: "Landing page approval required",
-        body: "Please approve this change.",
-        link: "",
-        cta: "Reply with: approve or reject.",
-        labels: ["workflow_handoff", "approval"],
-        approvalContext: {
-          approvalName: "Policy approval",
-          approvalStage: "final",
-          requiresSecondReview: true,
-        },
-      },
-    }, {
-      personalToken: "token-123",
-      workspaceId: "workspace-1",
-      channelId: "channel-9",
-      primaryReviewerUserId: "primary-user-id",
-      secondaryReviewerUserId: "secondary-user-id",
-    });
-
-    expect(result).toEqual({
-      status: "sent",
-      channel: "clickup-chat",
-      detail: "sent",
-      externalId: "question-reply-2",
-    });
-    const body = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
-    expect(body.content).toContain("Approval stage: final check");
-    expect(body.content).toContain("Reviewer: notified in a direct message to Secondary Lead.");
-    expect(body.content).toContain("Next step: the final reviewer handles the approval after the primary review clears.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).content).toContain("Approval: Policy approval");
   });
 
   it("keeps long workflow approval replies intact instead of applying the short channel-message cap", async () => {
@@ -931,7 +864,7 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: async () => JSON.stringify({ user: { name: "Secondary Lead" } }),
+        text: async () => JSON.stringify({ member: { user: { username: "Secondary Lead" } } }),
       })
       .mockResolvedValueOnce({
         ok: true,
