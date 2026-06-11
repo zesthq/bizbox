@@ -297,7 +297,7 @@ async function maybeSendClickUpReviewerDirectMessages(input: {
 
   for (const reviewer of targets) {
     try {
-      const displayName = reviewer.displayName ?? await fetchClickUpUserDisplayName(input.config, reviewer.userId) ?? reviewer.userId;
+      const displayName = reviewer.displayName ?? reviewer.userId;
       const dmChannel = await createClickUpDirectMessageChannel(input.config, reviewer.userId);
       const dmContent = [
         `Hi ${displayName},`,

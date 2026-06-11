@@ -571,16 +571,6 @@ describe("sendAwaitingHumanNotification review context", () => {
         ok: true,
         status: 201,
         text: async () => JSON.stringify({ id: "message-review" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ id: "dm-channel-secondary" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        text: async () => JSON.stringify({ id: "dm-message-secondary" }),
       });
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -1019,8 +1009,21 @@ describe("sendClickUpTransportTestMessage reviewer notifications", () => {
     });
 
     expect(result.status).toBe("sent");
-    const requestBodies = fetchMock.mock.calls.map(([, init]) => String((init as { body?: unknown } | undefined)?.body ?? ""));
-    expect(requestBodies.some((body) => body.includes("Hi primary-user-id,"))).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels/direct_message",
+      expect.objectContaining({
+        body: JSON.stringify({ user_ids: ["primary-user-id"] }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "https://api.clickup.com/api/v3/workspaces/workspace-1/chat/channels/dm-channel-primary/messages",
+      expect.objectContaining({
+        body: expect.stringContaining("Hi primary-user-id,"),
+      }),
+    );
   });
 });
 
