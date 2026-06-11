@@ -1410,6 +1410,7 @@ async function materializeWorkflowBundle(
     if (!filePath.startsWith(bundlePrefix)) continue;
     const relativePath = filePath.slice(bundlePrefix.length);
     if (!relativePath) continue;
+    if (relativePath === "WORKFLOW.yaml") continue;
     const absolutePath = path.resolve(managedDir, relativePath);
     const resolvedRelative = path.relative(managedDir, absolutePath);
     if (resolvedRelative === ".." || resolvedRelative.startsWith(`..${path.sep}`)) continue;
