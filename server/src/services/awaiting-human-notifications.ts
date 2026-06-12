@@ -10,6 +10,10 @@ import {
 import { awaitingHumanBridgeService } from "./awaiting-human-bridge.js";
 import { logger } from "../middleware/logger.js";
 import type { StorageService } from "../storage/types.js";
+import {
+  normalizeReviewFile,
+  resolveAwaitingHumanReviewFile,
+} from "./awaiting-human-review-files.js";
 
 const MAX_OUTBOX_ATTEMPTS = 8;
 const STALE_OUTBOX_PROCESSING_MS = 5 * 60 * 1000;
@@ -23,6 +27,7 @@ export interface AwaitingHumanNotificationReviewFile {
   byteSize: number;
   contentPath: string;
   deliverableUrl: string;
+  clickupTaskId?: string | null;
   clickupTaskUrl?: string | null;
   clickupAttachmentId?: string | null;
   clickupAttachmentUrl?: string | null;
@@ -236,20 +241,49 @@ export async function processAwaitingHumanNotificationOutbox(
         throw new Error(`unsupported-handoff-kind:${row.handoffKind}`);
       }
 
+      let deliveryNotification = notification;
+      let reviewFile = normalizeReviewFile(row.reviewFile) ?? normalizeReviewFile(notification.reviewFile);
+      if (row.handoffKind === "request_confirmation" && !reviewFile) {
+        reviewFile = await resolveAwaitingHumanReviewFile(db, {
+          companyId: row.companyId,
+          issueId: row.issueId,
+          sourceLink: notification.link,
+        });
+      }
+      if (reviewFile) {
+        deliveryNotification = {
+          ...deliveryNotification,
+          reviewFile,
+        };
+        await db.update(awaitingHumanNotificationOutbox).set({
+          notification: deliveryNotification as Record<string, unknown>,
+          reviewFile: reviewFile as unknown as Record<string, unknown>,
+          updatedAt: new Date(),
+        }).where(eq(awaitingHumanNotificationOutbox.id, row.id));
+      }
+
       const bridge = await bridgeSvc.openOrReuseForInteraction({
         companyId: row.companyId,
         issueId: row.issueId,
         interactionId,
         agentId,
         handoffKind: row.handoffKind,
-        notification,
+        notification: deliveryNotification,
       });
+      const deliveredReviewFile = normalizeReviewFile(
+        (bridge as { delivery?: { reviewFile?: unknown } }).delivery?.reviewFile,
+      ) ?? reviewFile;
 
       sent += 1;
       await db.update(awaitingHumanNotificationOutbox).set({
         status: "sent",
         attempts: row.attempts + 1,
         nextAttemptAt: null,
+        reviewFile: deliveredReviewFile as unknown as Record<string, unknown> | null,
+        clickupTaskId: deliveredReviewFile?.clickupTaskId ?? row.clickupTaskId ?? null,
+        clickupTaskUrl: deliveredReviewFile?.clickupTaskUrl ?? row.clickupTaskUrl ?? null,
+        clickupAttachmentId: deliveredReviewFile?.clickupAttachmentId ?? row.clickupAttachmentId ?? null,
+        clickupAttachmentUrl: deliveredReviewFile?.clickupAttachmentUrl ?? row.clickupAttachmentUrl ?? null,
         clickupMessageId: bridge.externalMessageId ?? null,
         lastError: null,
         updatedAt: new Date(),
