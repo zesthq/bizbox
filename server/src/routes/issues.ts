@@ -2920,7 +2920,7 @@ export function issueRoutes(
 
       res.json(
         advancedToFinalReview
-          ? await issueThreadInteractionService(db).getById(interaction.id) ?? interaction
+          ? await issueThreadInteractionService(db).getById(advancedToFinalReview.finalInteractionId) ?? interaction
           : interaction,
       );
     },

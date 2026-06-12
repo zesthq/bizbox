@@ -85,6 +85,7 @@ type ResolutionMetadata = {
 
 async function advanceToFinalApprovalReview(input: {
   db: Db;
+  logActivity: (db: Db, input: LogActivityInput) => Promise<void>;
   issue: {
     id: string;
     companyId: string;
@@ -96,11 +97,9 @@ async function advanceToFinalApprovalReview(input: {
   interaction: IssueThreadInteraction;
   actor: { actorType: "user" | "agent" | "system"; actorId: string; agentId?: string | null };
 }) {
-  if (
-    input.interaction.kind !== "request_confirmation"
-    || input.interaction.status !== "accepted"
-    || input.interaction.payload.approvalStage === "final"
-  ) {
+  if (input.interaction.kind !== "request_confirmation") return false;
+  const interaction = input.interaction;
+  if (interaction.status !== "accepted" || interaction.payload.approvalStage === "final") {
     return false;
   }
 
@@ -113,12 +112,12 @@ async function advanceToFinalApprovalReview(input: {
     : null;
   if (!settings.enabled || !primaryReviewerUserId || !secondaryReviewerUserId) return false;
 
-  const finalIdempotencyKey = `approval-final:${input.interaction.id}`;
+  const finalIdempotencyKey = `approval-final:${interaction.id}`;
   const finalPayload = {
-    ...input.interaction.payload,
+    ...interaction.payload,
     approvalStage: "final" as const,
     requiresSecondReview: true,
-    priorApprovalInteractionId: input.interaction.id,
+    priorApprovalInteractionId: interaction.id,
   };
   const transition = await input.db.transaction(async (tx) => {
     const txDb = tx as unknown as Db;
@@ -133,13 +132,13 @@ async function advanceToFinalApprovalReview(input: {
       .update(issueThreadInteractions)
       .set({
         payload: {
-          ...input.interaction.payload,
+          ...interaction.payload,
           approvalStage: "primary",
           requiresSecondReview: true,
         },
         updatedAt: new Date(),
       })
-      .where(eq(issueThreadInteractions.id, input.interaction.id));
+      .where(eq(issueThreadInteractions.id, interaction.id));
 
     const [createdFinalInteraction] = await txDb
       .insert(issueThreadInteractions)
@@ -148,14 +147,14 @@ async function advanceToFinalApprovalReview(input: {
         issueId: issueRow.id,
         kind: "request_confirmation",
         status: "pending",
-        continuationPolicy: input.interaction.continuationPolicy,
+        continuationPolicy: interaction.continuationPolicy,
         idempotencyKey: finalIdempotencyKey,
-        sourceCommentId: input.interaction.sourceCommentId ?? null,
-        sourceRunId: input.interaction.sourceRunId ?? null,
-        title: input.interaction.title ?? null,
-        summary: input.interaction.summary ?? null,
-        createdByAgentId: input.interaction.createdByAgentId ?? null,
-        createdByUserId: input.interaction.createdByUserId ?? null,
+        sourceCommentId: interaction.sourceCommentId ?? null,
+        sourceRunId: interaction.sourceRunId ?? null,
+        title: interaction.title ?? null,
+        summary: interaction.summary ?? null,
+        createdByAgentId: interaction.createdByAgentId ?? null,
+        createdByUserId: interaction.createdByUserId ?? null,
         payload: finalPayload,
       })
       .onConflictDoNothing()
@@ -177,24 +176,24 @@ async function advanceToFinalApprovalReview(input: {
     const issuePathId = issueRow.identifier ?? issueRow.id;
     const notification = {
       title: `${issuePathId} needs final approval`,
-      summary: input.interaction.summary ?? input.interaction.payload.prompt,
+      summary: interaction.summary ?? interaction.payload.prompt,
       link: `/issues/${issuePathId}`,
       cta: "Reply with Approve, Reject, or Change followed by feedback.",
       labels: ["awaiting_human", "request_confirmation", "final_approval"],
       kind: "request_confirmation",
       interactionId: finalInteraction.id,
       body: [
-        input.interaction.payload.prompt,
-        input.interaction.payload.detailsMarkdown ?? null,
+        interaction.payload.prompt,
+        interaction.payload.detailsMarkdown ?? null,
       ].filter(Boolean).join("\n\n"),
       approvalContext: {
-        approvalName: input.interaction.payload.approvalName ?? null,
+        approvalName: interaction.payload.approvalName ?? null,
         approvalStage: "final" as const,
         requiresSecondReview: true,
       },
       target: {
-        label: input.interaction.payload.target?.label ?? null,
-        href: input.interaction.payload.target?.href ?? null,
+        label: interaction.payload.target?.label ?? null,
+        href: interaction.payload.target?.href ?? null,
       },
     };
     await txDb
@@ -224,7 +223,7 @@ async function advanceToFinalApprovalReview(input: {
     entityType: "issue",
     entityId: issueRow.id,
     details: {
-      previousInteractionId: input.interaction.id,
+      previousInteractionId: interaction.id,
       interactionId: finalInteraction.id,
       approvalStage: "final",
       primaryReviewerUserId,
@@ -233,7 +232,7 @@ async function advanceToFinalApprovalReview(input: {
     },
   });
 
-  return true;
+  return { finalInteractionId: finalInteraction.id };
 }
 
 export async function finalizeAcceptedInteractionResolution(input: {
@@ -328,8 +327,9 @@ export async function finalizeAcceptedInteractionResolution(input: {
     });
   }
 
-  if (await advanceToFinalApprovalReview(input)) {
-    return true;
+  const advanced = await advanceToFinalApprovalReview(input);
+  if (advanced) {
+    return advanced;
   }
 
   await queueResolvedInteractionContinuationWakeup({
