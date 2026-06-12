@@ -1,7 +1,14 @@
-import type { Db } from "@paperclipai/db";
+import {
+  awaitingHumanNotificationOutbox,
+  issueThreadInteractions,
+  issues,
+  type Db,
+} from "@paperclipai/db";
 import type { IssueThreadInteraction } from "@paperclipai/shared";
+import { and, eq } from "drizzle-orm";
 import { logger } from "../middleware/logger.js";
 import type { LogActivityInput } from "./activity-log.js";
+import { awaitingHumanSettingsService } from "./awaiting-human-settings.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 
 export function isClosedIssueStatus(status: string | null | undefined): status is "done" | "cancelled" {
@@ -75,6 +82,159 @@ type ResolutionMetadata = {
   externalMessageId?: string | null;
   externalEventId?: string | null;
 };
+
+async function advanceToFinalApprovalReview(input: {
+  db: Db;
+  issue: {
+    id: string;
+    companyId: string;
+    identifier?: string | null;
+    status: string;
+    assigneeAgentId: string | null;
+    assigneeUserId?: string | null;
+  };
+  interaction: IssueThreadInteraction;
+  actor: { actorType: "user" | "agent" | "system"; actorId: string; agentId?: string | null };
+}) {
+  if (
+    input.interaction.kind !== "request_confirmation"
+    || input.interaction.status !== "accepted"
+    || input.interaction.payload.approvalStage === "final"
+  ) {
+    return false;
+  }
+
+  const settings = await awaitingHumanSettingsService(input.db).get(input.issue.companyId);
+  const primaryReviewerUserId = settings.provider === "clickup"
+    ? settings.providerConfig?.primaryReviewerUserId?.trim()
+    : null;
+  const secondaryReviewerUserId = settings.provider === "clickup"
+    ? settings.providerConfig?.secondaryReviewerUserId?.trim()
+    : null;
+  if (!settings.enabled || !primaryReviewerUserId || !secondaryReviewerUserId) return false;
+
+  const finalIdempotencyKey = `approval-final:${input.interaction.id}`;
+  const finalPayload = {
+    ...input.interaction.payload,
+    approvalStage: "final" as const,
+    requiresSecondReview: true,
+    priorApprovalInteractionId: input.interaction.id,
+  };
+  const transition = await input.db.transaction(async (tx) => {
+    const txDb = tx as unknown as Db;
+    const [issueRow] = await txDb
+      .select()
+      .from(issues)
+      .where(eq(issues.id, input.issue.id))
+      .limit(1);
+    if (!issueRow || issueRow.status !== "awaiting_human") return null;
+
+    await txDb
+      .update(issueThreadInteractions)
+      .set({
+        payload: {
+          ...input.interaction.payload,
+          approvalStage: "primary",
+          requiresSecondReview: true,
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(issueThreadInteractions.id, input.interaction.id));
+
+    const [createdFinalInteraction] = await txDb
+      .insert(issueThreadInteractions)
+      .values({
+        companyId: issueRow.companyId,
+        issueId: issueRow.id,
+        kind: "request_confirmation",
+        status: "pending",
+        continuationPolicy: input.interaction.continuationPolicy,
+        idempotencyKey: finalIdempotencyKey,
+        sourceCommentId: input.interaction.sourceCommentId ?? null,
+        sourceRunId: input.interaction.sourceRunId ?? null,
+        title: input.interaction.title ?? null,
+        summary: input.interaction.summary ?? null,
+        createdByAgentId: input.interaction.createdByAgentId ?? null,
+        createdByUserId: input.interaction.createdByUserId ?? null,
+        payload: finalPayload,
+      })
+      .onConflictDoNothing()
+      .returning();
+    const finalInteraction = createdFinalInteraction ?? await txDb
+      .select()
+      .from(issueThreadInteractions)
+      .where(and(
+        eq(issueThreadInteractions.companyId, issueRow.companyId),
+        eq(issueThreadInteractions.issueId, issueRow.id),
+        eq(issueThreadInteractions.idempotencyKey, finalIdempotencyKey),
+      ))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (!finalInteraction) {
+      throw new Error("Failed to create final approval interaction");
+    }
+
+    const issuePathId = issueRow.identifier ?? issueRow.id;
+    const notification = {
+      title: `${issuePathId} needs final approval`,
+      summary: input.interaction.summary ?? input.interaction.payload.prompt,
+      link: `/issues/${issuePathId}`,
+      cta: "Reply with Approve, Reject, or Change followed by feedback.",
+      labels: ["awaiting_human", "request_confirmation", "final_approval"],
+      kind: "request_confirmation",
+      interactionId: finalInteraction.id,
+      body: [
+        input.interaction.payload.prompt,
+        input.interaction.payload.detailsMarkdown ?? null,
+      ].filter(Boolean).join("\n\n"),
+      approvalContext: {
+        approvalName: input.interaction.payload.approvalName ?? null,
+        approvalStage: "final" as const,
+        requiresSecondReview: true,
+      },
+      target: {
+        label: input.interaction.payload.target?.label ?? null,
+        href: input.interaction.payload.target?.href ?? null,
+      },
+    };
+    await txDb
+      .insert(awaitingHumanNotificationOutbox)
+      .values({
+        companyId: issueRow.companyId,
+        issueId: issueRow.id,
+        dedupeKey: `interaction:${finalInteraction.id}`,
+        handoffKind: "request_confirmation",
+        status: "pending",
+        notification,
+        reviewFile: null,
+      })
+      .onConflictDoNothing();
+
+    return { issueRow, finalInteraction, notification };
+  });
+  if (!transition) return false;
+  const { issueRow, finalInteraction, notification } = transition;
+
+  await input.logActivity(input.db, {
+    companyId: issueRow.companyId,
+    actorType: input.actor.actorType,
+    actorId: input.actor.actorId,
+    agentId: input.actor.agentId ?? null,
+    action: "issue.awaiting_human.approval_stage_advanced",
+    entityType: "issue",
+    entityId: issueRow.id,
+    details: {
+      previousInteractionId: input.interaction.id,
+      interactionId: finalInteraction.id,
+      approvalStage: "final",
+      primaryReviewerUserId,
+      secondaryReviewerUserId,
+      notification,
+    },
+  });
+
+  return true;
+}
 
 export async function finalizeAcceptedInteractionResolution(input: {
   db: Db;
@@ -168,6 +328,10 @@ export async function finalizeAcceptedInteractionResolution(input: {
     });
   }
 
+  if (await advanceToFinalApprovalReview(input)) {
+    return true;
+  }
+
   await queueResolvedInteractionContinuationWakeup({
     heartbeat: input.heartbeat,
     issue: continuationWakeIssue,
@@ -175,4 +339,5 @@ export async function finalizeAcceptedInteractionResolution(input: {
     actor: input.actor,
     source: input.source,
   });
+  return false;
 }
