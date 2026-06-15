@@ -98,6 +98,51 @@ describe("resolveAwaitingHumanReviewFile", () => {
       deliverableUrl: "https://bizbox.example/api/deliverables/33333333-3333-4333-8333-333333333333/content",
     });
   });
+
+  it("falls back to a document review file when the artifact is missing its storage object key", async () => {
+    const db = dbWithExecuteResults([
+      [
+        {
+          deliverable_id: "33333333-3333-4333-8333-333333333333",
+          title: "Final report",
+          content_path: "/api/attachments/33333333-3333-4333-8333-333333333333/content",
+          content_type: "text/markdown",
+          byte_size: 42,
+          original_filename: "final-report.md",
+          attachment_id: "33333333-3333-4333-8333-333333333333",
+          object_key: null,
+          sha256: "abc123",
+        },
+      ],
+      [
+        {
+          deliverable_id: "44444444-4444-4444-8444-444444444444",
+          key: "summary",
+          title: "Executive summary",
+          format: "markdown",
+          body: "# Summary\n\nAll clear.",
+          byte_size: 21,
+        },
+      ],
+    ]);
+
+    const file = await resolveAwaitingHumanReviewFile(db, {
+      companyId: "company-1",
+      issueId: "issue-1",
+      sourceLink: "https://bizbox.example/issues/BIZ-35",
+    });
+
+    expect(file).toMatchObject({
+      source: "document",
+      deliverableId: "44444444-4444-4444-8444-444444444444",
+      title: "Executive summary",
+      filename: "summary.md",
+      contentType: "text/markdown; charset=utf-8",
+      byteSize: 21,
+      contentPath: "/api/deliverables/44444444-4444-4444-8444-444444444444/content",
+      deliverableUrl: "https://bizbox.example/api/deliverables/44444444-4444-4444-8444-444444444444/content",
+    });
+  });
 });
 
 describe.skip("sendAwaitingHumanNotification", () => {

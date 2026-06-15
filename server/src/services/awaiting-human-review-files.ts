@@ -204,7 +204,7 @@ export async function resolveAwaitingHumanReviewFile(
     object_key: string | null;
     sha256: string | null;
   }>(artifactRows)[0];
-  if (artifact?.content_path && artifact.content_type) {
+  if (artifact?.content_path && artifact.content_type && artifact.object_key) {
     const canonicalContentPath = `/api/deliverables/${artifact.deliverable_id}/content`;
     return {
       source: "artifact",
