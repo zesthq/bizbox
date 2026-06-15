@@ -83,6 +83,12 @@ function nextRetryAt(attempt: number, now = Date.now()): Date {
   return new Date(now + sec * 1000);
 }
 
+function hasBridgeDelivery(
+  bridge: unknown,
+): bridge is { delivery?: { reviewFile?: unknown } } {
+  return typeof bridge === "object" && bridge !== null && "delivery" in bridge;
+}
+
 export async function enqueueAwaitingHumanNotification(
   db: Db,
   input: EnqueueAwaitingHumanNotificationInput,
@@ -270,9 +276,9 @@ export async function processAwaitingHumanNotificationOutbox(
         handoffKind: row.handoffKind,
         notification: deliveryNotification,
       });
-      const deliveredReviewFile = normalizeReviewFile(
-        (bridge as { delivery?: { reviewFile?: unknown } }).delivery?.reviewFile,
-      ) ?? reviewFile;
+      const deliveredReviewFile = hasBridgeDelivery(bridge)
+        ? normalizeReviewFile(bridge.delivery?.reviewFile) ?? reviewFile
+        : reviewFile;
 
       sent += 1;
       await db.update(awaitingHumanNotificationOutbox).set({

@@ -102,11 +102,10 @@ export function validateAwaitingHumanReviewFileForClickUp(
   reviewFile: AwaitingHumanNotificationReviewFile,
   body: Buffer,
 ) {
-  if (body.length === 0 || reviewFile.byteSize === 0) {
+  if (body.length === 0) {
     throw new Error("invalid-review-file: empty file");
   }
-  const byteSize = Math.max(body.length, reviewFile.byteSize);
-  if (byteSize > CLICKUP_ATTACHMENT_MAX_BYTES) {
+  if (body.length > CLICKUP_ATTACHMENT_MAX_BYTES) {
     throw new Error("invalid-review-file: file exceeds ClickUp 1GB limit");
   }
 
@@ -298,26 +297,5 @@ export async function readAwaitingHumanReviewFileBody(
   return {
     body,
     sha256: sha256Hex(body),
-  };
-}
-
-export function withClickUpTaskUrl(
-  notification: AwaitingHumanNotificationPayload,
-  reviewFile: AwaitingHumanNotificationReviewFile | null,
-  clickupTaskId: string | null,
-  clickupTaskUrl: string | null,
-  clickupAttachmentId: string | null,
-  clickupAttachmentUrl?: string | null,
-) {
-  if (!reviewFile) return notification;
-  return {
-    ...notification,
-    reviewFile: {
-      ...reviewFile,
-      clickupTaskId,
-      clickupTaskUrl,
-      clickupAttachmentId,
-      clickupAttachmentUrl: clickupAttachmentUrl ?? reviewFile.clickupAttachmentUrl ?? null,
-    },
   };
 }

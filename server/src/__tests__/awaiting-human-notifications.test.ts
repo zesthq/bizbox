@@ -61,6 +61,13 @@ describe("validateAwaitingHumanReviewFileForClickUp", () => {
       byteSize: 0,
     }, Buffer.alloc(0))).toThrow("invalid-review-file: empty file");
   });
+
+  it("accepts non-empty outputs even when legacy byte size metadata is missing", () => {
+    expect(() => validateAwaitingHumanReviewFileForClickUp({
+      ...baseFile,
+      byteSize: 0,
+    }, Buffer.from("# Review"))).not.toThrow();
+  });
 });
 
 describe("resolveAwaitingHumanReviewFile", () => {
