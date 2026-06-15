@@ -305,7 +305,7 @@ async function resolveApprovalContext(
     return {
       approvalName: null,
       approvalStage: null,
-      requiresSecondReview: policy === "full" && Boolean(secondaryReviewerUserId),
+      requiresSecondReview: policy !== "primary_only" && Boolean(secondaryReviewerUserId),
     };
   } catch (err) {
     if (err instanceof Error && err.message === "awaiting-human-bridge-disabled") {
