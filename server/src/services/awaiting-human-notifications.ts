@@ -262,7 +262,7 @@ export async function processAwaitingHumanNotificationOutbox(
           reviewFile,
         };
         await db.update(awaitingHumanNotificationOutbox).set({
-          notification: deliveryNotification as Record<string, unknown>,
+          notification: deliveryNotification as unknown as Record<string, unknown>,
           reviewFile: reviewFile as unknown as Record<string, unknown>,
           updatedAt: new Date(),
         }).where(eq(awaitingHumanNotificationOutbox.id, row.id));
