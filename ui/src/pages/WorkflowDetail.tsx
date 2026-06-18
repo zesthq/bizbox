@@ -200,7 +200,6 @@ type PhaseLayout = {
   children: WorkflowPhase[];
   chainHeight: number;
   subtreeHeight: number;
-  maxLevel: number;
 };
 
 export function buildWorkflowGraph(
@@ -208,6 +207,7 @@ export function buildWorkflowGraph(
   handoffsByPhase: Map<string, WorkflowHandoff[]>,
   runDetail: WorkflowRunDetail | null,
 ): WorkflowGraph {
+  const phaseKeys = new Set(phases.map((phase) => phase.phaseKey));
   const childrenByParent = new Map<string | null, WorkflowPhase[]>();
   for (const phase of phases) {
     const parentKey = readPhaseMetaString(phase, "parentKey");
@@ -320,7 +320,7 @@ export function buildWorkflowGraph(
     const chainHeight =
       phaseHeight +
       handoffHeights.reduce((sum, height) => sum + height, 0) +
-      Math.max(0, handoffs.length - 1) * GRAPH_CHAIN_GAP;
+      handoffs.length * GRAPH_CHAIN_GAP;
 
     const childLayouts = children.map((child) => measurePhase(child));
     const childrenHeight =
@@ -329,19 +329,12 @@ export function buildWorkflowGraph(
           Math.max(0, childLayouts.length - 1) * GRAPH_BRANCH_GAP
         : 0;
     const subtreeHeight = Math.max(chainHeight, childrenHeight);
-    const maxLevel =
-      handoffs.length +
-      1 +
-      (childLayouts.length > 0
-        ? Math.max(...childLayouts.map((child) => child.maxLevel))
-        : 0);
 
     const layout = {
       handoffs,
       children,
       chainHeight,
       subtreeHeight,
-      maxLevel,
     };
     phaseLayoutCache.set(phase.phaseKey, layout);
     return layout;
@@ -431,7 +424,7 @@ export function buildWorkflowGraph(
   let rootCursorY =
     GRAPH_PADDING_Y + Math.max(0, (graphBlockHeight - rootBlockHeight) / 2);
   let maxLevel = 0;
-  const allLeafIds: string[] = [];
+  const allLeafIds: string[] = roots.length > 0 ? [] : ["graph:start"];
   for (const root of roots) {
     const result = positionPhase(root, 1, rootCursorY);
     allLeafIds.push(...result.leafIds);
@@ -469,8 +462,59 @@ export function buildWorkflowGraph(
   );
   for (const leafId of allLeafIds) addEdge(leafId, "graph:terminal");
 
+  const orphanHandoffs = [...handoffsByPhase.entries()]
+    .filter(([phaseKey]) => !phaseKeys.has(phaseKey))
+    .flatMap(([, handoffs]) =>
+      [...handoffs].sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+    );
+  let handoffTailLevel = terminalLevel;
+  let handoffTailY = terminalNode.y + terminalNode.height / 2;
+  if (orphanHandoffs.length > 0) {
+    const orphanGroupHeight =
+      orphanHandoffs.reduce(
+        (sum, handoff) =>
+          sum + estimateGraphNodeHeight("human", handoff),
+        0,
+      ) +
+      Math.max(0, orphanHandoffs.length - 1) * GRAPH_CHAIN_GAP;
+    handoffTailY = Math.max(
+      GRAPH_PADDING_Y,
+      terminalNode.y + terminalNode.height / 2 - orphanGroupHeight / 2,
+    );
+    let previousId = "graph:terminal";
+    for (const handoff of orphanHandoffs) {
+      const handoffId = `handoff:${handoff.id}`;
+      addNode({
+        id: handoffId,
+        kind: "human",
+        label:
+          handoff.kind === "approval" ? "Human approval" : "Human response",
+        level: ++handoffTailLevel,
+        handoff,
+        width: getGraphNodeWidth("human"),
+        height: estimateGraphNodeHeight("human", handoff),
+        status: handoff.status,
+      });
+      addEdge(previousId, handoffId);
+      const handoffNode = nodes.get(handoffId);
+      if (!handoffNode) {
+        throw new Error(`Missing graph node for orphan handoff ${handoff.id}`);
+      }
+      handoffNode.x =
+        GRAPH_PADDING_X +
+        handoffTailLevel * (GRAPH_NODE_WIDTH + GRAPH_COLUMN_GAP) -
+        16;
+      handoffNode.y = handoffTailY;
+      handoffTailY += handoffNode.height + GRAPH_CHAIN_GAP;
+      previousId = handoffId;
+    }
+  }
+
   const deliverables = runDetail?.deliverables ?? [];
-  const deliverableLevel = terminalLevel + 1;
+  const deliverableLevel = handoffTailLevel + 1;
   const deliverableGroupHeight =
     deliverables.length > 0
       ? deliverables.length * estimateGraphNodeHeight("deliverable") +
@@ -513,7 +557,7 @@ export function buildWorkflowGraph(
 
   const graphWidth =
     GRAPH_PADDING_X * 2 +
-    ((deliverables.length > 0 ? deliverableLevel : terminalLevel) + 1) *
+    (Math.max(terminalLevel, handoffTailLevel, deliverableLevel) + 1) *
       (GRAPH_NODE_WIDTH + GRAPH_COLUMN_GAP);
   const graphHeight = Math.max(
     420,

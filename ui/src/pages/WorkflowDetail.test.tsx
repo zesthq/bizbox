@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildWorkflowGraph, WorkflowDetail } from "./WorkflowDetail";
 import { queryKeys } from "../lib/queryKeys";
+import type { WorkflowHandoff } from "@paperclipai/shared";
 
 const getWorkflowMock = vi.hoisted(() => vi.fn());
 const getRunMock = vi.hoisted(() => vi.fn());
@@ -30,6 +31,14 @@ vi.mock("@/api/workflows", () => ({
 
 vi.mock("@/context/BreadcrumbContext", () => ({
   useBreadcrumbs: () => ({ setBreadcrumbs: setBreadcrumbsMock }),
+}));
+
+vi.mock("@/context/ThemeContext", () => ({
+  useTheme: () => ({
+    theme: "light",
+    setTheme: vi.fn(),
+    toggleTheme: vi.fn(),
+  }),
 }));
 
 vi.mock("@/context/CompanyContext", () => ({
@@ -597,5 +606,171 @@ describe("buildWorkflowGraph", () => {
     expect(helperNode).toBeTruthy();
     expect(reviewNode!.y).toBeLessThan(helperNode!.y);
     expect(helperNode!.width).toBeLessThan(reviewNode!.width);
+  });
+
+  it("centers a handoff-heavy parent chain over a taller child subtree", () => {
+    const graph = buildWorkflowGraph(
+      [
+        makePhase("root", {
+          label: "Content Strategist",
+          kind: "agent",
+          ordinal: 0,
+          parentKey: null,
+          depth: 0,
+        }),
+        makePhase("child", {
+          label: "Child phase",
+          kind: "agent",
+          ordinal: 1,
+          parentKey: "root",
+          depth: 1,
+        }),
+      ],
+      new Map([
+        [
+          "root",
+          [
+            {
+              id: "handoff-root",
+              companyId: "company-1",
+              workflowRunId: "run-1",
+              phaseKey: "root",
+              kind: "response",
+              status: "closed",
+              promptMarkdown: "",
+              responseMarkdown: null,
+              decidedByUserId: null,
+              decidedAt: null,
+              createdAt: new Date("2026-06-10T09:00:00.000Z"),
+              updatedAt: new Date("2026-06-10T09:00:00.000Z"),
+              bridgeStatus: "closed",
+            } satisfies WorkflowHandoff,
+          ],
+        ],
+        [
+          "child",
+          [
+            {
+              id: "handoff-child-1",
+              companyId: "company-1",
+              workflowRunId: "run-1",
+              phaseKey: "child",
+              kind: "response",
+              status: "closed",
+              promptMarkdown: "",
+              responseMarkdown: null,
+              decidedByUserId: null,
+              decidedAt: null,
+              createdAt: new Date("2026-06-10T09:01:00.000Z"),
+              updatedAt: new Date("2026-06-10T09:01:00.000Z"),
+              bridgeStatus: "closed",
+            },
+            {
+              id: "handoff-child-2",
+              companyId: "company-1",
+              workflowRunId: "run-1",
+              phaseKey: "child",
+              kind: "response",
+              status: "closed",
+              promptMarkdown: "",
+              responseMarkdown: null,
+              decidedByUserId: null,
+              decidedAt: null,
+              createdAt: new Date("2026-06-10T09:02:00.000Z"),
+              updatedAt: new Date("2026-06-10T09:02:00.000Z"),
+              bridgeStatus: "closed",
+            },
+            {
+              id: "handoff-child-3",
+              companyId: "company-1",
+              workflowRunId: "run-1",
+              phaseKey: "child",
+              kind: "response",
+              status: "closed",
+              promptMarkdown: "",
+              responseMarkdown: null,
+              decidedByUserId: null,
+              decidedAt: null,
+              createdAt: new Date("2026-06-10T09:03:00.000Z"),
+              updatedAt: new Date("2026-06-10T09:03:00.000Z"),
+              bridgeStatus: "closed",
+            },
+          ] satisfies WorkflowHandoff[],
+        ],
+      ]),
+      null,
+    );
+
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    const rootNode = byId.get("phase:root");
+    const childNode = byId.get("phase:child");
+
+    expect(rootNode).toBeTruthy();
+    expect(childNode).toBeTruthy();
+    expect(rootNode!.y - childNode!.y).toBe(198);
+  });
+
+  it("keeps a start to terminal edge when there are no phases", () => {
+    const graph = buildWorkflowGraph([], new Map(), null);
+
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        {
+          id: "graph:start->graph:terminal",
+          from: "graph:start",
+          to: "graph:terminal",
+        },
+      ]),
+    );
+  });
+
+  it("renders handoffs without a matching phase as a visible terminal approval", () => {
+    const handoff = {
+      id: "handoff-entrypoint",
+      companyId: "company-1",
+      workflowRunId: "run-1",
+      phaseKey: "entrypoint",
+      kind: "approval",
+      status: "pending",
+      promptMarkdown: "Please review the package.",
+      responseMarkdown: null,
+      decidedByUserId: null,
+      decidedAt: null,
+      createdAt: new Date("2026-06-10T09:00:00.000Z"),
+      updatedAt: new Date("2026-06-10T09:00:00.000Z"),
+      bridgeStatus: "waiting_for_human",
+    } satisfies WorkflowHandoff;
+
+    const graph = buildWorkflowGraph(
+      [
+        makePhase("root", {
+          label: "Content Strategist",
+          kind: "agent",
+          ordinal: 0,
+          parentKey: null,
+          depth: 0,
+        }),
+      ],
+      new Map([["entrypoint", [handoff]]]),
+      null,
+    );
+
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    const terminalNode = byId.get("graph:terminal");
+    const handoffNode = byId.get("handoff:handoff-entrypoint");
+
+    expect(terminalNode).toBeTruthy();
+    expect(handoffNode).toBeTruthy();
+    expect(handoffNode!.kind).toBe("human");
+    expect(handoffNode!.x).toBeGreaterThan(terminalNode!.x);
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        {
+          id: "graph:terminal->handoff:handoff-entrypoint",
+          from: "graph:terminal",
+          to: "handoff:handoff-entrypoint",
+        },
+      ]),
+    );
   });
 });
