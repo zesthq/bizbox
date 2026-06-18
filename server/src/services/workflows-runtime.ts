@@ -22,10 +22,11 @@ type ParsedAdkInlineNode = {
 type ParsedAdkDefinition = {
   variableName: string;
   relativePath: string;
-  kind: "agent" | "loop";
+  definitionKind: "agent" | "loop" | "workflow" | "join";
   name: string;
   description: string | null;
-  subAgentRefs: string[];
+  childRefs: string[];
+  workflowEdges: Array<{ sourceRefs: string[]; targetRefs: string[] }>;
   inlineSubAgents: ParsedAdkInlineNode[];
   toolRefs: string[];
 };
@@ -180,6 +181,20 @@ function parsePythonListArg(block: string, argName: string) {
   return extractBalancedSection(block, bracketIndex, "[", "]");
 }
 
+function extractIdentifierRefs(source: string) {
+  const refs: string[] = [];
+  const seen = new Set<string>();
+  const pattern = /\b([A-Za-z_][A-Za-z0-9_]*)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source)) !== null) {
+    const ref = match[1] ?? "";
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    refs.push(ref);
+  }
+  return refs;
+}
+
 function splitTopLevelListItems(listBody: string) {
   const items: string[] = [];
   let current = "";
@@ -248,7 +263,7 @@ function splitTopLevelListItems(listBody: string) {
 
 function parseAdkDefinitions(relativePath: string, contents: string): ParsedAdkDefinition[] {
   const definitions: ParsedAdkDefinition[] = [];
-  const pattern = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(Agent|LoopAgent)\s*\(/gm;
+  const pattern = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(Agent|LoopAgent|Workflow|JoinNode)\s*\(/gm;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(contents)) !== null) {
     const variableName = match[1] ?? "";
@@ -283,13 +298,35 @@ function parseAdkDefinitions(relativePath: string, contents: string): ParsedAdkD
       return refMatch?.[1] ? [refMatch[1]] : [];
     });
 
+    const workflowEdges =
+      constructor === "Workflow"
+        ? splitTopLevelListItems(parsePythonListArg(callBody, "edges") ?? "").flatMap((item) => {
+            const refs = extractIdentifierRefs(item);
+            if (refs.length === 0) return [];
+            return [
+              {
+                sourceRefs: refs.slice(0, 1),
+                targetRefs: refs.slice(1),
+              },
+            ];
+          })
+        : [];
+
     definitions.push({
       variableName,
       relativePath,
-      kind: constructor === "LoopAgent" ? "loop" : "agent",
+      definitionKind:
+        constructor === "LoopAgent"
+          ? "loop"
+          : constructor === "Workflow"
+            ? "workflow"
+            : constructor === "JoinNode"
+              ? "join"
+              : "agent",
       name: parsePythonStringArg(callBody, "name") ?? variableName,
       description: parsePythonStringArg(callBody, "description"),
-      subAgentRefs,
+      childRefs: subAgentRefs,
+      workflowEdges,
       inlineSubAgents,
       toolRefs,
     });
@@ -309,6 +346,7 @@ function chooseEntrypointFromContents(
     const contents = contentsByPath.get(filePath) ?? "";
     let score = relativePathPriority(relativePath);
     if (/^\s*root_agent\s*=\s*[A-Za-z_][A-Za-z0-9_]*\s*$/m.test(contents)) score += 500;
+    if (/^\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*Workflow\s*\(/m.test(contents)) score += 120;
     if (/^\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*(Agent|LoopAgent)\s*\(/m.test(contents)) score += 80;
     if (score > bestScore) {
       bestScore = score;
@@ -321,6 +359,11 @@ function chooseEntrypointFromContents(
 function findRootAdkVariable(entryContents: string, definitions: Map<string, ParsedAdkDefinition>) {
   const aliasMatch = entryContents.match(/^\s*root_agent\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/m);
   if (aliasMatch?.[1] && definitions.has(aliasMatch[1])) return aliasMatch[1];
+  for (const definition of definitions.values()) {
+    if (definition.definitionKind === "workflow") {
+      return definition.variableName;
+    }
+  }
   for (const definition of definitions.values()) {
     if (definition.relativePath === "agent.py" || definition.relativePath.endsWith("/agent.py")) {
       return definition.variableName;
@@ -408,6 +451,24 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
   if (adkDefinitions.size > 0) {
     const rootVar = findRootAdkVariable(contentsByPath.get(entryPath) ?? "", adkDefinitions);
     const visited = new Set<string>();
+    const workflowDefinition = rootVar ? adkDefinitions.get(rootVar) ?? null : null;
+    const workflowEdges = workflowDefinition?.definitionKind === "workflow" ? workflowDefinition.workflowEdges : [];
+    const outgoingWorkflowRefs = new Map<string, string[]>();
+    const incomingWorkflowRefs = new Set<string>();
+    for (const edge of workflowEdges) {
+      for (const sourceRef of edge.sourceRefs) {
+        const list = outgoingWorkflowRefs.get(sourceRef) ?? [];
+        for (const targetRef of edge.targetRefs) {
+          if (!list.includes(targetRef)) {
+            list.push(targetRef);
+          }
+        }
+        outgoingWorkflowRefs.set(sourceRef, list);
+      }
+      for (const targetRef of edge.targetRefs) {
+        incomingWorkflowRefs.add(targetRef);
+      }
+    }
     let ordinal = 0;
     const addToolTarget = (definition: ParsedAdkDefinition, toolName: string, parentKey: string, depth: number) => {
       const key = `tool:${parentKey}:${toolName}`;
@@ -438,11 +499,24 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
       const definition = adkDefinitions.get(variableName);
       if (!definition) return;
       visited.add(variableName);
-      const key = `${definition.kind}:${definition.name}`;
+      if (definition.definitionKind === "workflow") {
+        const childRefs =
+          workflowDefinition?.variableName === definition.variableName
+            ? [...outgoingWorkflowRefs.keys()].filter((childRef) => !incomingWorkflowRefs.has(childRef))
+            : definition.childRefs;
+        for (const childRef of childRefs) {
+          visitDefinition(childRef, parentKey, depth);
+        }
+        return;
+      }
+      const key = `${definition.definitionKind}:${definition.name}`;
       pipelineNodes.push({
         key,
         label: definition.name,
-        kind: inferNodeKind(definition.name, definition.kind),
+        kind:
+          definition.definitionKind === "join"
+            ? "phase"
+            : inferNodeKind(definition.name, definition.definitionKind === "loop" ? "loop" : "agent"),
         filePath: definition.relativePath,
         functionName: definition.variableName,
         ordinal: ordinal++,
@@ -451,9 +525,6 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
         agentName: definition.name,
         description: definition.description,
       });
-      for (const subAgentRef of definition.subAgentRefs) {
-        visitDefinition(subAgentRef, key, depth + 1);
-      }
       for (const inlineNode of definition.inlineSubAgents) {
         pipelineNodes.push({
           key: `validator:${inlineNode.name}`,
@@ -470,6 +541,13 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
       }
       for (const toolName of definition.toolRefs) {
         addToolTarget(definition, toolName, key, depth + 1);
+      }
+      const childRefs =
+        workflowDefinition?.variableName != null
+          ? [...new Set([...(definition.childRefs ?? []), ...(outgoingWorkflowRefs.get(definition.variableName) ?? [])])]
+          : definition.childRefs;
+      for (const childRef of childRefs) {
+        visitDefinition(childRef, key, depth + 1);
       }
     };
     if (rootVar) {
