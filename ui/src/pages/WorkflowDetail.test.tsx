@@ -724,6 +724,35 @@ describe("buildWorkflowGraph", () => {
     );
   });
 
+  it("keeps deliverables within the visible canvas when there are multiple items", () => {
+    const graph = buildWorkflowGraph(
+      [],
+      new Map(),
+      {
+        status: "succeeded",
+        deliverables: [
+          {
+            id: "deliverable-1",
+            title: "First brief",
+          },
+          {
+            id: "deliverable-2",
+            title: "Second brief",
+          },
+        ],
+      } as never,
+    );
+
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    const firstDeliverable = byId.get("deliverable:deliverable-1");
+    const secondDeliverable = byId.get("deliverable:deliverable-2");
+
+    expect(firstDeliverable).toBeTruthy();
+    expect(secondDeliverable).toBeTruthy();
+    expect(firstDeliverable!.y).toBeGreaterThanOrEqual(24);
+    expect(secondDeliverable!.y).toBeGreaterThan(firstDeliverable!.y);
+  });
+
   it("renders handoffs without a matching phase as a visible terminal approval", () => {
     const handoff = {
       id: "handoff-entrypoint",

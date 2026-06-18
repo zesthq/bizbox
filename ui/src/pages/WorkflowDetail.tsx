@@ -521,7 +521,10 @@ export function buildWorkflowGraph(
         Math.max(0, deliverables.length - 1) * GRAPH_BRANCH_GAP
       : 0;
   let deliverableCursorY =
-    terminalNode.y + terminalNode.height / 2 - deliverableGroupHeight / 2;
+    Math.max(
+      GRAPH_PADDING_Y,
+      terminalNode.y + terminalNode.height / 2 - deliverableGroupHeight / 2,
+    );
   const deliverableGap = GRAPH_BRANCH_GAP;
   for (const deliverable of deliverables) {
     const deliverableId = `deliverable:${deliverable.id}`;
