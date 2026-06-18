@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WorkflowDetail } from "./WorkflowDetail";
+import { buildWorkflowGraph, WorkflowDetail } from "./WorkflowDetail";
 import { queryKeys } from "../lib/queryKeys";
 
 const getWorkflowMock = vi.hoisted(() => vi.fn());
@@ -522,5 +522,80 @@ describe("WorkflowDetail page", () => {
 
     expect(container.textContent).toContain("older stderr");
     expect(container.textContent).toContain("boom");
+  });
+});
+
+describe("buildWorkflowGraph", () => {
+  const makePhase = (
+    phaseKey: string,
+    {
+      label,
+      kind,
+      ordinal,
+      parentKey,
+      depth,
+    }: {
+      label: string;
+      kind: "agent" | "loop" | "tool" | "validator" | "phase";
+      ordinal: number;
+      parentKey: string | null;
+      depth: number;
+    },
+  ) => ({
+    id: `${phaseKey}-id`,
+    companyId: "company-1",
+    workflowRunId: "run-1",
+    phaseKey,
+    label,
+    kind,
+    ordinal,
+    status: "succeeded",
+    metadata: {
+      parentKey,
+      depth,
+    },
+    startedAt: null,
+    finishedAt: null,
+    createdAt: new Date("2026-06-10T09:00:00.000Z"),
+    updatedAt: new Date("2026-06-10T09:00:00.000Z"),
+  });
+
+  it("keeps structural siblings ahead of helper tools and compacts tool nodes", () => {
+    const graph = buildWorkflowGraph(
+      [
+        makePhase("root", {
+          label: "Content Strategist",
+          kind: "agent",
+          ordinal: 0,
+          parentKey: null,
+          depth: 0,
+        }),
+        makePhase("article_feedback_editor", {
+          label: "Article feedback editor",
+          kind: "validator",
+          ordinal: 10,
+          parentKey: "root",
+          depth: 1,
+        }),
+        makePhase("fetch_articles", {
+          label: "Fetch articles",
+          kind: "tool",
+          ordinal: 1,
+          parentKey: "root",
+          depth: 5,
+        }),
+      ],
+      new Map(),
+      null,
+    );
+
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    const reviewNode = byId.get("phase:article_feedback_editor");
+    const helperNode = byId.get("phase:fetch_articles");
+
+    expect(reviewNode).toBeTruthy();
+    expect(helperNode).toBeTruthy();
+    expect(reviewNode!.y).toBeLessThan(helperNode!.y);
+    expect(helperNode!.width).toBeLessThan(reviewNode!.width);
   });
 });
