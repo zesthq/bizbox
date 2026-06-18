@@ -105,7 +105,7 @@ workflow = Workflow(
         article_feedback_editor_node >> recycled_article_accuracy_reviewer_node,
         recycled_article_accuracy_reviewer_node >> article_link_checker_node,
         article_link_checker_node >> review_output_router,
-        review_output_router >> {"APPROVED": revise_output_node, "REWRITE": article_feedback_editor_node},
+        review_output_router >> {"source_data_node": article_feedback_editor_node, "APPROVED": revise_output_node},
     ],
 )
 
@@ -113,7 +113,19 @@ root_agent = workflow
 `, "utf8");
 
     const analysis = await analyzeWorkflowProject(agentPath);
-    const labels = analysis.pipelineDefinition.phases.map((phase) => phase.label);
+    const phasesByLabel = new Map(analysis.pipelineDefinition.phases.map((phase) => [phase.label, phase] as const));
+    const labels = [...phasesByLabel.keys()];
+    const sourceData = phasesByLabel.get("source_data");
+    const writeArticle1 = phasesByLabel.get("write_article_1");
+    const writeArticle2 = phasesByLabel.get("write_article_2");
+    const recommendRecycledArticles = phasesByLabel.get("recommend_recycled_articles");
+    const ugcUserQuestions = phasesByLabel.get("ugc_user_questions");
+    const collector = phasesByLabel.get("article_output_collector");
+    const feedbackEditor = phasesByLabel.get("article_feedback_editor");
+    const reviewer = phasesByLabel.get("recycled_article_accuracy_reviewer");
+    const linkChecker = phasesByLabel.get("article_link_checker");
+    const router = phasesByLabel.get("review_output_router");
+    const reviseOutput = phasesByLabel.get("revise_output");
 
     expect(labels).toEqual(
       expect.arrayContaining([
@@ -130,6 +142,58 @@ root_agent = workflow
         "revise_output",
       ]),
     );
-    expect(analysis.pipelineDefinition.phases.some((phase) => phase.parentKey != null)).toBe(true);
+    expect(sourceData?.parentKey).toBeNull();
+    expect(writeArticle1?.parentKey).toBe(sourceData?.key);
+    expect(writeArticle2?.parentKey).toBe(sourceData?.key);
+    expect(recommendRecycledArticles?.parentKey).toBe(sourceData?.key);
+    expect(ugcUserQuestions?.parentKey).toBe(sourceData?.key);
+    expect(collector?.parentKey).toBeDefined();
+    expect(collector?.parentKeys).toEqual(
+      expect.arrayContaining([
+        writeArticle1?.key,
+        writeArticle2?.key,
+        recommendRecycledArticles?.key,
+        ugcUserQuestions?.key,
+      ]),
+    );
+    expect(collector?.parentKeys).toHaveLength(4);
+    expect(feedbackEditor?.parentKey).toBe(collector?.key);
+    expect(reviewer?.parentKey).toBe(feedbackEditor?.key);
+    expect(linkChecker?.parentKey).toBe(reviewer?.key);
+    expect(router?.parentKey).toBe(linkChecker?.key);
+    expect(reviseOutput?.parentKey).toBe(router?.key);
+  });
+
+  it("prefers the entry file when falling back to a root ADK variable", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-workflow-runtime-"));
+    tempRoots.push(root);
+    await fs.writeFile(path.join(root, "agent.py"), `
+from google.adk.agents import Agent
+
+entry_agent = Agent(
+    name="entry_agent",
+)
+`, "utf8");
+    await fs.writeFile(path.join(root, "a_helper.py"), `
+from google.adk.agents import Agent, Workflow
+
+helper_source = Agent(
+    name="helper_source",
+)
+
+helper_sink = Agent(
+    name="helper_sink",
+)
+
+workflow = Workflow(
+    edges=[
+        helper_source >> helper_sink,
+    ],
+)
+`, "utf8");
+
+    const analysis = await analyzeWorkflowProject(root);
+    expect(analysis.entrypoint).toBe("agent.py");
+    expect(analysis.pipelineDefinition.phases.map((phase) => phase.label)).toEqual(["entry_agent"]);
   });
 });

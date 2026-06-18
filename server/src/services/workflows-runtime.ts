@@ -39,6 +39,7 @@ type WorkflowPipelineNode = {
   functionName: string | null;
   ordinal: number;
   parentKey: string | null;
+  parentKeys: string[];
   depth: number;
   agentName: string | null;
   description: string | null;
@@ -184,13 +185,48 @@ function parsePythonListArg(block: string, argName: string) {
 function extractIdentifierRefs(source: string) {
   const refs: string[] = [];
   const seen = new Set<string>();
-  const pattern = /\b([A-Za-z_][A-Za-z0-9_]*)\b/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(source)) !== null) {
-    const ref = match[1] ?? "";
-    if (!ref || seen.has(ref)) continue;
-    seen.add(ref);
-    refs.push(ref);
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+    const nextThree = source.slice(index, index + 3);
+    if (char === "#") {
+      const lineBreakIndex = source.indexOf("\n", index + 1);
+      index = lineBreakIndex < 0 ? source.length : lineBreakIndex;
+      continue;
+    }
+    if (nextThree === '"""' || nextThree === "'''") {
+      const closeIndex = source.indexOf(nextThree, index + 3);
+      index = closeIndex < 0 ? source.length : closeIndex + 3;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      const quote = char;
+      index += 1;
+      while (index < source.length) {
+        const current = source[index];
+        if (current === "\\") {
+          index += 2;
+          continue;
+        }
+        index += 1;
+        if (current === quote) break;
+      }
+      continue;
+    }
+    if (/[A-Za-z_]/.test(char)) {
+      let end = index + 1;
+      while (end < source.length && /[A-Za-z0-9_]/.test(source[end] ?? "")) {
+        end += 1;
+      }
+      const ref = source.slice(index, end);
+      if (!seen.has(ref)) {
+        seen.add(ref);
+        refs.push(ref);
+      }
+      index = end;
+      continue;
+    }
+    index += 1;
   }
   return refs;
 }
@@ -356,20 +392,25 @@ function chooseEntrypointFromContents(
   return bestFile;
 }
 
-function findRootAdkVariable(entryContents: string, definitions: Map<string, ParsedAdkDefinition>) {
+function findRootAdkVariable(
+  entryContents: string,
+  definitions: Map<string, ParsedAdkDefinition>,
+  entryRelativePath: string,
+) {
   const aliasMatch = entryContents.match(/^\s*root_agent\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/m);
   if (aliasMatch?.[1] && definitions.has(aliasMatch[1])) return aliasMatch[1];
-  for (const definition of definitions.values()) {
+  const entryDefinitions = [...definitions.values()].filter((definition) => definition.relativePath === entryRelativePath);
+  for (const definition of entryDefinitions) {
     if (definition.definitionKind === "workflow") {
       return definition.variableName;
     }
   }
-  for (const definition of definitions.values()) {
+  for (const definition of entryDefinitions) {
     if (definition.relativePath === "agent.py" || definition.relativePath.endsWith("/agent.py")) {
       return definition.variableName;
     }
   }
-  return definitions.values().next().value?.variableName ?? null;
+  return entryDefinitions[0]?.variableName ?? definitions.values().next().value?.variableName ?? null;
 }
 
 function inferNodeKind(name: string, fallback: AdkNodeKind): AdkNodeKind {
@@ -449,8 +490,9 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
   const pipelineNodes: WorkflowPipelineNode[] = [];
 
   if (adkDefinitions.size > 0) {
-    const rootVar = findRootAdkVariable(contentsByPath.get(entryPath) ?? "", adkDefinitions);
+    const rootVar = findRootAdkVariable(contentsByPath.get(entryPath) ?? "", adkDefinitions, entrypoint);
     const visited = new Set<string>();
+    const pipelineNodeByVariableName = new Map<string, WorkflowPipelineNode>();
     const workflowDefinition = rootVar ? adkDefinitions.get(rootVar) ?? null : null;
     const workflowEdges = workflowDefinition?.definitionKind === "workflow" ? workflowDefinition.workflowEdges : [];
     const outgoingWorkflowRefs = new Map<string, string[]>();
@@ -480,6 +522,7 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
         functionName: toolName,
         ordinal: ordinal++,
         parentKey,
+        parentKeys: [parentKey],
         depth,
         agentName: null,
         description: null,
@@ -495,9 +538,21 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
       }
     };
     const visitDefinition = (variableName: string, parentKey: string | null, depth: number) => {
-      if (visited.has(variableName)) return;
       const definition = adkDefinitions.get(variableName);
       if (!definition) return;
+      const existingNode = pipelineNodeByVariableName.get(variableName);
+      if (visited.has(variableName)) {
+        if (
+          definition.definitionKind === "join" &&
+          existingNode &&
+          parentKey != null &&
+          !existingNode.parentKeys.includes(parentKey)
+        ) {
+          existingNode.parentKeys.push(parentKey);
+          existingNode.depth = Math.min(existingNode.depth, depth);
+        }
+        return;
+      }
       visited.add(variableName);
       if (definition.definitionKind === "workflow") {
         const childRefs =
@@ -510,7 +565,8 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
         return;
       }
       const key = `${definition.definitionKind}:${definition.name}`;
-      pipelineNodes.push({
+      const parentKeys = parentKey == null ? [] : [parentKey];
+      const node: WorkflowPipelineNode = {
         key,
         label: definition.name,
         kind:
@@ -521,10 +577,13 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
         functionName: definition.variableName,
         ordinal: ordinal++,
         parentKey,
+        parentKeys,
         depth,
         agentName: definition.name,
         description: definition.description,
-      });
+      };
+      pipelineNodeByVariableName.set(variableName, node);
+      pipelineNodes.push(node);
       for (const inlineNode of definition.inlineSubAgents) {
         pipelineNodes.push({
           key: `validator:${inlineNode.name}`,
@@ -534,6 +593,7 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
           functionName: inlineNode.className,
           ordinal: ordinal++,
           parentKey: key,
+          parentKeys: [key],
           depth: depth + 1,
           agentName: inlineNode.name,
           description: null,
@@ -579,6 +639,7 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
           functionName,
           ordinal: ordinal++,
           parentKey: null,
+          parentKeys: [],
           depth: 0,
           agentName: null,
           description: null,
@@ -599,6 +660,7 @@ export async function analyzeWorkflowProject(agentPath: string): Promise<Analyze
           functionName: node.functionName,
           ordinal: node.ordinal,
           parentKey: node.parentKey,
+          parentKeys: node.parentKeys,
           depth: node.depth,
           agentName: node.agentName,
           description: node.description,
