@@ -405,12 +405,11 @@ function findRootAdkVariable(
       return definition.variableName;
     }
   }
-  for (const definition of entryDefinitions) {
-    if (definition.relativePath === "agent.py" || definition.relativePath.endsWith("/agent.py")) {
-      return definition.variableName;
-    }
-  }
-  return entryDefinitions[0]?.variableName ?? definitions.values().next().value?.variableName ?? null;
+  return (
+    entryDefinitions.find(
+      (definition) => definition.relativePath === "agent.py" || definition.relativePath.endsWith("/agent.py"),
+    )?.variableName ?? entryDefinitions[0]?.variableName ?? definitions.values().next().value?.variableName ?? null
+  );
 }
 
 function inferNodeKind(name: string, fallback: AdkNodeKind): AdkNodeKind {
