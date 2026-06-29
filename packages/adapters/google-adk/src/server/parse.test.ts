@@ -53,4 +53,25 @@ describe("parseGoogleAdkJsonl", () => {
     expect(parsed.toolResults).toEqual([{ name: "calculator", output: { result: 2 } }]);
     expect(parsed.usage).toEqual({ inputTokens: 10, outputTokens: 4, cachedInputTokens: 2 });
   });
+
+  it("uses final workflow output as the summary when present", () => {
+    const stdout = [
+      JSON.stringify({
+        content: {
+          role: "model",
+          parts: [{ text: '{"decision":"approve","feedback_text":""}' }],
+        },
+      }),
+      JSON.stringify({
+        author: "landing_page_strategist",
+        node_path: "landing_page_strategist@1/landing_page_workspace_final_output@1",
+        output:
+          "## Final output\n\nFinal URL: https://citro-pages.fly.dev/dry-july-savings-challenge/",
+      }),
+    ].join("\n");
+
+    const parsed = parseGoogleAdkJsonl(stdout);
+
+    expect(parsed.summary).toContain("Final URL: https://citro-pages.fly.dev/dry-july-savings-challenge/");
+  });
 });

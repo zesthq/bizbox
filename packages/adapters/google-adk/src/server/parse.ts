@@ -24,6 +24,7 @@ function asErrorText(value: unknown): string {
 
 export function parseGoogleAdkJsonl(stdout: string) {
   let lastAssistantText = "";
+  let lastWorkflowOutput = "";
   const toolCalls: Array<{ name: string; input: unknown }> = [];
   const toolResults: Array<{ name: string; output: unknown }> = [];
   let errorMessage: string | null = null;
@@ -68,6 +69,11 @@ export function parseGoogleAdkJsonl(stdout: string) {
       lastAssistantText = modelTexts.join("\n\n").trim();
     }
 
+    const output = asString(parsed.output, "").trim();
+    if (output) {
+      lastWorkflowOutput = output;
+    }
+
     const explicitError = asErrorText(parsed.error ?? parsed.message ?? parsed.detail);
     if (explicitError) errorMessage = explicitError;
 
@@ -89,7 +95,7 @@ export function parseGoogleAdkJsonl(stdout: string) {
   }
 
   return {
-    summary: lastAssistantText,
+    summary: lastWorkflowOutput || lastAssistantText,
     toolCalls,
     toolResults,
     usage,
