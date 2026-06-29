@@ -4851,6 +4851,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           {
             title: manifestWorkflow.title,
             description: manifestWorkflow.description ?? null,
+            capabilities: [],
             status: "active" as const,
             runnerType: "google_adk" as const,
             runnerConfig,
