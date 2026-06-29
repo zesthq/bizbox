@@ -7,7 +7,7 @@ import type {
   WorkflowRunInvocationSummary,
 } from "@paperclipai/shared";
 import { WORKFLOW_INVOCATION_CONTRACT_VERSION } from "@paperclipai/shared";
-import { conflict, notFound, unprocessable } from "../errors.js";
+import { notFound, unprocessable } from "../errors.js";
 import { workflowService, resolveWorkflowByInvocationTarget } from "./workflows.js";
 
 function toInvocationMarkdown(envelope: WorkflowInvocationEnvelope) {
@@ -91,7 +91,7 @@ export function workflowInvocationService(db: Db) {
         ))
         .then((rows) => rows[0] ?? null);
       if (!sourceRunRow) {
-        throw conflict("Source routine run does not belong to this routine");
+        throw unprocessable("Source routine run does not belong to this routine");
       }
 
       const workflowRow = await resolveWorkflowByInvocationTarget(db, routineRow.companyId, input.envelope.target);

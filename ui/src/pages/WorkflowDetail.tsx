@@ -1416,7 +1416,9 @@ export function WorkflowDetail() {
               </CardContent>
             </Card>
 
-            <WorkflowInvocationCard runDetail={runDetail} />
+            {runDetail?.invocation ? (
+              <WorkflowInvocationCard runDetail={runDetail} />
+            ) : null}
             <WorkflowRunConsoleCard runDetail={runDetail} />
 
             <RunHistoryCard

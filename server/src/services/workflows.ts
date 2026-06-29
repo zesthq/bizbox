@@ -18,8 +18,6 @@ import type {
   ResolveWorkflowHandoff,
   RunWorkflow,
   UpdateWorkflow,
-  WorkflowInvocationEnvelope,
-  WorkflowInvocationResult,
   WorkflowInvocationTargetSelector,
   Workflow,
   WorkflowDetail,
@@ -34,7 +32,6 @@ import type {
   WorkflowRunDetail,
   WorkflowRunUsage,
 } from "@paperclipai/shared";
-import { WORKFLOW_INVOCATION_CONTRACT_VERSION } from "@paperclipai/shared";
 import { unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import { getStorageService } from "../storage/index.js";
@@ -94,29 +91,6 @@ function deriveWorkflowKey(title: string) {
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toInvocationMarkdown(
-  input: WorkflowInvocationEnvelope["payload"],
-  target: WorkflowInvocationTargetSelector,
-) {
-  if (input.kind === "markdown") return input.inputMarkdown;
-  const targetBits = [
-    target.workflowId ? `workflowId: ${target.workflowId}` : null,
-    target.workflowKey ? `workflowKey: ${target.workflowKey}` : null,
-    target.capability ? `capability: ${target.capability}` : null,
-  ].filter(Boolean);
-  return [
-    `# Routine workflow invocation`,
-    ``,
-    `Contract: ${WORKFLOW_INVOCATION_CONTRACT_VERSION}`,
-    targetBits.length > 0 ? `Target: ${targetBits.join(", ")}` : null,
-    ``,
-    "```json",
-    JSON.stringify(input.inputJson, null, 2),
-    "```",
-    "",
-  ].filter((line) => line !== null).join("\n");
 }
 
 function toWorkflowInvocationSummary(row: {
@@ -1019,6 +993,7 @@ export function workflowService(db: Db) {
       if (!runRow) return null;
       const workflowRow = await db.select().from(workflows).where(eq(workflows.id, runRow.workflowId)).then((rows) => rows[0] ?? null);
       if (!workflowRow) return null;
+      const invocation = (await selectRunInvocationMap(db, [runId])).get(runId) ?? null;
       const phases = await db.select().from(workflowRunPhases).where(eq(workflowRunPhases.workflowRunId, runId)).orderBy(asc(workflowRunPhases.ordinal));
       const handoffs = await db.select().from(workflowHandoffs).where(eq(workflowHandoffs.workflowRunId, runId)).orderBy(asc(workflowHandoffs.createdAt));
       const handoffIds = handoffs.map((h) => h.id);
@@ -1042,7 +1017,7 @@ export function workflowService(db: Db) {
       );
       const deliverables = await db.select().from(workflowDeliverables).where(eq(workflowDeliverables.workflowRunId, runId)).orderBy(desc(workflowDeliverables.createdAt));
       return {
-        ...toWorkflowRun(runRow),
+        ...toWorkflowRun(runRow, invocation),
         workflow: {
           id: workflowRow.id,
           title: workflowRow.title,

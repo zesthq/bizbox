@@ -27,6 +27,7 @@ FROM ranked_workflows
 WHERE w."id" = ranked_workflows."id";
 
 CREATE UNIQUE INDEX "workflows_company_workflow_key_uq" ON "workflows" ("company_id","workflow_key");
+CREATE INDEX "workflows_capabilities_idx" ON "workflows" USING gin ("capabilities");
 
 CREATE TABLE "workflow_invocations" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

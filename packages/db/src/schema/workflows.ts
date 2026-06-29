@@ -25,6 +25,7 @@ export const workflows = pgTable(
     companyStatusIdx: index("workflows_company_status_idx").on(table.companyId, table.status),
     companyUpdatedIdx: index("workflows_company_updated_idx").on(table.companyId, table.updatedAt),
     companyWorkflowKeyUq: unique("workflows_company_workflow_key_uq").on(table.companyId, table.workflowKey),
+    capabilitiesIdx: index("workflows_capabilities_idx").using("gin", table.capabilities),
   }),
 );
 
