@@ -2780,6 +2780,7 @@ function buildManifestFromPackageFiles(
     }
     const parsed = parseYamlFile(yamlRaw) as Record<string, unknown>;
     const title = asString(parsed.title);
+    const workflowKey = asString(parsed.workflowKey);
     const adkPath = asString(parsed.adkPath);
     if (!title || !adkPath) {
       warnings.push(`Skipping workflow at ${workflowPath}: missing required fields title or adkPath.`);
@@ -2787,6 +2788,7 @@ function buildManifestFromPackageFiles(
     }
     const entry: CompanyPortabilityWorkflowManifestEntry = {
       title,
+      ...(workflowKey ? { workflowKey } : {}),
       description: asString(parsed.description) ?? null,
       adkPath,
       workingDirectory: asString(parsed.workingDirectory) ?? null,
@@ -3643,6 +3645,8 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           counter++;
         }
         const workflowEntry: Record<string, unknown> = { title: wf.title, adkPath };
+        const workflowKey = asString(wf.workflowKey);
+        if (workflowKey) workflowEntry.workflowKey = workflowKey;
         if (wf.description) workflowEntry.description = wf.description;
         const cwd = typeof runnerConfig.cwd === "string" ? runnerConfig.cwd : null;
         if (cwd) workflowEntry.workingDirectory = cwd;
@@ -4796,6 +4800,8 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
       for (const wp of plan.preview.plan.workflowPlans) {
         const manifestWorkflow = sourceManifest.workflows.find((wf) => wf.title === wp.title);
         if (!manifestWorkflow) continue;
+        const workflowKey = manifestWorkflow.workflowKey ?? undefined;
+        const workflowKeyPatch = workflowKey !== undefined ? { workflowKey } : {};
 
         const runnerConfig = {
           agentPath: manifestWorkflow.adkPath,
@@ -4821,6 +4827,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
             {
               title: manifestWorkflow.title,
               description: manifestWorkflow.description ?? null,
+              ...workflowKeyPatch,
               runnerConfig,
             },
             { userId: actorUserId ?? null },
@@ -4851,6 +4858,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           {
             title: manifestWorkflow.title,
             description: manifestWorkflow.description ?? null,
+            ...workflowKeyPatch,
             capabilities: [],
             status: "active" as const,
             runnerType: "google_adk" as const,

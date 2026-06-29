@@ -2597,7 +2597,8 @@ describe("company portability", () => {
     workflowSvc.list.mockResolvedValueOnce([
       {
         id: "workflow-existing",
-        title: "Content Strategist",
+        title: "Customer Onboarding Workflow v2",
+        workflowKey: "customer-onboarding",
         description: "Plans content",
         runnerConfig: {
           agentPath: "agents/content-strategist",
@@ -2624,7 +2625,8 @@ describe("company portability", () => {
 
     expect(exported.manifest.workflows).toHaveLength(1);
     expect(exported.manifest.workflows[0]).toMatchObject({
-      title: "Content Strategist",
+      title: "Customer Onboarding Workflow v2",
+      workflowKey: "customer-onboarding",
       description: "Plans content",
       adkPath: "agents/content-strategist",
       workingDirectory: "/workspace/content",
@@ -2663,8 +2665,9 @@ describe("company portability", () => {
     expect(workflowSvc.create).toHaveBeenCalledWith(
       "company-imported",
       expect.objectContaining({
-        title: "Content Strategist",
+        title: "Customer Onboarding Workflow v2",
         description: "Plans content",
+        workflowKey: "customer-onboarding",
         status: "active",
         runnerType: "google_adk",
         runnerConfig: expect.objectContaining({
@@ -2758,6 +2761,7 @@ describe("company portability", () => {
       { userId: "user-1" },
     );
     expect(workflowSvc.update.mock.calls[0]?.[1]?.runnerConfig).not.toHaveProperty("promptTemplates");
+    expect(workflowSvc.update.mock.calls[0]?.[1]).not.toHaveProperty("workflowKey");
   });
 
   it("rejects dangerous adapter types on agent-safe imports", async () => {
