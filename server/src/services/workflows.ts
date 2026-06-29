@@ -89,6 +89,13 @@ function deriveWorkflowKey(title: string) {
   return "workflow";
 }
 
+function isWorkflowKeyUniqueViolation(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  const candidate = error as { code?: string; constraint?: string; constraint_name?: string };
+  const constraint = candidate.constraint ?? candidate.constraint_name;
+  return candidate.code === "23505" && constraint === "workflows_company_workflow_key_uq";
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -908,19 +915,25 @@ export function workflowService(db: Db) {
         : input.workflowKey === null
           ? null
           : await ensureUniqueWorkflowKey(db, companyId, input.workflowKey);
-      const inserted = await db.insert(workflows).values({
-        companyId,
-        title: input.title,
-        description: input.description ?? null,
-        status: input.status ?? "active",
-        workflowKey,
-        capabilities: input.capabilities ?? [],
-        runnerType: "google_adk",
-        runnerConfig: input.runnerConfig,
-        pipelineDefinition: {},
-        createdByUserId: actor.userId ?? "board",
-        updatedByUserId: actor.userId ?? "board",
-      }).returning().then((rows) => rows[0] ?? null);
+      let inserted;
+      try {
+        inserted = await db.insert(workflows).values({
+          companyId,
+          title: input.title,
+          description: input.description ?? null,
+          status: input.status ?? "active",
+          workflowKey,
+          capabilities: input.capabilities ?? [],
+          runnerType: "google_adk",
+          runnerConfig: input.runnerConfig,
+          pipelineDefinition: {},
+          createdByUserId: actor.userId ?? "board",
+          updatedByUserId: actor.userId ?? "board",
+        }).returning().then((rows) => rows[0] ?? null);
+      } catch (error) {
+        if (!isWorkflowKeyUniqueViolation(error)) throw error;
+        throw unprocessable("Workflow key already exists. Please retry.");
+      }
       if (!inserted) throw unprocessable("Failed to create workflow");
       try {
         const refreshed = await refreshWorkflowAnalysis(inserted);
@@ -941,18 +954,24 @@ export function workflowService(db: Db) {
             ...existingRunnerConfig,
             ...patch.runnerConfig,
           };
-      const updated = await db.update(workflows).set({
-        ...(patch.title !== undefined ? { title: patch.title } : {}),
-        ...(patch.description !== undefined ? { description: patch.description } : {}),
-        ...(patch.status !== undefined ? { status: patch.status } : {}),
-        ...(patch.workflowKey !== undefined
-          ? { workflowKey: patch.workflowKey === null ? null : await ensureUniqueWorkflowKey(db, existing.companyId, patch.workflowKey, existing.id) }
-          : {}),
-        ...(patch.capabilities !== undefined ? { capabilities: patch.capabilities } : {}),
-        ...(nextRunnerConfig !== undefined ? { runnerConfig: nextRunnerConfig } : {}),
-        updatedByUserId: actor.userId ?? "board",
-        updatedAt: new Date(),
-      }).where(eq(workflows.id, id)).returning().then((rows) => rows[0] ?? null);
+      let updated;
+      try {
+        updated = await db.update(workflows).set({
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.workflowKey !== undefined
+            ? { workflowKey: patch.workflowKey === null ? null : await ensureUniqueWorkflowKey(db, existing.companyId, patch.workflowKey, existing.id) }
+            : {}),
+          ...(patch.capabilities !== undefined ? { capabilities: patch.capabilities } : {}),
+          ...(nextRunnerConfig !== undefined ? { runnerConfig: nextRunnerConfig } : {}),
+          updatedByUserId: actor.userId ?? "board",
+          updatedAt: new Date(),
+        }).where(eq(workflows.id, id)).returning().then((rows) => rows[0] ?? null);
+      } catch (error) {
+        if (!isWorkflowKeyUniqueViolation(error)) throw error;
+        throw unprocessable("Workflow key already exists. Please retry.");
+      }
       if (!updated) return null;
       const shouldRefresh = patch.runnerConfig !== undefined
         && typeof patch.runnerConfig.agentPath === "string"
