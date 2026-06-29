@@ -82,6 +82,9 @@ const mockAccessService = vi.hoisted(() => ({
 const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockTrackRoutineCreated = vi.hoisted(() => vi.fn());
 const mockGetTelemetryClient = vi.hoisted(() => vi.fn());
+const mockWorkflowInvocationService = vi.hoisted(() => vi.fn(() => ({
+  invokeFromRoutine: vi.fn(),
+})));
 
 function registerModuleMocks() {
   vi.doMock("../routes/authz.js", async () => vi.importActual("../routes/authz.js"));
@@ -111,6 +114,7 @@ function registerModuleMocks() {
     accessService: () => mockAccessService,
     logActivity: mockLogActivity,
     routineService: () => mockRoutineService,
+    workflowInvocationService: mockWorkflowInvocationService,
   }));
 }
 

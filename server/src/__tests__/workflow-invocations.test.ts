@@ -88,7 +88,8 @@ vi.mock("../workflow-run-jwt.js", () => ({
   verifyWorkflowRunJwt: vi.fn(),
 }));
 
-import { workflowInvocationService, workflowService, resolveWorkflowByInvocationTarget } from "../services/workflows.ts";
+import { workflowService, resolveWorkflowByInvocationTarget } from "../services/workflows.ts";
+import { workflowInvocationService } from "../services/workflow-invocations.ts";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
