@@ -301,6 +301,7 @@ export function routineRoutes(db: Db) {
       res.status(404).json({ error: "Routine not found" });
       return;
     }
+    await assertBoardCanAssignTasks(req, routine.companyId);
     const result = await invocationSvc.invokeFromRoutine({
       routineId: routine.id,
       sourceRoutineRunId: req.body.sourceRoutineRunId,

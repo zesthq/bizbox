@@ -4870,7 +4870,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
             title: manifestWorkflow.title,
             description: manifestWorkflow.description ?? null,
             ...workflowKeyPatch,
-            capabilities: manifestWorkflow.capabilities,
+            capabilities: manifestWorkflow.capabilities ?? [],
             status: "active" as const,
             runnerType: "google_adk" as const,
             runnerConfig,

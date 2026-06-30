@@ -2770,6 +2770,54 @@ describe("company portability", () => {
     });
   });
 
+  it("imports workflows with an empty capabilities array when the manifest omits capabilities", async () => {
+    const portability = companyPortabilityService({} as any);
+
+    workflowSvc.list.mockResolvedValueOnce([
+      {
+        id: "workflow-existing",
+        title: "Capabilityless Workflow",
+        description: "No declared capabilities",
+        runnerConfig: {
+          agentPath: "agents/capabilityless",
+        },
+      },
+    ]);
+
+    const exported = await portability.exportBundle("company-1", {
+      include: { company: true, agents: false, projects: false, issues: false, workflows: true },
+    });
+
+    expect(exported.manifest.workflows[0]).not.toHaveProperty("capabilities");
+
+    companySvc.create.mockResolvedValueOnce({ id: "company-imported", name: "Imported Paperclip" });
+    accessSvc.ensureMembership.mockResolvedValue(undefined);
+
+    await portability.importBundle({
+      source: {
+        type: "inline",
+        rootPath: exported.rootPath,
+        files: exported.files,
+      },
+      include: { company: true, agents: false, projects: false, issues: false, workflows: true },
+      target: {
+        mode: "new_company",
+        newCompanyName: "Imported Paperclip",
+      },
+      agents: "all",
+      collisionStrategy: "rename",
+    }, "user-1");
+
+    expect(workflowSvc.create).toHaveBeenCalledWith(
+      "company-imported",
+      expect.objectContaining({
+        title: "Capabilityless Workflow",
+        capabilities: [],
+      }),
+      { userId: "user-1" },
+    );
+  });
+
   it("rejects dangerous adapter types on agent-safe imports", async () => {
     const portability = companyPortabilityService({} as any);
     const exported = await portability.exportBundle("company-1", {
