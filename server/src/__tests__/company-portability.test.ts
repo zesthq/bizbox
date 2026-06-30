@@ -2755,6 +2755,79 @@ describe("company portability", () => {
       expect.objectContaining({
         title: "Content Strategist",
         description: "Plans content",
+        workflowKey: "legacy-content-strategist",
+        runnerConfig: expect.objectContaining({
+          agentPath: "agents/content-strategist",
+          cwd: "/workspace/content",
+          command: "python run.py",
+          model: "gemini-2.5-pro",
+        }),
+      }),
+      { userId: "user-1" },
+    );
+    expect(workflowSvc.update.mock.calls[0]?.[1]?.runnerConfig).not.toHaveProperty("promptTemplates");
+  });
+
+  it("keeps workflowKey unset when the manifest omits it during restore", async () => {
+    const portability = companyPortabilityService({} as any);
+    const existingWorkflow = {
+      id: "workflow-existing",
+      title: "Content Strategist",
+      description: "Plans content",
+      runnerConfig: {
+        agentPath: "agents/content-strategist",
+        cwd: "/workspace/content",
+        command: "python run.py",
+        model: "gemini-2.5-pro",
+        promptTemplates: [
+          {
+            label: "Keep me",
+            promptMarkdown: "Keep this template on update.",
+          },
+        ],
+      },
+    };
+
+    workflowSvc.list.mockImplementation(async () => [existingWorkflow]);
+    const exported = await portability.exportBundle("company-1", {
+      include: { company: true, agents: false, projects: false, issues: false, workflows: true },
+    });
+
+    const workflowPath = `${exported.manifest.workflows[0].path}/WORKFLOW.yaml`;
+    const legacyWorkflowYaml = [
+      `title: "${existingWorkflow.title}"`,
+      `description: "${existingWorkflow.description}"`,
+      `adkPath: "${existingWorkflow.runnerConfig.agentPath}"`,
+      `workingDirectory: "${existingWorkflow.runnerConfig.cwd}"`,
+      `command: "${existingWorkflow.runnerConfig.command}"`,
+      `model: "${existingWorkflow.runnerConfig.model}"`,
+    ].join("\n");
+    const legacyFiles = {
+      ...exported.files,
+      [workflowPath]: legacyWorkflowYaml,
+    };
+
+    await portability.importBundle({
+      source: {
+        type: "inline",
+        rootPath: exported.rootPath,
+        files: legacyFiles,
+      },
+      include: { company: true, agents: false, projects: false, issues: false, workflows: true },
+      target: {
+        mode: "existing_company",
+        companyId: "company-1",
+      },
+      agents: "all",
+      collisionStrategy: "rename",
+    }, "user-1");
+
+    expect(workflowSvc.update).toHaveBeenCalledTimes(1);
+    expect(workflowSvc.update).toHaveBeenCalledWith(
+      "workflow-existing",
+      expect.objectContaining({
+        title: "Content Strategist",
+        description: "Plans content",
         runnerConfig: expect.objectContaining({
           agentPath: "agents/content-strategist",
           cwd: "/workspace/content",

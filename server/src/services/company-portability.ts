@@ -4837,6 +4837,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
             {
               title: manifestWorkflow.title,
               description: manifestWorkflow.description ?? null,
+              ...workflowKeyPatch,
               capabilities: manifestWorkflow.capabilities,
               runnerConfig,
             },
