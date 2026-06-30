@@ -2781,6 +2781,12 @@ function buildManifestFromPackageFiles(
     const parsed = parseYamlFile(yamlRaw) as Record<string, unknown>;
     const title = asString(parsed.title);
     const workflowKey = asString(parsed.workflowKey);
+    const capabilities = Array.isArray(parsed.capabilities)
+      ? parsed.capabilities
+          .filter((capability): capability is string => typeof capability === "string")
+          .map((capability) => capability.trim())
+          .filter((capability) => capability.length > 0)
+      : undefined;
     const adkPath = asString(parsed.adkPath);
     if (!title || !adkPath) {
       warnings.push(`Skipping workflow at ${workflowPath}: missing required fields title or adkPath.`);
@@ -2789,6 +2795,7 @@ function buildManifestFromPackageFiles(
     const entry: CompanyPortabilityWorkflowManifestEntry = {
       title,
       ...(workflowKey ? { workflowKey } : {}),
+      ...(capabilities && capabilities.length > 0 ? { capabilities } : {}),
       description: asString(parsed.description) ?? null,
       adkPath,
       workingDirectory: asString(parsed.workingDirectory) ?? null,
@@ -3647,6 +3654,9 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         const workflowEntry: Record<string, unknown> = { title: wf.title, adkPath };
         const workflowKey = asString(wf.workflowKey);
         if (workflowKey) workflowEntry.workflowKey = workflowKey;
+        if (Array.isArray(wf.capabilities) && wf.capabilities.length > 0) {
+          workflowEntry.capabilities = wf.capabilities;
+        }
         if (wf.description) workflowEntry.description = wf.description;
         const cwd = typeof runnerConfig.cwd === "string" ? runnerConfig.cwd : null;
         if (cwd) workflowEntry.workingDirectory = cwd;
@@ -4859,7 +4869,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
             title: manifestWorkflow.title,
             description: manifestWorkflow.description ?? null,
             ...workflowKeyPatch,
-            capabilities: [],
+            capabilities: manifestWorkflow.capabilities,
             status: "active" as const,
             runnerType: "google_adk" as const,
             runnerConfig,

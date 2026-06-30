@@ -2599,6 +2599,7 @@ describe("company portability", () => {
         id: "workflow-existing",
         title: "Customer Onboarding Workflow v2",
         workflowKey: "customer-onboarding",
+        capabilities: ["routine_handoff", "workflow_export"],
         description: "Plans content",
         runnerConfig: {
           agentPath: "agents/content-strategist",
@@ -2627,6 +2628,7 @@ describe("company portability", () => {
     expect(exported.manifest.workflows[0]).toMatchObject({
       title: "Customer Onboarding Workflow v2",
       workflowKey: "customer-onboarding",
+      capabilities: ["routine_handoff", "workflow_export"],
       description: "Plans content",
       adkPath: "agents/content-strategist",
       workingDirectory: "/workspace/content",
@@ -2668,6 +2670,7 @@ describe("company portability", () => {
         title: "Customer Onboarding Workflow v2",
         description: "Plans content",
         workflowKey: "customer-onboarding",
+        capabilities: ["routine_handoff", "workflow_export"],
         status: "active",
         runnerType: "google_adk",
         runnerConfig: expect.objectContaining({
