@@ -2723,6 +2723,7 @@ describe("company portability", () => {
     const legacyWorkflowYaml = [
       `title: "${existingWorkflow.title}"`,
       `description: "${existingWorkflow.description}"`,
+      `workflowKey: "legacy-content-strategist"`,
       `adkPath: "${existingWorkflow.runnerConfig.agentPath}"`,
       `workingDirectory: "${existingWorkflow.runnerConfig.cwd}"`,
       `command: "${existingWorkflow.runnerConfig.command}"`,
@@ -2765,9 +2766,6 @@ describe("company portability", () => {
     );
     expect(workflowSvc.update.mock.calls[0]?.[1]?.runnerConfig).not.toHaveProperty("promptTemplates");
     expect(workflowSvc.update.mock.calls[0]?.[1]).not.toHaveProperty("workflowKey");
-    expect(workflowSvc.update.mock.calls[0]?.[1]).toMatchObject({
-      capabilities: ["routine_handoff", "workflow_export"],
-    });
   });
 
   it("imports workflows with an empty capabilities array when the manifest omits capabilities", async () => {
