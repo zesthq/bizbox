@@ -2765,6 +2765,9 @@ describe("company portability", () => {
     );
     expect(workflowSvc.update.mock.calls[0]?.[1]?.runnerConfig).not.toHaveProperty("promptTemplates");
     expect(workflowSvc.update.mock.calls[0]?.[1]).not.toHaveProperty("workflowKey");
+    expect(workflowSvc.update.mock.calls[0]?.[1]).toMatchObject({
+      capabilities: ["routine_handoff", "workflow_export"],
+    });
   });
 
   it("rejects dangerous adapter types on agent-safe imports", async () => {
