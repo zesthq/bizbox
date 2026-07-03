@@ -159,6 +159,53 @@ describeEmbeddedPostgres("workflowService.update", () => {
     });
   });
 
+  it("normalizes malformed pipeline definitions before returning workflows", async () => {
+    const companyId = randomUUID();
+    const workflowId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    await db.insert(workflows).values({
+      id: workflowId,
+      companyId,
+      title: "Brief generator",
+      status: "active",
+      runnerType: "google_adk",
+      runnerConfig: {
+        agentPath: "/tmp/agent.py",
+      },
+      pipelineDefinition: {},
+      pipelineSourceHash: "hash-1",
+    });
+
+    const svc = workflowService(db);
+    const listed = await svc.list(companyId);
+    const detail = await svc.getDetail(workflowId);
+    const byId = await svc.get(workflowId);
+
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.pipelineDefinition).toMatchObject({
+      entrypoint: "agent.py",
+      generatedAt: new Date(0).toISOString(),
+      phases: [],
+    });
+    expect(detail?.pipelineDefinition).toMatchObject({
+      entrypoint: "agent.py",
+      generatedAt: new Date(0).toISOString(),
+      phases: [],
+    });
+    expect(byId?.pipelineDefinition).toMatchObject({
+      entrypoint: "agent.py",
+      generatedAt: new Date(0).toISOString(),
+      phases: [],
+    });
+  });
+
   it("returns a user-facing error when workflow key allocation collides during create", async () => {
     const companyId = randomUUID();
 

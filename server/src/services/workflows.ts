@@ -52,6 +52,8 @@ type WorkflowRunLaunchContext = {
 };
 
 function toWorkflow(row: typeof workflows.$inferSelect): Workflow {
+  const pipelineDefinition = (row.pipelineDefinition as Record<string, unknown> | null) ?? {};
+  const phases = Array.isArray(pipelineDefinition.phases) ? (pipelineDefinition.phases as Workflow["pipelineDefinition"]["phases"]) : [];
   return {
     id: row.id,
     companyId: row.companyId,
@@ -62,10 +64,14 @@ function toWorkflow(row: typeof workflows.$inferSelect): Workflow {
     capabilities: Array.isArray(row.capabilities) ? (row.capabilities as string[]) : [],
     runnerType: row.runnerType as "google_adk",
     runnerConfig: (row.runnerConfig as Record<string, unknown> | null) ?? {},
-    pipelineDefinition: (row.pipelineDefinition as Workflow["pipelineDefinition"] | null) ?? {
-      entrypoint: "agent.py",
-      generatedAt: new Date(0).toISOString(),
-      phases: [],
+    pipelineDefinition: {
+      entrypoint: typeof pipelineDefinition.entrypoint === "string" && pipelineDefinition.entrypoint.trim().length > 0
+        ? pipelineDefinition.entrypoint
+        : "agent.py",
+      generatedAt: typeof pipelineDefinition.generatedAt === "string" && pipelineDefinition.generatedAt.trim().length > 0
+        ? pipelineDefinition.generatedAt
+        : new Date(0).toISOString(),
+      phases,
     },
     pipelineSourceHash: row.pipelineSourceHash ?? null,
     createdByUserId: row.createdByUserId ?? null,
