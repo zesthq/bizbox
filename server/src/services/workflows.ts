@@ -54,6 +54,12 @@ type WorkflowRunLaunchContext = {
 function toWorkflow(row: typeof workflows.$inferSelect): Workflow {
   const pipelineDefinition = (row.pipelineDefinition as Record<string, unknown> | null) ?? {};
   const phases = Array.isArray(pipelineDefinition.phases) ? (pipelineDefinition.phases as Workflow["pipelineDefinition"]["phases"]) : [];
+  const generatedAt =
+    typeof pipelineDefinition.generatedAt === "string" &&
+    pipelineDefinition.generatedAt.trim().length > 0 &&
+    !Number.isNaN(Date.parse(pipelineDefinition.generatedAt))
+      ? pipelineDefinition.generatedAt
+      : new Date(0).toISOString();
   return {
     id: row.id,
     companyId: row.companyId,
@@ -68,9 +74,7 @@ function toWorkflow(row: typeof workflows.$inferSelect): Workflow {
       entrypoint: typeof pipelineDefinition.entrypoint === "string" && pipelineDefinition.entrypoint.trim().length > 0
         ? pipelineDefinition.entrypoint
         : "agent.py",
-      generatedAt: typeof pipelineDefinition.generatedAt === "string" && pipelineDefinition.generatedAt.trim().length > 0
-        ? pipelineDefinition.generatedAt
-        : new Date(0).toISOString(),
+      generatedAt,
       phases,
     },
     pipelineSourceHash: row.pipelineSourceHash ?? null,

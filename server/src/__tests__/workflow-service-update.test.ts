@@ -61,6 +61,11 @@ if (!embeddedPostgresSupport.supported) {
 describeEmbeddedPostgres("workflowService.update", () => {
   let db!: ReturnType<typeof createDb>;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+  const normalizedPipelineDefinition = {
+    entrypoint: "agent.py",
+    generatedAt: new Date(0).toISOString(),
+    phases: [],
+  } as const;
 
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-workflow-service-update-");
@@ -189,21 +194,54 @@ describeEmbeddedPostgres("workflowService.update", () => {
     const byId = await svc.get(workflowId);
 
     expect(listed).toHaveLength(1);
-    expect(listed[0]?.pipelineDefinition).toMatchObject({
-      entrypoint: "agent.py",
-      generatedAt: new Date(0).toISOString(),
-      phases: [],
+    expect(listed[0]?.pipelineDefinition).toMatchObject(normalizedPipelineDefinition);
+    expect(detail?.pipelineDefinition).toMatchObject(normalizedPipelineDefinition);
+    expect(byId?.pipelineDefinition).toMatchObject(normalizedPipelineDefinition);
+  });
+
+  it.each([
+    ["null pipeline definitions", null],
+    [
+      "individually malformed pipeline fields",
+      {
+        entrypoint: 0,
+        generatedAt: "bad-date",
+        phases: "not-an-array",
+      },
+    ],
+  ])("normalizes %s before returning workflows", async (_, pipelineDefinition) => {
+    const companyId = randomUUID();
+    const workflowId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
     });
-    expect(detail?.pipelineDefinition).toMatchObject({
-      entrypoint: "agent.py",
-      generatedAt: new Date(0).toISOString(),
-      phases: [],
+
+    await db.insert(workflows).values({
+      id: workflowId,
+      companyId,
+      title: "Brief generator",
+      status: "active",
+      runnerType: "google_adk",
+      runnerConfig: {
+        agentPath: "/tmp/agent.py",
+      },
+      pipelineDefinition,
+      pipelineSourceHash: "hash-1",
     });
-    expect(byId?.pipelineDefinition).toMatchObject({
-      entrypoint: "agent.py",
-      generatedAt: new Date(0).toISOString(),
-      phases: [],
-    });
+
+    const svc = workflowService(db);
+    const listed = await svc.list(companyId);
+    const detail = await svc.getDetail(workflowId);
+    const byId = await svc.get(workflowId);
+
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.pipelineDefinition).toMatchObject(normalizedPipelineDefinition);
+    expect(detail?.pipelineDefinition).toMatchObject(normalizedPipelineDefinition);
+    expect(byId?.pipelineDefinition).toMatchObject(normalizedPipelineDefinition);
   });
 
   it("returns a user-facing error when workflow key allocation collides during create", async () => {
