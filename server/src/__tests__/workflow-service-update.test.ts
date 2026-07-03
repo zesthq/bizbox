@@ -200,7 +200,14 @@ describeEmbeddedPostgres("workflowService.update", () => {
   });
 
   it.each([
-    ["null pipeline definitions", null],
+    [
+      "null-like pipeline fields",
+      {
+        entrypoint: null,
+        generatedAt: null,
+        phases: null,
+      },
+    ],
     [
       "individually malformed pipeline fields",
       {
