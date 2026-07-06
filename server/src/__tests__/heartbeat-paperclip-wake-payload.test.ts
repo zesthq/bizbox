@@ -99,6 +99,37 @@ describe("buildPaperclipWakePayload", () => {
     });
   });
 
+  it("does not materialize workflow bridge selectors from stale issue descriptions on non-workflow wakes", async () => {
+    const payload = await buildPaperclipWakePayload({
+      db: {} as never,
+      companyId: "company-1",
+      contextSnapshot: {
+        wakeReason: "issue_assigned",
+      },
+      issueSummary: {
+        id: "issue-3",
+        identifier: "CITAAAAAA-113",
+        title: "assignment wake",
+        description: canonicalWorkflowTargetDescription,
+        status: "in_progress",
+        priority: "medium",
+      },
+    });
+
+    expect(payload).toMatchObject({
+      reason: "issue_assigned",
+      issue: {
+        id: "issue-3",
+        identifier: "CITAAAAAA-113",
+        title: "assignment wake",
+        description: canonicalWorkflowTargetDescription,
+        status: "in_progress",
+        priority: "medium",
+      },
+    });
+    expect(payload?.workflowBridge).toBeUndefined();
+  });
+
   it("keeps an explicit workflow bridge even when the description conflicts", async () => {
     const payload = await buildPaperclipWakePayload({
       db: {} as never,

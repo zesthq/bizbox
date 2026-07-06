@@ -1597,6 +1597,7 @@ function readWakeWorkflowBridgeFromDescription(description: string | null | unde
     }
     if (key === "capability") {
       workflowBridge.capability = value;
+      continue;
     }
   }
 
@@ -1606,10 +1607,13 @@ function readWakeWorkflowBridgeFromDescription(description: string | null | unde
 }
 
 function materializeWakeWorkflowBridge(input: {
+  wakeReason: string | null | undefined;
   workflowBridge: WakeWorkflowBridge | null;
   issueDescription: string | null | undefined;
 }): WakeWorkflowBridge | null {
-  return input.workflowBridge ?? readWakeWorkflowBridgeFromDescription(input.issueDescription);
+  if (input.workflowBridge) return input.workflowBridge;
+  if (input.wakeReason !== "workflow_invoked") return null;
+  return readWakeWorkflowBridgeFromDescription(input.issueDescription);
 }
 
 function enrichWakeContextSnapshot(input: {
@@ -1736,6 +1740,7 @@ export async function buildPaperclipWakePayload(input: {
           .then((rows) => rows[0] ?? null)
       : null);
   const workflowBridge = materializeWakeWorkflowBridge({
+    wakeReason: readNonEmptyString(input.contextSnapshot.wakeReason),
     workflowBridge: readWakeWorkflowBridgeSelector(input.contextSnapshot),
     issueDescription: issueSummary?.description ?? null,
   });
