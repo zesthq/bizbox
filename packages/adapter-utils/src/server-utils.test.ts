@@ -471,6 +471,27 @@ describe("renderPaperclipWakePrompt", () => {
     expect(prompt).toContain("CTO");
     expect(prompt).toContain("make 3 follow-up issues");
   });
+
+  it("does not render a null line when no workflow bridge is present", () => {
+    const prompt = renderPaperclipWakePrompt({
+      reason: "issue_assigned",
+      issue: {
+        id: "issue-1",
+        identifier: "PAP-1580",
+        title: "Update prompts",
+        status: "in_progress",
+      },
+      commentWindow: {
+        requestedCount: 0,
+        includedCount: 0,
+        missingCount: 0,
+      },
+      comments: [],
+      fallbackFetchNeeded: false,
+    });
+
+    expect(prompt).not.toContain("null");
+  });
 });
 
 describe("ensurePathInEnv", () => {

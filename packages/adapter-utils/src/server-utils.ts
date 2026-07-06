@@ -716,7 +716,7 @@ export function renderPaperclipWakePrompt(
         `- pending messages: ${normalized.includedCount}/${normalized.requestedCount}`,
         `- latest message id: ${normalized.latestThreadMessageId ?? "unknown"}`,
         `- fallback fetch needed: ${normalized.fallbackFetchNeeded ? "yes" : "no"}`,
-        workflowTargetLine ? `- ${workflowTargetLine}` : null,
+        ...(workflowTargetLine ? [`- ${workflowTargetLine}`] : []),
         "",
       ]
       : [
@@ -732,7 +732,7 @@ export function renderPaperclipWakePrompt(
         `- pending messages: ${normalized.includedCount}/${normalized.requestedCount}`,
         `- latest message id: ${normalized.latestThreadMessageId ?? "unknown"}`,
         `- fallback fetch needed: ${normalized.fallbackFetchNeeded ? "yes" : "no"}`,
-        workflowTargetLine ? `- ${workflowTargetLine}` : null,
+        ...(workflowTargetLine ? [`- ${workflowTargetLine}`] : []),
         "",
       ];
 
@@ -779,7 +779,7 @@ export function renderPaperclipWakePrompt(
         `- pending comments: ${normalized.includedCount}/${normalized.requestedCount}`,
         `- latest comment id: ${normalized.latestCommentId ?? "unknown"}`,
         `- fallback fetch needed: ${normalized.fallbackFetchNeeded ? "yes" : "no"}`,
-        workflowTargetLine ? `- ${workflowTargetLine}` : null,
+        ...(workflowTargetLine ? [`- ${workflowTargetLine}`] : []),
       ]
     : [
         "## Paperclip Wake Payload",
@@ -797,7 +797,7 @@ export function renderPaperclipWakePrompt(
         `- pending comments: ${normalized.includedCount}/${normalized.requestedCount}`,
         `- latest comment id: ${normalized.latestCommentId ?? "unknown"}`,
         `- fallback fetch needed: ${normalized.fallbackFetchNeeded ? "yes" : "no"}`,
-        workflowTargetLine ? `- ${workflowTargetLine}` : null,
+        ...(workflowTargetLine ? [`- ${workflowTargetLine}`] : []),
       ];
 
   if (normalized.issue?.status) {

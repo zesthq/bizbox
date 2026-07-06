@@ -209,9 +209,10 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
     await expect(resolveWorkflowByInvocationTarget(db, companyId, {
       capability: "briefing",
     })).resolves.toMatchObject({ id: workflowId });
+    const escapedOtherCompanyWorkflowId = otherCompanyWorkflowId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     await expect(resolveWorkflowByInvocationTarget(db, companyId, {
       workflowId: otherCompanyWorkflowId,
-    })).rejects.toThrow(new RegExp(`workflowId=${otherCompanyWorkflowId}`));
+    })).rejects.toThrow(new RegExp(`workflowId=${escapedOtherCompanyWorkflowId}`));
     await expect(resolveWorkflowByInvocationTarget(db, companyId, {
       capability: "missing-capability",
     })).rejects.toThrow(/capability=missing-capability/i);
