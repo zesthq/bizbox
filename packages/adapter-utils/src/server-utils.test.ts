@@ -4,6 +4,7 @@ import {
   appendWithByteCap,
   DEFAULT_BIZBOX_AGENT_PROMPT_TEMPLATE,
   ensurePathInEnv,
+  normalizePaperclipWakePayload,
   renderPaperclipWakePrompt,
   runningProcesses,
   runChildProcess,
@@ -325,6 +326,45 @@ describe("renderPaperclipWakePrompt", () => {
     expect(prompt).toContain("dependency-blocked interaction: yes");
     expect(prompt).toContain("respond or triage the human comment");
     expect(prompt).toContain("PAP-1723 Finish blocker (todo)");
+  });
+
+  it("normalizes workflow bridge aliases and renders the workflow target", () => {
+    const wakePayload = {
+      reason: "workflow_invoked",
+      workflowContext: {
+        workflowId: "workflow-123",
+        workflowKey: "content_strategist",
+        capability: "content-strategist",
+      },
+      commentWindow: {
+        requestedCount: 0,
+        includedCount: 0,
+        missingCount: 0,
+      },
+      comments: [],
+      fallbackFetchNeeded: false,
+    };
+
+    expect(normalizePaperclipWakePayload(wakePayload)).toMatchObject({
+      reason: "workflow_invoked",
+      workflowBridge: {
+        workflowId: "workflow-123",
+        workflowKey: "content_strategist",
+        capability: "content-strategist",
+      },
+    });
+    expect(JSON.parse(stringifyPaperclipWakePayload(wakePayload) ?? "{}")).toMatchObject({
+      workflowBridge: {
+        workflowId: "workflow-123",
+        workflowKey: "content_strategist",
+        capability: "content-strategist",
+      },
+    });
+
+    const prompt = renderPaperclipWakePrompt(wakePayload);
+    expect(prompt).toContain(
+      "Workflow target: workflowId=workflow-123, workflowKey=content_strategist, capability=content-strategist",
+    );
   });
 
   it("includes continuation and child issue summaries in structured wake context", () => {
