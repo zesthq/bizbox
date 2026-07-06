@@ -127,7 +127,7 @@ describe("buildPaperclipWakePayload", () => {
         priority: "medium",
       },
     });
-    expect(payload?.workflowBridge).toBeUndefined();
+    expect(payload?.workflowBridge).toBeNull();
   });
 
   it("keeps an explicit workflow bridge even when the description conflicts", async () => {
