@@ -79,17 +79,15 @@ function truncateSummary(value: string, maxChars: number): string {
   return `${normalized.slice(0, Math.max(0, maxChars - 1))}…`;
 }
 
-function summarizeRecordKeys(record: Record<string, unknown>, maxKeys = 3): string | null {
-  const keys = Object.keys(record);
-  if (keys.length === 0) return null;
-  return keys.slice(0, maxKeys).join(", ");
+function summarizeRecordFieldCount(record: Record<string, unknown>): string | null {
+  const keyCount = Object.keys(record).length;
+  if (keyCount === 0) return null;
+  return `${keyCount} field${keyCount === 1 ? "" : "s"}`;
 }
 
-function summarizeProgressToolInput(name: string, input: unknown): string | null {
+export function summarizeProgressToolInput(input: unknown): string | null {
   if (typeof input === "string") {
-    const trimmed = input.trim();
-    if (!trimmed) return null;
-    return truncateSummary(trimmed, 48);
+    return null;
   }
   const record = asRecord(input);
   if (!record) return null;
@@ -103,15 +101,14 @@ function summarizeProgressToolInput(name: string, input: unknown): string | null
     return `command: ${truncateSummary(command, 48)}`;
   }
 
-  const keys = summarizeRecordKeys(record);
-  return keys ? `${name} fields: ${keys}` : null;
+  return summarizeRecordFieldCount(record);
 }
 
 type PiProgressState = {
   sawThinking: boolean;
 };
 
-function formatPiProgressMessage(line: string, state: PiProgressState): string | null {
+export function formatPiProgressMessage(line: string, state: PiProgressState): string | null {
   const parsed = asRecord(safeJsonParse(line));
   if (!parsed) return null;
 
@@ -140,7 +137,7 @@ function formatPiProgressMessage(line: string, state: PiProgressState): string |
 
   if (type === "tool_execution_start") {
     const toolName = readString(parsed.toolName, "tool");
-    const inputSummary = summarizeProgressToolInput(toolName, parsed.args);
+    const inputSummary = summarizeProgressToolInput(parsed.args);
     return inputSummary
       ? `[paperclip] Pi tool running: ${toolName} (${inputSummary}).`
       : `[paperclip] Pi tool running: ${toolName}.`;
