@@ -6,6 +6,23 @@ describe("summarizeProgressToolInput", () => {
     expect(summarizeProgressToolInput("token=secret-value")).toBeNull();
   });
 
+  it("redacts command args by field count", () => {
+    expect(
+      summarizeProgressToolInput({
+        command: "bash -lc 'curl https://example.com?token=secret'",
+      }),
+    ).toBe("1 field");
+  });
+
+  it("redacts cmd args by field count", () => {
+    expect(
+      summarizeProgressToolInput({
+        cmd: "bash -lc 'curl https://example.com?token=secret'",
+        cwd: "/tmp",
+      }),
+    ).toBe("2 fields");
+  });
+
   it("summarizes object args by field count", () => {
     expect(
       summarizeProgressToolInput({

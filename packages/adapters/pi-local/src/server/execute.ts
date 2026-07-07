@@ -92,15 +92,6 @@ export function summarizeProgressToolInput(input: unknown): string | null {
   const record = asRecord(input);
   if (!record) return null;
 
-  const command = typeof record.command === "string"
-    ? record.command
-    : typeof record.cmd === "string"
-      ? record.cmd
-      : null;
-  if (command) {
-    return `command: ${truncateSummary(command, 48)}`;
-  }
-
   return summarizeRecordFieldCount(record);
 }
 
