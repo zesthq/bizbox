@@ -66,6 +66,7 @@ const trigger = {
 const mockRoutineService = vi.hoisted(() => ({
   list: vi.fn(),
   get: vi.fn(),
+  getRun: vi.fn(),
   getDetail: vi.fn(),
   update: vi.fn(),
   create: vi.fn(),
@@ -156,6 +157,11 @@ describe("routine routes", () => {
     mockGetTelemetryClient.mockReturnValue({ track: vi.fn() });
     mockRoutineService.create.mockResolvedValue(routine);
     mockRoutineService.get.mockResolvedValue(routine);
+    mockRoutineService.getRun.mockResolvedValue({
+      id: "77777777-7777-4777-8777-777777777777",
+      routineId,
+      companyId,
+    });
     mockRoutineService.getTrigger.mockResolvedValue(trigger);
     mockRoutineService.update.mockResolvedValue({ ...routine, assigneeAgentId: otherAgentId });
     mockRoutineService.runRoutine.mockResolvedValue({
@@ -376,6 +382,39 @@ describe("routine routes", () => {
         },
       }),
     });
+  });
+
+  it("rejects an agent router when its own runId is not from the target routine", async () => {
+    mockRoutineService.get.mockResolvedValue(otherRoutine);
+    mockRoutineService.getRun.mockResolvedValue(null);
+
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: "77777777-7777-4777-8777-777777777777",
+      source: "run",
+    });
+
+    const res = await request(app)
+      .post(`/api/routines/${routineId}/workflow-invocations`)
+      .send({
+        sourceRoutineRunId: "77777777-7777-4777-8777-777777777777",
+        invocation: {
+          contractVersion: "workflow-invocation/v1",
+          target: {
+            workflowId: "88888888-8888-4888-8888-888888888888",
+          },
+          payload: {
+            kind: "markdown",
+            inputMarkdown: "Please do the thing.",
+          },
+        },
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("dispatch workflow invocations");
+    expect(mockInvokeFromRoutine).not.toHaveBeenCalled();
   });
 
   it("rejects an agent router when the request is not bound to the source run", async () => {
