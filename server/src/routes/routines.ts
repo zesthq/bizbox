@@ -67,11 +67,11 @@ export function routineRoutes(db: Db) {
     }
 
     if (req.actor.type !== "agent" || !req.actor.agentId) throw unauthorized();
-    if (req.actor.runId === sourceRoutineRunId) {
-      const sourceRun = await svc.getRun(routine.id, sourceRoutineRunId);
-      if (!sourceRun) {
-        throw forbidden("Agents can only dispatch workflow invocations for routines assigned to themselves");
-      }
+    const sourceRun = await svc.getRun(routine.id, sourceRoutineRunId);
+    if (!sourceRun) {
+      throw forbidden("Agents can only dispatch workflow invocations for known source routine runs");
+    }
+    if (req.actor.runId) {
       return routine;
     }
     if (routine.assigneeAgentId !== req.actor.agentId) {
