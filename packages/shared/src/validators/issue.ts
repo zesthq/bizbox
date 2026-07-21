@@ -280,7 +280,7 @@ export const askUserQuestionsPayloadSchema = z.object({
   version: z.literal(1),
   title: z.string().trim().max(240).nullable().optional(),
   submitLabel: z.string().trim().max(120).nullable().optional(),
-  questions: z.array(askUserQuestionsQuestionSchema).min(1).max(10),
+  questions: z.array(askUserQuestionsQuestionSchema).min(1),
 }).superRefine((value, ctx) => {
   const seenQuestionIds = new Set<string>();
   for (const [questionIndex, question] of value.questions.entries()) {

@@ -419,6 +419,37 @@ describe("getClickUpChatMessageReplies", () => {
     );
   });
 
+  it("paginates through more than twenty reply pages", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn();
+    for (let page = 0; page < 21; page += 1) {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [{
+            id: `reply-${page + 1}`,
+            parent_message: "message-42",
+            content: `Reply ${page + 1}`,
+            date: page + 1,
+            links: { reactions: `https://example.test/reactions/${page + 1}` },
+          }],
+          next_cursor: page === 20 ? null : `cursor-${page + 1}`,
+        }),
+      });
+    }
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await getClickUpChatMessageReplies("message-42");
+
+    expect(result.status).toBe("sent");
+    expect(result.replies).toHaveLength(21);
+    expect(result.replies.at(-1)?.id).toBe("reply-21");
+    expect(fetchMock).toHaveBeenCalledTimes(21);
+  });
+
   it("aborts slow ClickUp reply polling requests", async () => {
     process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
     process.env.CLICKUP_WORKSPACE_ID = "workspace-1";

@@ -120,4 +120,23 @@ describe("issue thread interaction schemas", () => {
       })).toThrow("href must not use javascript:, data:, or protocol-relative URLs");
     }
   });
+
+  it("accepts handoffs with more than ten questions", () => {
+    const parsed = createIssueThreadInteractionSchema.parse({
+      kind: "ask_user_questions",
+      payload: {
+        version: 1,
+        questions: Array.from({ length: 11 }, (_, index) => ({
+          id: `question-${index + 1}`,
+          prompt: `Question ${index + 1}?`,
+          selectionMode: "single",
+          options: [{ id: "yes", label: "Yes" }],
+        })),
+      },
+    });
+
+    expect(parsed.kind).toBe("ask_user_questions");
+    if (parsed.kind !== "ask_user_questions") return;
+    expect(parsed.payload.questions).toHaveLength(11);
+  });
 });
