@@ -248,4 +248,35 @@ describe("clickup awaiting human transport handoff messages", () => {
     expect(body.content).toContain(title.trim());
     expect(body.content).toContain(finalDetail);
   });
+
+  it("truncates oversized handovers at ClickUp's message limit", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+    process.env.CLICKUP_AWAITING_HUMAN_CHANNEL_ID = "channel-1";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ data: { id: "message-46" } }),
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await sendAwaitingHumanNotification({
+      companyId: "company-1",
+      issueId: "issue-1",
+      handoffKind: "ask_user_questions",
+      notification: {
+        title: "Oversized handover",
+        summary: "Need answers.",
+        link: "",
+        cta: "",
+        labels: ["awaiting_human", "ask_user_questions"],
+        body: "x".repeat(40_100),
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.content).toHaveLength(40_000);
+    expect(body.content).toMatch(/…$/);
+  });
 });

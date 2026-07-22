@@ -11,15 +11,14 @@ import { awaitingHumanSettingsService } from "./awaiting-human-settings.js";
 import type { AwaitingHumanBridgePollEvent } from "./awaiting-human-bridge-registry.js";
 import { normalizeClickUpAttachmentTaskId } from "./clickup-awaiting-human-settings-adapter.js";
 
-// Deliberately generous defaults: keep handovers effectively uncapped while
-// preserving a single, easily adjustable limit surface for future deployments.
-const CLICKUP_CHAT_MESSAGE_MAX_CHARS = 1_000_000;
-const CLICKUP_CHAT_REPLY_MESSAGE_MAX_CHARS = 10_000;
-const CLICKUP_CHAT_REPLY_BODY_MAX_CHARS = 1_000_000;
-const MAX_TITLE_LENGTH = 10_000;
-const MAX_SUMMARY_LENGTH = 1_000_000;
+// ClickUp's Chat API accepts message and reply content up to 40,000 characters.
+const CLICKUP_CHAT_MESSAGE_MAX_CHARS = 40_000;
+const CLICKUP_CHAT_REPLY_MESSAGE_MAX_CHARS = 40_000;
+const CLICKUP_CHAT_REPLY_BODY_MAX_CHARS = 40_000;
+const MAX_TITLE_LENGTH = 40_000;
+const MAX_SUMMARY_LENGTH = 40_000;
 const MAX_DETAIL_BULLETS = 10_000;
-const MAX_BULLET_LENGTH = 10_000;
+const MAX_BULLET_LENGTH = 40_000;
 const DEFAULT_CLICKUP_TIMEOUT_SEC = 30;
 const MAX_CLICKUP_REPLY_PAGES = 100;
 const CLICKUP_ATTACHMENT_FILE_FIELD = "attachment[0]";

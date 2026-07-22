@@ -821,7 +821,7 @@ describe("sendAwaitingHumanNotificationReply", () => {
       "",
       "## Section Order",
       "",
-      ...Array.from({ length: 35 }, (_, index) =>
+      ...Array.from({ length: 100 }, (_, index) =>
         `- Section ${index + 1}: This line should remain visible in the ClickUp thread reply so the human can review the complete workflow approval context before replying.`,
       ),
       "",
@@ -853,8 +853,8 @@ describe("sendAwaitingHumanNotificationReply", () => {
 
     expect(result.status).toBe("sent");
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    expect(body.content.length).toBeGreaterThan(1_800);
-    expect(body.content).toContain("Section 35");
+    expect(body.content.length).toBeGreaterThan(10_000);
+    expect(body.content).toContain("Section 100");
     expect(body.content).toContain("Please approve or reject this landing page plan.");
     expect(body.content).toContain("Reply with: approve or reject");
     expect(body.content).not.toMatch(/…$/);

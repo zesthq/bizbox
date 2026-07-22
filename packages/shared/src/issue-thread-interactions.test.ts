@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createIssueThreadInteractionSchema } from "./validators/issue.js";
+import {
+  askUserQuestionsResultSchema,
+  createIssueThreadInteractionSchema,
+  respondIssueThreadInteractionSchema,
+} from "./validators/issue.js";
 
 describe("issue thread interaction schemas", () => {
   it("parses request_confirmation payloads with default no-wake continuation", () => {
@@ -138,5 +142,15 @@ describe("issue thread interaction schemas", () => {
     expect(parsed.kind).toBe("ask_user_questions");
     if (parsed.kind !== "ask_user_questions") return;
     expect(parsed.payload.questions).toHaveLength(11);
+  });
+
+  it("accepts answers for every question in an unbounded handoff", () => {
+    const answers = Array.from({ length: 21 }, (_, index) => ({
+      questionId: `question-${index + 1}`,
+      optionIds: ["yes"],
+    }));
+
+    expect(askUserQuestionsResultSchema.parse({ version: 1, answers }).answers).toHaveLength(21);
+    expect(respondIssueThreadInteractionSchema.parse({ answers }).answers).toHaveLength(21);
   });
 });

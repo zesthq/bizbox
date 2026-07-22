@@ -314,7 +314,7 @@ export const askUserQuestionsAnswerSchema = z.object({
 
 export const askUserQuestionsResultSchema = z.object({
   version: z.literal(1),
-  answers: z.array(askUserQuestionsAnswerSchema).max(20),
+  answers: z.array(askUserQuestionsAnswerSchema),
   summaryMarkdown: z.string().max(20000).nullable().optional(),
 });
 
@@ -437,7 +437,7 @@ export const rejectIssueThreadInteractionSchema = z.object({
 export type RejectIssueThreadInteraction = z.infer<typeof rejectIssueThreadInteractionSchema>;
 
 export const respondIssueThreadInteractionSchema = z.object({
-  answers: z.array(askUserQuestionsAnswerSchema).max(20),
+  answers: z.array(askUserQuestionsAnswerSchema),
   summaryMarkdown: z.string().max(20000).nullable().optional(),
 });
 export type RespondIssueThreadInteraction = z.infer<typeof respondIssueThreadInteractionSchema>;
