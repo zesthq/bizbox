@@ -14,7 +14,8 @@ import { normalizeClickUpAttachmentTaskId } from "./clickup-awaiting-human-setti
 // ClickUp's Chat API accepts message and reply content up to 40,000 characters.
 const CLICKUP_CHAT_MESSAGE_MAX_CHARS = 40_000;
 const CLICKUP_CHAT_REPLY_MESSAGE_MAX_CHARS = 40_000;
-const CLICKUP_CHAT_REPLY_BODY_MAX_CHARS = 40_000;
+// Reserve space for the reply title and required CTA instructions.
+const CLICKUP_CHAT_REPLY_BODY_MAX_CHARS = 38_000;
 const MAX_TITLE_LENGTH = 40_000;
 const MAX_REVIEWER_DIRECT_MESSAGE_TITLE_LENGTH = 120;
 const MAX_SUMMARY_LENGTH = 40_000;

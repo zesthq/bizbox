@@ -827,7 +827,7 @@ describe("sendAwaitingHumanNotificationReply", () => {
     const result = await sendAwaitingHumanNotificationReply("thread-root-1", {
       companyId: "company-1",
       issueId: "handoff-1",
-      handoffKind: "approval",
+      handoffKind: "request_confirmation",
       notification: {
         title: "Workflow approval required",
         summary: "Landing page approval required",
@@ -890,7 +890,7 @@ describe("sendAwaitingHumanNotificationReply", () => {
     const result = await sendAwaitingHumanNotificationReply("thread-root-1", {
       companyId: "company-1",
       issueId: "handoff-1",
-      handoffKind: "approval",
+      handoffKind: "request_confirmation",
       notification: {
         title: "Workflow approval required",
         summary: "Landing page approval required",
@@ -908,6 +908,37 @@ describe("sendAwaitingHumanNotificationReply", () => {
     expect(body.content).toContain("Please approve or reject this landing page plan.");
     expect(body.content).toContain("Reply with: approve or reject");
     expect(body.content).not.toMatch(/…$/);
+  });
+
+  it("preserves reply CTA instructions when the body reaches its limit", async () => {
+    process.env.CLICKUP_PERSONAL_TOKEN = "token-123";
+    process.env.CLICKUP_WORKSPACE_ID = "workspace-1";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      text: async () => JSON.stringify({ id: "question-reply-2" }),
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const cta = "Reply with: approve or reject.";
+
+    await sendAwaitingHumanNotificationReply("thread-root-1", {
+      companyId: "company-1",
+      issueId: "handoff-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title: "Workflow approval required",
+        summary: "Landing page approval required",
+        body: "Detailed approval context. ".repeat(2_000),
+        link: "",
+        cta,
+        labels: ["workflow_handoff", "approval"],
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.content).toContain(`…\n\n${cta}`);
+    expect(body.content.length).toBeLessThanOrEqual(40_000);
   });
 });
 
