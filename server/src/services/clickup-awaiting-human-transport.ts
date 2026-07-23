@@ -16,6 +16,7 @@ const CLICKUP_CHAT_MESSAGE_MAX_CHARS = 40_000;
 const CLICKUP_CHAT_REPLY_MESSAGE_MAX_CHARS = 40_000;
 const CLICKUP_CHAT_REPLY_BODY_MAX_CHARS = 40_000;
 const MAX_TITLE_LENGTH = 40_000;
+const MAX_REVIEWER_DIRECT_MESSAGE_TITLE_LENGTH = 120;
 const MAX_SUMMARY_LENGTH = 40_000;
 const MAX_DETAIL_BULLETS = 10_000;
 const MAX_BULLET_LENGTH = 40_000;
@@ -315,12 +316,16 @@ async function maybeSendClickUpReviewerDirectMessages(input: {
       const dmContent = [
         `Hi ${displayName},`,
         "",
-        `You were notified in ClickUp about ${truncateText(input.title, MAX_TITLE_LENGTH)}.`,
+        `You were notified in ClickUp about ${truncateText(input.title, MAX_REVIEWER_DIRECT_MESSAGE_TITLE_LENGTH)}.`,
       ];
       if (input.threadLink) {
         dmContent.push("", `Original approval thread: ${input.threadLink}`);
       }
-      await sendClickUpDirectMessage(input.config, dmChannel.channelId, dmContent.join("\n"));
+      await sendClickUpDirectMessage(
+        input.config,
+        dmChannel.channelId,
+        trimTotal(dmContent.join("\n"), CLICKUP_CHAT_MESSAGE_MAX_CHARS),
+      );
     } catch (error) {
       logger.warn({
         userId: reviewer.userId,

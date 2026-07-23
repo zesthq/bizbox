@@ -594,6 +594,56 @@ describe("sendAwaitingHumanNotification review context", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
+  it("caps reviewer DM titles separately from full handover titles", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ member: { user: { username: "Primary Lead" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "message-review" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "dm-channel-primary" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        text: async () => JSON.stringify({ id: "dm-message-primary" }),
+      });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const title = "x".repeat(50_000);
+
+    await sendAwaitingHumanNotification({
+      companyId: "company-1",
+      issueId: "issue-1",
+      handoffKind: "request_confirmation",
+      notification: {
+        title,
+        summary: "Please review the approval item.",
+        link: "https://bizbox.example/issues/BIZ-35",
+        cta: "Reply in Bizbox.",
+        labels: ["awaiting_human", "request_confirmation"],
+        approvalContext: { approvalName: "Policy approval" },
+      },
+    }, {
+      personalToken: "token-123",
+      workspaceId: "workspace-1",
+      channelId: "channel-9",
+      primaryReviewerUserId: "primary-user-id",
+    });
+
+    const dm = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body));
+    expect(dm.content).toContain(`${"x".repeat(119)}…`);
+    expect(dm.content).not.toContain(title);
+    expect(dm.content.length).toBeLessThanOrEqual(40_000);
+  });
+
   it("keeps the primary reviewer label un-attributed when only a secondary reviewer is configured", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
