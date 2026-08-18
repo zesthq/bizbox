@@ -28,7 +28,7 @@ describe("buildWorkflowBehaviorAgents", () => {
       actor: { kind: "agent" as const, name: "grounding_agent" },
       operation: { kind: "agent" as const, name: "grounding_agent" },
       status: "running" as const,
-      attributes: { model: "gemini", configuredTools: ["partnerpal"] },
+      attributes: { model: "gemini", configuredTools: ["content_source"] },
       error: null,
       createdAt: "2026-08-12T00:00:00.000Z",
     };
@@ -52,8 +52,8 @@ describe("buildWorkflowBehaviorAgents", () => {
         parentSpanId: "agent-1",
         sequence: 2,
         timestamp: "2026-08-12T00:00:01.000Z",
-        actor: { kind: "tool", name: "partnerpal" },
-        operation: { kind: "tool", name: "partnerpal" },
+        actor: { kind: "tool", name: "content_source" },
+        operation: { kind: "tool", name: "content_source" },
         input: { query: "campaign ideas" },
       },
       {
@@ -65,8 +65,8 @@ describe("buildWorkflowBehaviorAgents", () => {
         parentSpanId: "agent-1",
         sequence: 3,
         timestamp: "2026-08-12T00:00:02.000Z",
-        actor: { kind: "tool", name: "partnerpal" },
-        operation: { kind: "tool", name: "partnerpal" },
+        actor: { kind: "tool", name: "content_source" },
+        operation: { kind: "tool", name: "content_source" },
         status: "succeeded",
         output: { matches: 1 },
       },
@@ -380,13 +380,13 @@ describe("buildWorkflowBehaviorAgents", () => {
     const agents = buildWorkflowBehaviorAgents(null, [
       phase({
         phaseKey: "service-runtime:citro-studio-image:1",
-        label: "Citro Studio image generation",
+        label: "Image generation service",
         kind: "agent",
         status: "succeeded",
         metadata: {
           runtimeAgent: true,
-          agentName: "Citro Studio image generation",
-          service: "Citro Studio / Databricks",
+          agentName: "Image generation service",
+          service: "Image service / content warehouse",
           prompt: "Create a realistic partnership image.",
           configuredTools: ["generate_image"],
           runtimeToolName: "generate_image",
@@ -415,8 +415,8 @@ describe("buildWorkflowBehaviorAgents", () => {
     ]);
 
     expect(agents[0]).toMatchObject({
-      name: "Citro Studio image generation",
-      service: "Citro Studio / Databricks",
+      name: "Image generation service",
+      service: "Image service / content warehouse",
       model: null,
       prompt: "Create a realistic partnership image.",
       promptSource: "runtime_service",
@@ -446,7 +446,7 @@ describe("buildWorkflowBehaviorAgents", () => {
           node: "social_media_grounding_agent",
           details: {
             platform: "instagram",
-            sources: ["databricks_ugc_submissions"],
+            sources: ["approved_content_source"],
             month_of_ugc: "July",
             submission_platform: "CITRO",
           },
@@ -456,7 +456,7 @@ describe("buildWorkflowBehaviorAgents", () => {
           status: "ok",
           details: {
             platform: "instagram",
-            sources: ["databricks_ugc_submissions"],
+            sources: ["approved_content_source"],
             matches: 25,
             provenance: 1,
           },
@@ -478,9 +478,9 @@ describe("buildWorkflowBehaviorAgents", () => {
     expect(agents[0]).toMatchObject({
       name: "social_media_grounding_agent",
       called: true,
-      configuredTools: ["databricks_ugc_submissions"],
+      configuredTools: ["approved_content_source"],
       tools: [expect.objectContaining({
-        name: "databricks_ugc_submissions",
+        name: "approved_content_source",
         input: {
           platform: "instagram",
           month_of_ugc: "July",
@@ -489,7 +489,7 @@ describe("buildWorkflowBehaviorAgents", () => {
         output: expect.objectContaining({ matches: 25, provenance: 1 }),
       })],
       dataSources: [expect.objectContaining({
-        name: "databricks_ugc_submissions",
+        name: "approved_content_source",
         status: "queried",
         query: {
           platform: "instagram",
@@ -510,7 +510,7 @@ describe("buildWorkflowBehaviorAgents", () => {
           event: "source_grounding.started",
           node: "social_media_grounding_agent",
           details: {
-            sources: ["databricks_ugc_submissions"],
+            sources: ["approved_content_source"],
             platform: "instagram",
             month_of_ugc: null,
             submission_platform: "CITRO",
@@ -541,14 +541,14 @@ describe("buildWorkflowBehaviorAgents", () => {
         },
       }),
       phase({
-        phaseKey: "tool:databricks-query",
-        label: "databricks_ugc_submissions",
+        phaseKey: "tool:content-source-query",
+        label: "approved_content_source",
         kind: "tool",
         metadata: {
           runtimeCalled: true,
           parentKey: "agent:social_media_grounding_agent",
-          runtimeToolName: "databricks_ugc_submissions",
-          runtimeToolId: "databricks-query",
+          runtimeToolName: "approved_content_source",
+          runtimeToolId: "content-source-query",
           runtimeToolInput: {
             limit: 25,
             month_of_ugc: "",
@@ -565,8 +565,8 @@ describe("buildWorkflowBehaviorAgents", () => {
     expect(agents[0]?.tools).toHaveLength(1);
     expect(agents[0]?.dataSources).toEqual([
       expect.objectContaining({
-        id: "tool-databricks-query",
-        name: "databricks_ugc_submissions",
+        id: "tool-content-source-query",
+        name: "approved_content_source",
         status: "queried",
         query: {
           limit: 25,
@@ -591,14 +591,14 @@ describe("buildWorkflowBehaviorAgents", () => {
     const run = {
       consoleEntries: [
         compactEvent("2026-08-12T00:00:01.000Z", "source_grounding.started", {
-          sources: ["databricks_ugc_submissions"],
+          sources: ["approved_content_source"],
           query: "first",
         }),
         compactEvent("2026-08-12T00:00:02.000Z", "source_grounding.finished", {
           matches: 1,
         }),
         compactEvent("2026-08-12T00:00:03.000Z", "source_grounding.started", {
-          sources: ["databricks_ugc_submissions"],
+          sources: ["approved_content_source"],
           query: "second",
         }),
         compactEvent("2026-08-12T00:00:04.000Z", "source_grounding.finished", {
@@ -615,14 +615,14 @@ describe("buildWorkflowBehaviorAgents", () => {
         metadata: { runtimeAgent: true, agentName: "social_media_grounding_agent" },
       }),
       phase({
-        phaseKey: "tool:databricks-query",
-        label: "databricks_ugc_submissions",
+        phaseKey: "tool:content-source-query",
+        label: "approved_content_source",
         kind: "tool",
         metadata: {
           runtimeCalled: true,
           parentKey: "agent:social_media_grounding_agent",
-          runtimeToolName: "databricks_ugc_submissions",
-          runtimeToolId: "databricks-query",
+          runtimeToolName: "approved_content_source",
+          runtimeToolId: "content-source-query",
           runtimeToolInput: { query: "first" },
           runtimeToolOutput: { matches: 1 },
         },
@@ -632,12 +632,12 @@ describe("buildWorkflowBehaviorAgents", () => {
     expect(agents[0]?.tools).toHaveLength(2);
     expect(agents[0]?.dataSources).toHaveLength(2);
     expect(agents[0]?.dataSources[1]).toMatchObject({
-      name: "databricks_ugc_submissions",
+      name: "approved_content_source",
       query: { query: "second" },
     });
   });
 
-  it("shows the rich PartnerPal outcome emitted by compact grounding completion", () => {
+  it("shows the rich Content source outcome emitted by compact grounding completion", () => {
     const run = {
       consoleEntries: [{
         ts: "2026-08-12T00:00:00.000Z",
@@ -645,20 +645,20 @@ describe("buildWorkflowBehaviorAgents", () => {
         chunk: `${JSON.stringify({
           event: "source_grounding.started",
           node: "social_media_grounding_agent",
-          details: { platform: "instagram", sources: ["partnerpal"], mode: "campaign_planning" },
+          details: { platform: "instagram", sources: ["content_source"], mode: "campaign_planning" },
         })}\n${JSON.stringify({
           event: "source_grounding.finished",
           node: "social_media_grounding_agent",
           status: "ok",
-          details: { platform: "instagram", sources: ["partnerpal"], matches: 1 },
+          details: { platform: "instagram", sources: ["content_source"], matches: 1 },
         })}\n${JSON.stringify({
           event: "source_grounding.completed",
           node: "instagram_grounding",
           status: "ok",
           details: {
-            sources: ["partnerpal"],
+            sources: ["content_source"],
             outcomes: {
-              partnerpal: {
+              content_source: {
                 status: "ok",
                 query: "campaign activation ideas",
                 matches: 1,
@@ -670,8 +670,8 @@ describe("buildWorkflowBehaviorAgents", () => {
       }],
     } as WorkflowRunDetail;
 
-    const partnerpal = buildWorkflowBehaviorAgents(run, []).find((agent) => agent.name === "partnerpal");
-    expect(partnerpal).toMatchObject({
+    const content_source = buildWorkflowBehaviorAgents(run, []).find((agent) => agent.name === "content_source");
+    expect(content_source).toMatchObject({
       actorKind: "tool",
       called: true,
       tools: [expect.objectContaining({

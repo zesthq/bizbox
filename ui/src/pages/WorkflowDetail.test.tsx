@@ -476,12 +476,12 @@ describe("WorkflowDetail page", () => {
           ...latestRunDetail.phases[0],
           id: "phase-image-run-latest",
           phaseKey: "service-runtime:citro-studio-image:1",
-          label: "Citro Studio image generation",
+          label: "Image generation service",
           ordinal: 1,
           metadata: {
             runtimeAgent: true,
-            agentName: "Citro Studio image generation",
-            service: "Citro Studio / Databricks",
+            agentName: "Image generation service",
+            service: "Image service / content warehouse",
             description: "Direct image-generation service call",
             prompt: "Create a realistic partnership image.",
             configuredTools: ["generate_image"],
@@ -539,7 +539,7 @@ describe("WorkflowDetail page", () => {
     expect(container.textContent).toContain("Write a concise, factual board briefing.");
     expect(container.textContent).toContain("Model gpt-4.1");
     expect(container.textContent).toContain("Skills & tools used");
-    expect(container.textContent).toContain("Service Citro Studio / Databricks");
+    expect(container.textContent).toContain("Service Image service / content warehouse");
     expect(container.textContent).toContain("Prompt sent to service");
     expect(container.textContent).toContain("Create a realistic partnership image.");
     expect(container.textContent).toContain("Agent / LLM output");
@@ -741,17 +741,17 @@ describe("WorkflowDetail page", () => {
         stream: "stdout",
         chunk: `${JSON.stringify({
           event: "source_grounding.started",
-          node: "Writer:partnerpal",
-          operation_id: "partnerpal-span",
-          details: { source: "partnerpal", sources: ["partnerpal"], query: "campaign ideas" },
+          node: "Writer:content_source",
+          operation_id: "content_source-span",
+          details: { source: "content_source", sources: ["content_source"], query: "campaign ideas" },
         })}\n${JSON.stringify({
           event: "source_grounding.finished",
-          node: "Writer:partnerpal",
-          operation_id: "partnerpal-span",
+          node: "Writer:content_source",
+          operation_id: "content_source-span",
           status: "ok",
           details: {
-            source: "partnerpal",
-            sources: ["partnerpal"],
+            source: "content_source",
+            sources: ["content_source"],
             outcome: { status: "ok", matches: 1, items: [{ score: 79 }] },
           },
         })}\n`,
@@ -775,7 +775,7 @@ describe("WorkflowDetail page", () => {
     expect(agentCard?.textContent).toContain("Writer");
     expect(agentCard?.textContent).toContain("Called during this run");
     expect(childTools?.textContent).toContain("Child tools called by this agent");
-    expect(childTools?.textContent).toContain("partnerpal");
+    expect(childTools?.textContent).toContain("content_source");
     expect(container.querySelector('[data-behavior-actor-kind="tool"]')).toBeNull();
   });
 
@@ -1098,7 +1098,7 @@ describe("buildWorkflowGraph", () => {
           depth: 0,
         }),
         makePhase("lookup", {
-          label: "PartnerPal lookup",
+          label: "Content source lookup",
           kind: "tool",
           ordinal: 1,
           parentKey: "root",

@@ -101,7 +101,7 @@ describe("workflow routes", () => {
         kind: "approval",
         stage: "content",
         eventPhase: "grounding",
-        reviewSummary: "Source check complete. Planning will use Databricks UGC submissions. Not used: Homemade Genie SODA.",
+        reviewSummary: "Source check complete. Planning will use approved content source. Not used: excluded content source.",
         idempotencyKey: "handoff-review-0",
         promptMarkdown: "Approve this draft.",
       });
@@ -113,7 +113,7 @@ describe("workflow routes", () => {
       kind: "approval",
       stage: "content",
       eventPhase: "grounding",
-      reviewSummary: "Source check complete. Planning will use Databricks UGC submissions. Not used: Homemade Genie SODA.",
+      reviewSummary: "Source check complete. Planning will use approved content source. Not used: excluded content source.",
       idempotencyKey: "handoff-review-0",
       promptMarkdown: "Approve this draft.",
     });
@@ -239,8 +239,8 @@ describe("workflow routes", () => {
       parentSpanId: "agent-1",
       sequence: 2,
       timestamp: "2026-08-12T00:00:00.000Z",
-      actor: { kind: "tool", name: "partnerpal" },
-      operation: { kind: "tool", name: "partnerpal" },
+      actor: { kind: "tool", name: "content_source" },
+      operation: { kind: "tool", name: "content_source" },
       status: "succeeded",
       output: { matches: 1 },
     };

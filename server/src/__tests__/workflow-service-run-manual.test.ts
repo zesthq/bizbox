@@ -389,13 +389,13 @@ describeEmbeddedPostgres("workflowService.runManual", () => {
     const event = {
       schema: "bizbox.telemetry/v1" as const,
       event: "operation.completed" as const,
-      eventId: "evt-partnerpal-1",
-      spanId: "tool-partnerpal-1",
+      eventId: "evt-content_source-1",
+      spanId: "tool-content_source-1",
       parentSpanId: "agent-grounding-1",
       sequence: 2,
       timestamp: "2026-08-12T00:00:00.000Z",
-      actor: { kind: "tool" as const, name: "partnerpal" },
-      operation: { kind: "tool" as const, name: "partnerpal" },
+      actor: { kind: "tool" as const, name: "content_source" },
+      operation: { kind: "tool" as const, name: "content_source" },
       status: "succeeded" as const,
       output: { matches: 1 },
       attributes: { provenance: "gcs" },
@@ -407,7 +407,7 @@ describeEmbeddedPostgres("workflowService.runManual", () => {
 
     const rows = await db.select().from(workflowRunTelemetryEvents).where(eq(workflowRunTelemetryEvents.workflowRunId, runId));
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ companyId, eventId: event.eventId, operationName: "partnerpal" });
+    expect(rows[0]).toMatchObject({ companyId, eventId: event.eventId, operationName: "content_source" });
     const detail = await svc.getRunDetail(runId);
     expect(detail?.telemetryEvents).toEqual([
       expect.objectContaining({

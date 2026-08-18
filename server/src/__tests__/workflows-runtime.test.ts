@@ -350,7 +350,6 @@ root_agent = Agent(name="writer", instruction="Write clearly")
     expect(helper).toContain("_OBSERVATION_MAX_PENDING = 500");
     expect(helper).toContain('daemon=True');
     expect(helper).not.toContain("shared.service.image_generator");
-    expect(helper).not.toContain("Citro Studio");
     expect(helper).toContain("@functools.wraps(fn)");
     expect(helper).toContain("def _output_from_value(value):");
     expect(helper).toContain('{"output": observed_output}');
@@ -481,8 +480,8 @@ print(json.dumps(requests, separators=(",", ":")))`,
 import bizbox_workflow_runtime as runtime
 events = []
 runtime._enqueue_telemetry = lambda event: events.append(event) or True
-span_id = runtime.emit_operation_started("partnerpal", "tool", {"query": "campaign ideas", "api_key": "secret"}, "tool")
-runtime.emit_operation_completed(span_id, "partnerpal", "tool", {"matches": 1}, "tool")
+span_id = runtime.emit_operation_started("content_source", "tool", {"query": "campaign ideas", "api_key": "secret"}, "tool")
+runtime.emit_operation_completed(span_id, "content_source", "tool", {"matches": 1}, "tool")
 print(json.dumps(events, separators=(",", ":")))`,
     ], {
       env: {
@@ -497,7 +496,7 @@ print(json.dumps(events, separators=(",", ":")))`,
     expect(telemetryEvents[0]).toMatchObject({
       schema: "bizbox.telemetry/v1",
       event: "operation.started",
-      operation: { kind: "tool", name: "partnerpal" },
+      operation: { kind: "tool", name: "content_source" },
     });
     expect(telemetryEvents[0]).not.toHaveProperty("input");
     expect(telemetryEvents[1]).not.toHaveProperty("output");

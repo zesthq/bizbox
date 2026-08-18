@@ -118,16 +118,16 @@ describe("parseGoogleAdkJsonl", () => {
       JSON.stringify({
         event: "source_grounding.started",
         node: "social_media_grounding_agent",
-        details: { platform: "instagram", sources: ["partnerpal"], mode: "campaign_planning" },
+        details: { platform: "instagram", sources: ["content_source"], mode: "campaign_planning" },
       }),
       JSON.stringify({
         event: "source_grounding.completed",
         node: "instagram_grounding",
         status: "ok",
         details: {
-          sources: ["partnerpal"],
+          sources: ["content_source"],
           outcomes: {
-            partnerpal: {
+            content_source: {
               status: "ok",
               query: "campaign activation ideas",
               matches: 1,
@@ -139,11 +139,11 @@ describe("parseGoogleAdkJsonl", () => {
     ].join("\n"));
 
     expect(parsed.toolCalls).toEqual([{
-      name: "partnerpal",
+      name: "content_source",
       input: { platform: "instagram", mode: "campaign_planning" },
     }]);
     expect(parsed.toolResults).toEqual([{
-      name: "partnerpal",
+      name: "content_source",
       output: expect.objectContaining({
         query: "campaign activation ideas",
         matches: 1,
