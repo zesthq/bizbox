@@ -16,9 +16,12 @@ export const workflowRunStatusSchema = z.enum([
   "queued",
   "running",
   "awaiting_human",
+  "awaiting_content_review",
+  "awaiting_final_review",
   "succeeded",
   "failed",
   "cancelled",
+  "rejected",
 ]);
 export const workflowPhaseStatusSchema = z.enum([
   "idle",
@@ -36,6 +39,8 @@ export const workflowHandoffStatusSchema = z.enum([
   "responded",
   "cancelled",
 ]);
+export const workflowReviewStageSchema = z.enum(["content", "final"]);
+export const workflowFeedbackActionSchema = z.enum(["approve", "request_changes", "reject"]);
 
 export const workflowPromptTemplateSchema = z.object({
   label: z.string().trim().min(1).max(200),
@@ -75,6 +80,11 @@ export const workflowPipelinePhaseSchema = z.object({
   depth: z.number().int().min(0).optional(),
   agentName: z.string().trim().min(1).max(255).nullable().optional(),
   description: z.string().trim().min(1).max(2_000).nullable().optional(),
+  systemPrompt: z.string().nullable().optional(),
+  configuredSkills: z.array(z.object({
+    name: z.string().trim().min(1).max(255),
+    content: z.string(),
+  })).optional(),
 });
 
 export const workflowPipelineDefinitionSchema = z.object({
@@ -133,9 +143,48 @@ export const workflowPhaseEventSchema = z.object({
 });
 export type WorkflowPhaseEvent = z.infer<typeof workflowPhaseEventSchema>;
 
+export const workflowTelemetryEventSchema = z.object({
+  schema: z.literal("bizbox.telemetry/v1"),
+  event: z.enum(["operation.started", "operation.completed", "operation.failed"]),
+  eventId: z.string().trim().min(1).max(255),
+  spanId: z.string().trim().min(1).max(255),
+  parentSpanId: z.string().trim().min(1).max(255).nullable(),
+  sequence: z.number().int().min(0),
+  timestamp: z.string().datetime({ offset: true }),
+  actor: z.object({
+    kind: z.enum(["workflow", "agent", "model", "tool", "service", "system"]),
+    name: z.string().trim().min(1).max(255).nullable(),
+  }),
+  operation: z.object({
+    kind: z.enum(["invocation", "phase", "agent", "llm", "tool", "service"]),
+    name: z.string().trim().min(1).max(255),
+  }),
+  status: z.enum(["running", "succeeded", "failed"]).nullable(),
+  input: z.unknown().optional(),
+  output: z.unknown().optional(),
+  attributes: z.record(z.unknown()).optional(),
+  error: z.string().max(20_000).nullable().optional(),
+});
+export type WorkflowTelemetryEventInput = z.infer<typeof workflowTelemetryEventSchema>;
+
+export const workflowTelemetryBatchSchema = z.object({
+  events: z.array(workflowTelemetryEventSchema).min(1).max(100),
+}).refine(
+  (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= 512_000,
+  { message: "Telemetry batches must not exceed 512 KB." },
+);
+export type WorkflowTelemetryBatch = z.infer<typeof workflowTelemetryBatchSchema>;
+
 export const createWorkflowHandoffSchema = z.object({
   phaseKey: z.string().trim().min(1).max(255),
   kind: workflowHandoffKindSchema,
+  stage: workflowReviewStageSchema.optional(),
+  /** Concise, human-facing update to surface in the Social CMS review chat. */
+  reviewSummary: z.string().trim().min(1).max(2_000).optional(),
+  /** The workflow phase represented by reviewSummary. */
+  eventPhase: z.enum(["grounding", "planning", "assets"]).optional(),
+  /** Stable retry key for reliable handoff creation. */
+  idempotencyKey: z.string().trim().min(1).max(255).optional(),
   promptMarkdown: z.string().trim().min(1).max(100_000),
 });
 export type CreateWorkflowHandoff = z.infer<typeof createWorkflowHandoffSchema>;
@@ -144,6 +193,30 @@ export const resolveWorkflowHandoffSchema = z.object({
   responseMarkdown: z.string().trim().max(100_000).nullable().optional(),
 });
 export type ResolveWorkflowHandoff = z.infer<typeof resolveWorkflowHandoffSchema>;
+
+export const workflowFeedbackTargetSchema = z.object({
+  scope: z.enum(["all", "copy", "template", "image", "screen"]),
+  deliverableId: z.string().trim().min(1).max(255).optional(),
+  screenNumber: z.number().int().positive().optional(),
+}).superRefine((value, context) => {
+  if (["template", "image", "screen"].includes(value.scope) && !value.deliverableId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "deliverableId is required for this target scope.", path: ["deliverableId"] });
+  }
+  if (value.scope === "screen" && !value.screenNumber) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "screenNumber is required when scope is screen.", path: ["screenNumber"] });
+  }
+});
+
+export const workflowRunFeedbackSchema = z.object({
+  idempotencyKey: z.string().trim().min(1).max(255),
+  generationId: z.string().trim().min(1).max(255),
+  revision: z.number().int().min(0),
+  action: workflowFeedbackActionSchema,
+  stage: workflowReviewStageSchema,
+  instruction: z.string().trim().max(100_000).optional(),
+  target: workflowFeedbackTargetSchema.default({ scope: "all" }),
+});
+export type WorkflowRunFeedback = z.infer<typeof workflowRunFeedbackSchema>;
 
 export const createWorkflowDeliverableSchema = z.object({
   title: z.string().trim().min(1).max(200),

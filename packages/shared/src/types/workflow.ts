@@ -14,6 +14,10 @@ export interface WorkflowPipelinePhase {
   depth?: number;
   agentName?: string | null;
   description?: string | null;
+  /** Literal Google ADK `instruction=` text when it can be read statically. */
+  systemPrompt?: string | null;
+  /** Skills referenced by the agent and resolved from the local workflow package. */
+  configuredSkills?: Array<{ name: string; content: string }>;
 }
 
 export interface WorkflowPipelineDefinition {
@@ -51,6 +55,8 @@ export interface WorkflowRun {
   companyId: string;
   workflowId: string;
   status: string;
+  reviewStage: "content" | "final" | null;
+  revision: number;
   inputMarkdown: string;
   error: string | null;
   summary: string | null;
@@ -73,6 +79,45 @@ export interface WorkflowRunConsoleChunk {
   ts: string;
   stream: "stdout" | "stderr" | "system";
   chunk: string;
+}
+
+export type WorkflowTelemetryEventType =
+  | "operation.started"
+  | "operation.completed"
+  | "operation.failed";
+
+export type WorkflowTelemetryActorKind = "workflow" | "agent" | "model" | "tool" | "service" | "system";
+export type WorkflowTelemetryOperationKind = "invocation" | "phase" | "agent" | "llm" | "tool" | "service";
+export type WorkflowTelemetryStatus = "running" | "succeeded" | "failed";
+
+export interface WorkflowTelemetryEventInput {
+  schema: "bizbox.telemetry/v1";
+  event: WorkflowTelemetryEventType;
+  eventId: string;
+  spanId: string;
+  parentSpanId: string | null;
+  sequence: number;
+  timestamp: string;
+  actor: {
+    kind: WorkflowTelemetryActorKind;
+    name: string | null;
+  };
+  operation: {
+    kind: WorkflowTelemetryOperationKind;
+    name: string;
+  };
+  status: WorkflowTelemetryStatus | null;
+  input?: unknown;
+  output?: unknown;
+  attributes?: Record<string, unknown>;
+  error?: string | null;
+}
+
+export interface WorkflowTelemetryEvent extends WorkflowTelemetryEventInput {
+  id: string;
+  companyId: string;
+  workflowRunId: string;
+  createdAt: string;
 }
 
 export interface WorkflowPhase {
@@ -99,6 +144,9 @@ export interface WorkflowHandoff {
   kind: "approval" | "response";
   status: string;
   promptMarkdown: string;
+  reviewStage: "content" | "final" | null;
+  revision: number;
+  idempotencyKey: string | null;
   responseMarkdown: string | null;
   decidedByUserId: string | null;
   decidedAt: Date | null;
@@ -141,6 +189,37 @@ export interface WorkflowRunDetail extends WorkflowRun {
   phases: WorkflowPhase[];
   handoffs: WorkflowHandoff[];
   deliverables: WorkflowDeliverableSummary[];
+  telemetryEvents: WorkflowTelemetryEvent[];
+}
+
+export interface WorkflowRunEvent {
+  id: string;
+  idempotencyKey: string;
+  createdAt: string;
+  actor: "bizbox" | "human";
+  phase: "grounding" | "planning" | "assets" | "review" | "revision";
+  kind: "source_summary" | "screen_plan" | "asset_generated" | "review_requested" | "review_response" | "revision_applied";
+  summary: string;
+  details: Record<string, unknown>;
+  revision: number;
+}
+
+export interface WorkflowRunAsset {
+  id: string;
+  deliverableId: string;
+  screenNumber: number | null;
+  postType?: string;
+  templateId: string | null;
+  viewableUrl: string;
+  thumbnailUrl: string | null;
+  revision: number;
+  superseded: boolean;
+}
+
+export interface WorkflowExtensionWriteContext {
+  idempotencyKey: string;
+  generationId: string;
+  revision: number;
 }
 
 export interface WorkflowListItem extends Workflow {
