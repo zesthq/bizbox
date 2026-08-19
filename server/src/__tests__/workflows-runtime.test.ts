@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   analyzeWorkflowProject,
   prepareInstrumentedWorkflowRuntime,
@@ -15,6 +15,7 @@ describe("workflows runtime analysis", () => {
   const tempRoots: string[] = [];
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await Promise.all(tempRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
   });
 
@@ -273,6 +274,30 @@ root_agent = Agent(name="unrelated_resource_tester")
     ]);
     expect(agents.find((phase) => phase.label === "instagram_post_writer_agent")?.configuredSkills)
       .toEqual([{ name: "instagram-writer", content: "" }]);
+  });
+
+  it("does not capture skill documents outside the workflow skills directory", async () => {
+    vi.stubEnv("BIZBOX_WORKFLOW_CAPTURE_DEFINITION_CONTENT", "true");
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-workflow-runtime-"));
+    tempRoots.push(root);
+    await fs.mkdir(path.join(root, "skills", "safe-skill"), { recursive: true });
+    await fs.mkdir(path.join(root, "outside-skill"), { recursive: true });
+    await fs.writeFile(path.join(root, "skills", "safe-skill", "SKILL.md"), "Safe content", "utf8");
+    await fs.writeFile(path.join(root, "outside-skill", "SKILL.md"), "Sensitive content", "utf8");
+    await fs.writeFile(path.join(root, "agent.py"), `
+from google.adk.agents import Agent
+
+root_agent = Agent(
+    name="writer",
+    instruction=f"""{_skill("safe-skill")} {_skill("../outside-skill")}""",
+)
+`, "utf8");
+
+    const analysis = await analyzeWorkflowProject(root);
+    const writer = analysis.pipelineDefinition.phases.find((phase) => phase.label === "writer");
+
+    expect(writer?.configuredSkills).toEqual([{ name: "safe-skill", content: "# SKILL.md\n\nSafe content" }]);
+    expect(JSON.stringify(analysis.pipelineDefinition)).not.toContain("Sensitive content");
   });
 
   it("keeps future imports ahead of the injected workflow runtime import", async () => {

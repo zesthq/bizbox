@@ -417,9 +417,20 @@ async function readConfiguredSkills(rootDir: string, skillNames: string[]) {
   if (process.env.BIZBOX_WORKFLOW_CAPTURE_DEFINITION_CONTENT?.trim().toLowerCase() !== "true") {
     return skillNames.map((name) => ({ name, content: "" }));
   }
+  const skillsRoot = path.resolve(rootDir, "skills");
+  const realSkillsRoot = await fs.realpath(skillsRoot).catch(() => null);
+  if (!realSkillsRoot) return [];
+
+  const isStrictDescendant = (parent: string, candidate: string) => {
+    const relative = path.relative(parent, candidate);
+    return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  };
   const skills: Array<{ name: string; content: string }> = [];
   for (const name of skillNames) {
-    const skillDir = path.join(rootDir, "skills", name);
+    const skillDir = path.resolve(skillsRoot, name);
+    if (!isStrictDescendant(skillsRoot, skillDir)) continue;
+    const realSkillDir = await fs.realpath(skillDir).catch(() => null);
+    if (!realSkillDir || !isStrictDescendant(realSkillsRoot, realSkillDir)) continue;
     const candidates = [
       path.join(skillDir, "SKILL.md"),
       ...((await fs.readdir(skillDir, { withFileTypes: true }).catch(() => []))
@@ -431,6 +442,8 @@ async function readConfiguredSkills(rootDir: string, skillNames: string[]) {
     ];
     const documents: string[] = [];
     for (const candidate of candidates) {
+      const realCandidate = await fs.realpath(candidate).catch(() => null);
+      if (!realCandidate || !isStrictDescendant(realSkillDir, realCandidate)) continue;
       const content = await fs.readFile(candidate, "utf8").catch(() => null);
       if (content != null) documents.push(`# ${path.basename(candidate)}\n\n${content}`);
     }
