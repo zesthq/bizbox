@@ -84,8 +84,8 @@ async function createApp(input: {
   workerResult?: unknown;
 }) {
   const [{ pluginRoutes }, { errorHandler }] = await Promise.all([
-    vi.importActual<typeof import("../routes/plugins.js")>("../routes/plugins.js"),
-    vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
+    import("../routes/plugins.js"),
+    import("../middleware/index.js"),
   ]);
 
   const workerManager = {

@@ -40,7 +40,7 @@ describeEmbeddedPostgres("awaitingHumanBridgeService", () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-awaiting-human-bridge-");
     db = createDb(tempDb.connectionString);
     interactionsSvc = issueThreadInteractionService(db);
-  }, 20_000);
+  }, 30_000);
 
   afterEach(async () => {
     await db.delete(activityLog);
