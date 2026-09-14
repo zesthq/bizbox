@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { Readable } from "node:stream";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,7 +10,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { activityLog, agentApiKeys, agents, companies, createDb, workflowRuns, workflows } from "@paperclipai/db";
+import { activityLog, agentApiKeys, agents, companies, createDb, workflowDeliverables, workflowRuns, workflows } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 
 const mockInvoke = vi.hoisted(() => vi.fn(async () => ({
@@ -19,6 +20,7 @@ const mockInvoke = vi.hoisted(() => vi.fn(async () => ({
   provider: "google", model: "gemini", usage: null,
 })));
 const mockLogger = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
+const mockGetObject = vi.hoisted(() => vi.fn());
 vi.mock("../middleware/logger.js", () => ({ logger: mockLogger }));
 vi.mock("@paperclipai/adapter-google-adk/server", async (importOriginal) => ({
   ...await importOriginal<typeof import("@paperclipai/adapter-google-adk/server")>(),
@@ -39,6 +41,7 @@ vi.mock("../storage/index.js", () => ({
   getStorageService: () => ({
     putFile: vi.fn(async () => ({ provider: "local_disk", objectKey: "test.md", contentType: "text/markdown", byteSize: 19, sha256: "test", originalFilename: "test.md" })),
     deleteObject: vi.fn(),
+    getObject: mockGetObject,
   }),
 }));
 vi.mock("../services/workflow-handoff-bridge.js", () => ({
@@ -100,6 +103,7 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetObject.mockReset().mockImplementation(async () => ({ stream: Readable.from([Buffer.from("Stored artifact content")]) }));
     vi.stubEnv("BIZBOX_MCP_API_KEY", token);
     vi.stubEnv("BIZBOX_WORKFLOW_JWT_SECRET", "test-only-workflow-secret");
     vi.stubEnv("BIZBOX_PUBLIC_URL", "");
@@ -121,12 +125,15 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
     expect((await request(instance).get("/api/actor")).body.source).toBe("local_implicit");
   });
 
-  it("initializes and exposes exactly five tools without a session", async () => {
+  it("initializes and exposes exactly six tools without a session", async () => {
     const response = await rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "clickup-test", version: "1" } });
     expect(response.status).toBe(200);
     expect(response.body.result.serverInfo.name).toBe("bizbox-workflows");
     expect(response.body.result.instructions).toMatch(/list_companies.*required\/optional inputs/);
     expect(response.body.result.instructions).toContain("Never automatically retry");
+    expect(response.body.result.instructions).toContain("get_workflow_deliverable");
+    expect(response.body.result.instructions).toContain("nextOffset until null");
+    expect(response.body.result.instructions).toContain("Never rerun to retrieve outputs");
     expect(response.headers["mcp-session-id"]).toBeUndefined();
     const tools = await rpc("tools/list");
     for (const tool of tools.body.result.tools) {
@@ -136,7 +143,7 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
       }
     }
     expect((await call("run_workflow", { workflowId, inputMarkdown: "hello" })).isError).toBe(true);
-    expect(tools.body.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual(["get_workflow_run", "list_companies", "list_workflow_runs", "list_workflows", "trigger_workflow_run"]);
+    expect(tools.body.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual(["get_workflow_deliverable", "get_workflow_run", "list_companies", "list_workflow_runs", "list_workflows", "trigger_workflow_run"]);
     const initialized = await request(app()).post("/mcp").set("Authorization", `Bearer ${token}`)
       .set("Accept", "application/json, text/event-stream").send({ jsonrpc: "2.0", method: "notifications/initialized" });
     expect(initialized.status).toBe(202);
@@ -165,7 +172,7 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
       await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`), {
         requestInit: { headers: { Authorization: `Bearer ${token}` } },
       }));
-      expect((await client.listTools()).tools).toHaveLength(5);
+      expect((await client.listTools()).tools).toHaveLength(6);
       const listed = await client.callTool({ name: "list_workflows", arguments: { companyId } });
       expect(JSON.stringify(listed)).toContain(workflowId);
       const started = await client.callTool({ name: "trigger_workflow_run", arguments: { workflowId, inputMarkdown: "A harmless greeting" } });
@@ -177,6 +184,8 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
         const output = result.content as Array<{ type: string; text: string }>;
         expect(JSON.parse(output[0].text)).toMatchObject({ runId, status: "succeeded", outputMarkdown: "Useful final answer" });
       }, 10_000);
+      const deliverableId = randomUUID();
+      await db.insert(workflowDeliverables).values({ id: deliverableId, companyId, workflowId, workflowRunId: runId, title: "Saved answer", contentType: "text/markdown", contentBody: "Persisted useful output" });
       await client.close();
       const fresh = new Client({ name: "fresh-conversation", version: "1" });
       try {
@@ -191,6 +200,9 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
         expect(previous).toBeDefined();
         const recovered = await fresh.callTool({ name: "get_workflow_run", arguments: { runId: previous.runId } });
         expect(JSON.stringify(recovered)).toContain("Useful final answer");
+        expect(JSON.stringify(recovered)).toContain("Persisted useful output");
+        const artifact = await fresh.callTool({ name: "get_workflow_deliverable", arguments: { deliverableId } });
+        expect(JSON.parse((artifact.content as Array<{ text: string }>)[0].text)).toMatchObject({ deliverableId, text: "Persisted useful output", nextOffset: null });
         expect(mockInvoke).toHaveBeenCalledTimes(1);
       } finally {
         await fresh.close();
@@ -327,6 +339,7 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
         status: ["awaiting_content_review", "awaiting_final_review"].includes(status) ? "awaiting_human" : status,
         outputMarkdown: status === "succeeded" ? "Final text" : null,
         error: status === "failed" ? "Workflow failed. Inspect the run in Bizbox." : null,
+        deliverables: [],
       });
       expect(JSON.stringify(result)).not.toMatch(/PRIVATE_|\/secret/);
     }
@@ -353,5 +366,187 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
     const rotated = app();
     expect((await rpc("tools/list", {}, rotated)).status).toBe(401);
     expect((await rpc("tools/list", {}, rotated).set("Authorization", "Bearer replacement-key")).status).toBe(200);
+  });
+
+  it("returns deliverable text in get_workflow_run and full text via get_workflow_deliverable", async () => {
+    const runId = randomUUID();
+    const deliverableId = randomUUID();
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "succeeded", inputMarkdown: "test" });
+    await db.insert(workflowDeliverables).values({
+      id: deliverableId, companyId, workflowId, workflowRunId: runId,
+      title: "Brief output", audience: "human",
+      contentType: "text/markdown; charset=utf-8", contentBody: "Short answer",
+      byteSize: Buffer.byteLength("Short answer"), originalFilename: "brief-output.md",
+    });
+    const detail = JSON.parse((await call("get_workflow_run", { runId })).content[0].text);
+    expect(detail.deliverables).toHaveLength(1);
+    expect(detail.deliverables[0]).toEqual({
+      deliverableId, title: "Brief output", contentType: "text/markdown; charset=utf-8",
+      byteSize: 12, originalFilename: "brief-output.md",
+      text: "Short answer", textTruncated: false,
+      textStatus: "available",
+    });
+    const full = JSON.parse((await call("get_workflow_deliverable", { deliverableId })).content[0].text);
+    expect(full).toEqual({
+      deliverableId, runId, companyId, title: "Brief output", contentType: "text/markdown; charset=utf-8",
+      byteSize: 12, originalFilename: "brief-output.md",
+      text: "Short answer", textTruncated: false,
+      textStatus: "available", nextOffset: null,
+    });
+    expect((await call("get_workflow_deliverable", { deliverableId: randomUUID() })).isError).toBe(true);
+  });
+
+  it("truncates large deliverable text and returns full text via get_workflow_deliverable", async () => {
+    const runId = randomUUID();
+    const deliverableId = randomUUID();
+    const longText = "a".repeat(70_000);
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "succeeded", inputMarkdown: "test" });
+    await db.insert(workflowDeliverables).values({
+      id: deliverableId, companyId, workflowId, workflowRunId: runId,
+      title: "Long output", audience: "human",
+      contentType: "text/markdown; charset=utf-8", contentBody: longText,
+      byteSize: Buffer.byteLength(longText), originalFilename: "long.md",
+    });
+    const detail = JSON.parse((await call("get_workflow_run", { runId })).content[0].text);
+    expect(detail.deliverables).toHaveLength(1);
+    expect(detail.deliverables[0].text).toHaveLength(64_000);
+    expect(detail.deliverables[0].textTruncated).toBe(true);
+    const full = JSON.parse((await call("get_workflow_deliverable", { deliverableId })).content[0].text);
+    expect(full.text).toBe(longText);
+    expect(full.textTruncated).toBe(false);
+  });
+
+  it.each([false, true])("paginates Unicode text without gaps and handles EOF (storage=%s)", async (stored) => {
+    const runId = randomUUID(), deliverableId = randomUUID();
+    const text = "a".repeat(511_999) + "😀é" + "z".repeat(20);
+    const bytes = Buffer.from(text);
+    mockGetObject.mockImplementation(async () => ({ stream: Readable.from((function* () {
+      for (let i = 0; i < bytes.length; i += 3) yield bytes.subarray(i, i + 3);
+    })()) }));
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "succeeded", inputMarkdown: "test" });
+    await db.insert(workflowDeliverables).values({ id: deliverableId, companyId, workflowId, workflowRunId: runId, title: "Unicode", contentType: "text/plain", contentBody: stored ? null : text, contentPath: stored ? "private/object" : null });
+    const first = JSON.parse((await call("get_workflow_deliverable", { deliverableId })).content[0].text);
+    expect(first.text.length).toBe(511_999);
+    expect(first.nextOffset).toBe(511_999);
+    expect(first.textTruncated).toBe(true);
+    const second = JSON.parse((await call("get_workflow_deliverable", { deliverableId, offset: first.nextOffset })).content[0].text);
+    expect(first.text + second.text).toBe(text);
+    expect(second.nextOffset).toBeNull();
+    for (const offset of [text.length, text.length + 10]) {
+      expect(JSON.parse((await call("get_workflow_deliverable", { deliverableId, offset })).content[0].text)).toMatchObject({ text: "", textTruncated: false, nextOffset: null });
+    }
+    for (const offset of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect((await call("get_workflow_deliverable", { deliverableId, offset })).isError).toBe(true);
+    }
+    expect(JSON.parse((await call("get_workflow_deliverable", { deliverableId, offset: 512_000 })).content[0].text)).toMatchObject({ textStatus: "unavailable", nextOffset: null });
+  });
+
+  it("stops and closes storage streams at the page limit", async () => {
+    const runId = randomUUID(), deliverableId = randomUUID();
+    let produced = 0, closed = false;
+    const stream = Readable.from((async function* () {
+      try {
+        for (let i = 0; i < 200; i++) {
+          produced++;
+          yield Buffer.alloc(16_384, "a");
+        }
+      } finally { closed = true; }
+    })());
+    mockGetObject.mockResolvedValue({ stream });
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "running", inputMarkdown: "test" });
+    await db.insert(workflowDeliverables).values({ id: deliverableId, companyId, workflowId, workflowRunId: runId, title: "Large", contentType: "text/plain", contentPath: "private/large" });
+    const result = JSON.parse((await call("get_workflow_deliverable", { deliverableId })).content[0].text);
+    expect(result.text).toHaveLength(512_000);
+    expect(result.nextOffset).toBe(512_000);
+    expect(produced).toBeLessThan(40);
+    expect(stream.destroyed).toBe(true);
+    expect(closed).toBe(true);
+  });
+
+  it("enforces combined inline budget sequentially and supports direct recovery", async () => {
+    const runId = randomUUID();
+    const ids = Array.from({ length: 6 }, () => randomUUID());
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "awaiting_human", inputMarkdown: "test" });
+    await db.insert(workflowDeliverables).values(ids.map((id, i) => ({ id, companyId, workflowId, workflowRunId: runId, title: `Output ${i}`, contentType: "text/markdown", contentPath: `private/${i}`, createdAt: new Date(1_000_000 - i) })));
+    mockGetObject.mockImplementation(async () => ({ stream: Readable.from([Buffer.alloc(70_000, "a")]) }));
+    const result = JSON.parse((await call("get_workflow_run", { runId })).content[0].text);
+    expect(result.status).toBe("awaiting_human");
+    expect(result.deliverables.map((d: { deliverableId: string }) => d.deliverableId)).toEqual(ids);
+    expect(result.deliverables.reduce((n: number, d: { text: string | null }) => n + (d.text?.length ?? 0), 0)).toBe(256_000);
+    expect(mockGetObject).toHaveBeenCalledTimes(4);
+    expect(result.deliverables[4]).toMatchObject({ text: null, textStatus: "not_inlined", textTruncated: true });
+    const recovered = JSON.parse((await call("get_workflow_deliverable", { deliverableId: ids[4] })).content[0].text);
+    expect(recovered.text).toHaveLength(70_000);
+    expect(recovered.nextOffset).toBeNull();
+  });
+
+  it("recognizes text MIME types, preserves body precedence and excludes internal artifacts", async () => {
+    const runId = randomUUID();
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "running", inputMarkdown: "test" });
+    const types = ["text/markdown", "text/plain; charset=utf-8", "application/json", "APPLICATION/JSON; charset=utf-8"];
+    await db.insert(workflowDeliverables).values(types.map(contentType => ({ companyId, workflowId, workflowRunId: runId, title: "Result", contentType, contentBody: "Useful", contentPath: "DO_NOT_READ" })));
+    const excluded = [randomUUID(), randomUUID(), randomUUID()];
+    await db.insert(workflowDeliverables).values(excluded.map((id, i) => ({ id, companyId, workflowId, workflowRunId: runId, title: i === 1 ? "nested/metadata.json" : "Result", originalFilename: i === 0 ? "metadata.json" : "output.json", audience: i === 2 ? "internal" : "human", contentType: "application/json", contentBody: "PRIVATE_METADATA" })));
+    const result = JSON.parse((await call("get_workflow_run", { runId })).content[0].text);
+    expect(result.deliverables).toHaveLength(4);
+    expect(result.deliverables.every((d: { text: string }) => d.text === "Useful")).toBe(true);
+    expect(result.outputMarkdown).toBeNull();
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE_METADATA|DO_NOT_READ|contentPath|contentBody/);
+    for (const deliverableId of excluded) {
+      const response = await call("get_workflow_deliverable", { deliverableId });
+      expect(response.isError).toBe(true);
+      expect(response.content[0].text).toBe("Workflow deliverable not found");
+    }
+    expect(mockGetObject).not.toHaveBeenCalled();
+  });
+
+  it("isolates missing objects and failed streams without leaking errors", async () => {
+    const runId = randomUUID(), missing = randomUUID(), broken = randomUUID();
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "failed", inputMarkdown: "test" });
+    await db.insert(workflowDeliverables).values([
+      { id: missing, companyId, workflowId, workflowRunId: runId, title: "Missing", contentType: "text/plain", contentPath: "PRIVATE_PATH" },
+      { id: broken, companyId, workflowId, workflowRunId: runId, title: "Broken", contentType: "text/plain", contentPath: "BROKEN_PATH" },
+      { companyId, workflowId, workflowRunId: runId, title: "Good", contentType: "text/plain", contentBody: "Good output" },
+    ]);
+    mockGetObject.mockImplementation(async (_company, key) => {
+      if (key === "PRIVATE_PATH") throw new Error("SECRET_CREDENTIAL PRIVATE_PATH");
+      return { stream: Readable.from((async function* () { yield Buffer.from("partial"); throw new Error("SECRET_CREDENTIAL"); })()) };
+    });
+    const result = JSON.parse((await call("get_workflow_run", { runId })).content[0].text);
+    expect(result.status).toBe("failed");
+    expect(result.deliverables.filter((d: { textStatus: string }) => d.textStatus === "unavailable")).toHaveLength(2);
+    expect(result.deliverables.some((d: { text: string }) => d.text === "Good output")).toBe(true);
+    const direct = await call("get_workflow_deliverable", { deliverableId: missing });
+    expect(JSON.parse(direct.content[0].text)).toMatchObject({ text: null, textStatus: "unavailable", error: "Deliverable content is unavailable." });
+    expect(JSON.stringify([result, direct, mockLogger.warn.mock.calls, mockLogger.error.mock.calls])).not.toMatch(/SECRET_CREDENTIAL|PRIVATE_PATH|BROKEN_PATH/);
+  });
+
+  it("returns text for a storage-backed text artifact and null text for a binary deliverable", async () => {
+    const runId = randomUUID();
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "succeeded", inputMarkdown: "test" });
+    const textId = randomUUID();
+    await db.insert(workflowDeliverables).values({
+      id: textId, companyId, workflowId, workflowRunId: runId,
+      title: "output.md", audience: "human",
+      contentType: "text/markdown; charset=utf-8", contentPath: "company/workflow-deliverables/output.md",
+      byteSize: 23, originalFilename: "output.md",
+    });
+    const imageId = randomUUID();
+    await db.insert(workflowDeliverables).values({
+      id: imageId, companyId, workflowId, workflowRunId: runId,
+      title: "Screenshot", audience: "human",
+      contentType: "image/png", contentPath: "company/workflow-deliverables/screenshot.png",
+      byteSize: 1024, originalFilename: "screenshot.png",
+    });
+    const detail = JSON.parse((await call("get_workflow_run", { runId })).content[0].text);
+    expect(detail.deliverables).toHaveLength(2);
+    expect(detail.deliverables.find((d: { deliverableId: string }) => d.deliverableId === textId)).toMatchObject({ text: "Stored artifact content", textTruncated: false });
+    expect(detail.deliverables.find((d: { deliverableId: string }) => d.deliverableId === imageId)).toMatchObject({ text: null, textTruncated: false });
+    const full = JSON.parse((await call("get_workflow_deliverable", { deliverableId: imageId })).content[0].text);
+    expect(full.text).toBeNull();
+    expect(full.textStatus).toBe("binary");
+    expect(full.nextOffset).toBeNull();
+    expect(mockGetObject).toHaveBeenCalledTimes(1);
+    expect(JSON.parse((await call("get_workflow_deliverable", { deliverableId: textId })).content[0].text).text).toBe("Stored artifact content");
   });
 });

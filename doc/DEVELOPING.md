@@ -154,7 +154,8 @@ These browser suites are intended for targeted local verification and CI, not th
 `/mcp` is an optional, stateless Streamable HTTP endpoint. It exposes only
 `list_companies()`, `list_workflows(companyId)`,
 `trigger_workflow_run(workflowId, inputMarkdown)`,
-`list_workflow_runs(workflowId)`, and `get_workflow_run(runId)`.
+`list_workflow_runs(workflowId)`, `get_workflow_run(runId)`, and
+`get_workflow_deliverable(deliverableId, offset?)`.
 It uses existing company/workflow services and a dedicated
 deployment secret, `BIZBOX_MCP_API_KEY`. Unconfigured instances return 503;
 missing/incorrect Bearer tokens return 401, including in `local_trusted` mode.
@@ -171,7 +172,7 @@ Operator setup:
    hostname configuration. Existing workflows must already run successfully in
    Bizbox (including their runtime JWT/provider configuration).
 3. In ClickUp's custom MCP connection, enter `https://<bizbox-host>/mcp` and
-   the header `Authorization: Bearer <token>`. Enable the five tools. Refresh
+   the header `Authorization: Bearer <token>`. Enable the six tools. Refresh
    tool discovery on existing connections: `run_workflow` has been renamed to
    `trigger_workflow_run` without an alias.
 4. Give the Super Agent its intended company name or UUID. It can discover IDs
@@ -208,10 +209,32 @@ Poll `get_workflow_run` periodically without aggressive polling. `queued` and
 MCP cannot approve it. `succeeded`, `failed`, `cancelled` and `rejected` are terminal.
 The response includes `outputMarkdown` (the successful run's final `summary`,
 otherwise null) and a generic failure message, never raw runtime errors or logs.
-Internal prompts, configuration, telemetry and artifact contents are not exposed. Review
-the actual workflow's final answer before using it externally: its authored
-summary is returned as-is and may be empty or insufficient for artifact-only
-workflows. Artifact transfer is not included in this integration.
+It also includes `deliverables`, newest first: ID, title, content type, byte size,
+original filename, `text`, `textTruncated` and `textStatus`. Persisted human-facing
+deliverables are available in every run state; an empty list means none have
+been persisted yet. Read these even when `outputMarkdown` is empty. Text types
+(`text/*` and `application/json`, including charset parameters) are inlined up
+to 64,000 characters each and 256,000 total per response. `textStatus` is
+`available`, `not_inlined` (response budget exhausted), `binary`, or `unavailable`
+(missing/unreadable content, with a generic error). One unreadable artifact does
+not hide run status or other deliverables.
+
+For truncated or not-inlined text, call
+`get_workflow_deliverable({ deliverableId })`, then repeat with its `nextOffset`
+until null when the whole document is needed. Each call returns at most 512,000
+characters plus metadata, status and continuation. Offsets count JavaScript
+UTF-16 code units; use the returned offset unchanged to preserve Unicode
+boundaries. At or beyond EOF, text is empty and `nextOffset` is null. A known
+deliverable ID works directly, independently of other tools. Never rerun a
+workflow merely to retrieve outputs.
+
+Binary deliverables (images, PDFs) return metadata and `text: null`; MCP does not
+read or convert their contents. Do not claim to have read a binary file. Storage
+paths, raw run results and execution logs are not returned; known ADK
+`metadata.json` artifacts are excluded from both tools. Authored summaries and
+human-facing outputs are returned as-is: workflow owners must review their
+content for usefulness and confidentiality. This is not a content-redaction
+system.
 
 **Do not automatically retry an uncertain submission.** Every call creates a new
 run; if the response is lost or times out, the run may already exist. An operator
@@ -254,9 +277,13 @@ Suggested ClickUp Super Agent instructions:
 > work, call trigger_workflow_run once and retain the run ID. Check periodically
 > without aggressive polling. awaiting_human uses Bizbox's existing approval
 > flow, not MCP approval. Never automatically retry an uncertain submission;
-> history may help investigate but is not proof. Return successful outputMarkdown.
-> If no useful text is present, direct the user to Bizbox for artifacts or
-> investigation rather than inventing a result.
+> history may help investigate but is not proof. Read outputMarkdown and inline
+> deliverable text, even when the summary is empty. Retrieve truncated or
+> not_inlined text with get_workflow_deliverable; follow nextOffset until null
+> when the whole document is needed. Known IDs can be used directly; tools need
+> not be called in order. Never rerun to retrieve outputs. Binary metadata does
+> not mean you have read the file. If no useful text is available, say so rather
+> than inventing a result.
 
 Local protocol smoke test (set `BIZBOX_MCP_API_KEY` to the same secret as the
 running server; do not paste the plaintext token into shell history):
@@ -279,10 +306,17 @@ Send subsequent POSTs with the same headers and these bodies (replace UUIDs):
 {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"trigger_workflow_run","arguments":{"workflowId":"<harmless-workflow-uuid>","inputMarkdown":"Return a short test greeting; do not publish or modify external content."}}}
 {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"list_workflow_runs","arguments":{"workflowId":"<harmless-workflow-uuid>"}}}
 {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_workflow_run","arguments":{"runId":"<returned-run-uuid>"}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"get_workflow_deliverable","arguments":{"deliverableId":"<returned-deliverable-uuid>"}}}
 ```
 
+For deliverable acceptance, reconnect Inspector and retrieve an existing
+completed Markdown/JSON run without submitting it again. Compare inline text
+with `get_workflow_deliverable`, following `nextOffset` for larger outputs.
+Repeat in ClickUp after refreshing tool discovery; confirm the actual content
+is useful, not merely that the calls succeed.
+
 Acceptance must also be performed **inside ClickUp**, not just with curl:
-authenticate → discover exactly five tools → discover the intended company by name
+authenticate → discover exactly six tools → discover the intended company by name
 without supplied UUIDs → list its workflows → choose
 an operator-approved harmless workflow → start it → capture its run ID → inspect
 until terminal → confirm the useful final text. In a fresh conversation, recover
