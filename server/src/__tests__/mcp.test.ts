@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
+import type { Server } from "node:http";
 import { Readable } from "node:stream";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
@@ -64,17 +65,24 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
   const workflowId = randomUUID();
   const otherWorkflowId = randomUUID();
   const archivedId = randomUUID();
+  const servers: Server[] = [];
+  let defaultServer: Server;
 
-  function app(mode: "local_trusted" | "authenticated" = "local_trusted") {
+  async function app(mode: "local_trusted" | "authenticated" = "local_trusted") {
     const instance = express();
     instance.use("/mcp", mcpRoutes(db, { enabled: true, allowedHostnames: ["bizbox.example"], bindHost: "127.0.0.1" }));
     instance.use(actorMiddleware(db, { deploymentMode: mode }));
     instance.get("/api/actor", (req, res) => res.json(req.actor));
     instance.get("/MCP/workflows", (_req, res) => res.send("Company workflows page"));
-    return instance;
+    // Supertest connects to IPv4. Bind explicitly rather than letting its
+    // implicit IPv6 listener collide with other local IPv4 test servers.
+    const server = instance.listen(0, "127.0.0.1");
+    servers.push(server);
+    await once(server, "listening");
+    return server;
   }
 
-  function rpc(method: string, params: Record<string, unknown> = {}, instance = app()) {
+  function rpc(method: string, params: Record<string, unknown> = {}, instance = defaultServer) {
     return request(instance).post("/mcp")
       .set("Authorization", `Bearer ${token}`)
       .set("Accept", "application/json, text/event-stream")
@@ -84,6 +92,8 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
   async function call(name: string, args: Record<string, unknown>) {
     const response = await rpc("tools/call", { name, arguments: args });
     expect(response.status).toBe(200);
+    expect(response.body.error).toBeUndefined();
+    expect(response.body.result, JSON.stringify({ headers: response.headers, text: response.text })).toBeDefined();
     return response.body.result;
   }
 
@@ -101,21 +111,27 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
     ]);
   }, 30_000);
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mockGetObject.mockReset().mockImplementation(async () => ({ stream: Readable.from([Buffer.from("Stored artifact content")]) }));
     vi.stubEnv("BIZBOX_MCP_API_KEY", token);
     vi.stubEnv("BIZBOX_WORKFLOW_JWT_SECRET", "test-only-workflow-secret");
     vi.stubEnv("BIZBOX_PUBLIC_URL", "");
+    defaultServer = await app();
   });
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+    })));
+    vi.unstubAllEnvs();
+  });
   afterAll(async () => { await tempDb?.cleanup(); });
 
   it("fails closed before local-trusted auth, including every HTTP method", async () => {
     vi.stubEnv("BIZBOX_MCP_API_KEY", "");
-    expect((await rpc("tools/list")).status).toBe(503);
+    expect((await rpc("tools/list", {}, await app())).status).toBe(503);
     vi.stubEnv("BIZBOX_MCP_API_KEY", token);
-    const instance = app();
+    const instance = defaultServer;
     for (const method of ["post", "get", "delete", "options"] as const) {
       expect((await request(instance)[method]("/mcp")).status).toBe(401);
       expect((await request(instance)[method]("/mcp").set("Authorization", "Bearer wrong")).status).toBe(401);
@@ -132,6 +148,7 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
     expect(response.body.result.instructions).toMatch(/list_companies.*required\/optional inputs/);
     expect(response.body.result.instructions).toContain("Never automatically retry");
     expect(response.body.result.instructions).toContain("get_workflow_deliverable");
+    expect(response.body.result.instructions).toContain("nextDeliverableCursor as deliverablesAfter");
     expect(response.body.result.instructions).toContain("nextOffset until null");
     expect(response.body.result.instructions).toContain("Never rerun to retrieve outputs");
     expect(response.headers["mcp-session-id"]).toBeUndefined();
@@ -144,13 +161,13 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
     }
     expect((await call("run_workflow", { workflowId, inputMarkdown: "hello" })).isError).toBe(true);
     expect(tools.body.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual(["get_workflow_deliverable", "get_workflow_run", "list_companies", "list_workflow_runs", "list_workflows", "trigger_workflow_run"]);
-    const initialized = await request(app()).post("/mcp").set("Authorization", `Bearer ${token}`)
+    const initialized = await request(defaultServer).post("/mcp").set("Authorization", `Bearer ${token}`)
       .set("Accept", "application/json, text/event-stream").send({ jsonrpc: "2.0", method: "notifications/initialized" });
     expect(initialized.status).toBe(202);
   });
 
   it("does not intercept a company UI path whose prefix is MCP", async () => {
-    const response = await request(app()).get("/MCP/workflows");
+    const response = await request(defaultServer).get("/MCP/workflows");
     expect(response.status).toBe(200);
     expect(response.text).toBe("Company workflows page");
   });
@@ -163,8 +180,7 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
   });
 
   it("supports a real Streamable HTTP client from connection through final result", async () => {
-    const server = app().listen(0, "127.0.0.1");
-    await once(server, "listening");
+    const server = defaultServer;
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Missing test server address");
     const client = new Client({ name: "clickup-acceptance-simulation", version: "1" });
@@ -209,7 +225,6 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
       }
     } finally {
       await client.close();
-      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
 
@@ -339,6 +354,8 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
         status: ["awaiting_content_review", "awaiting_final_review"].includes(status) ? "awaiting_human" : status,
         outputMarkdown: status === "succeeded" ? "Final text" : null,
         error: status === "failed" ? "Workflow failed. Inspect the run in Bizbox." : null,
+        deliverableLimit: 20,
+        nextDeliverableCursor: null,
         deliverables: [],
       });
       expect(JSON.stringify(result)).not.toMatch(/PRIVATE_|\/secret/);
@@ -347,7 +364,7 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
 
   it("does not pass malformed or oversized MCP bodies to REST error logging", async () => {
     for (const body of ['{"input":"PRIVATE_INPUT",', JSON.stringify({ input: "PRIVATE_INPUT".repeat(200_000) })]) {
-      const response = await request(app()).post("/mcp?secret=PRIVATE_QUERY").set("Authorization", `Bearer ${token}`).set("Content-Type", "application/json").send(body);
+      const response = await request(defaultServer).post("/mcp?secret=PRIVATE_QUERY").set("Authorization", `Bearer ${token}`).set("Content-Type", "application/json").send(body);
       expect([400, 413]).toContain(response.status);
       expect(response.body).toEqual({ error: "Invalid MCP request body" });
     }
@@ -358,12 +375,12 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
     const agentId = randomUUID();
     await db.insert(agents).values({ id: agentId, companyId, name: "Normal agent", role: "engineer" });
     await db.insert(agentApiKeys).values({ agentId, companyId, name: "test", keyHash: createHash("sha256").update("normal-agent-key").digest("hex") });
-    const instance = app("authenticated");
+    const instance = await app("authenticated");
     expect((await request(instance).get("/api/actor").set("Authorization", `Bearer ${token}`)).body.type).toBe("none");
     expect((await request(instance).get("/api/actor").set("Authorization", "Bearer normal-agent-key")).body.agentId).toBe(agentId);
     expect((await request(instance).post("/mcp").set("Authorization", "Bearer normal-agent-key")).status).toBe(401);
     vi.stubEnv("BIZBOX_MCP_API_KEY", "replacement-key");
-    const rotated = app();
+    const rotated = await app();
     expect((await rpc("tools/list", {}, rotated)).status).toBe(401);
     expect((await rpc("tools/list", {}, rotated).set("Authorization", "Bearer replacement-key")).status).toBe(200);
   });
@@ -421,7 +438,10 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
     const text = "a".repeat(511_999) + "😀é" + "z".repeat(20);
     const bytes = Buffer.from(text);
     mockGetObject.mockImplementation(async () => ({ stream: Readable.from((function* () {
-      for (let i = 0; i < bytes.length; i += 3) yield bytes.subarray(i, i + 3);
+      // Split the actual multibyte characters, not every three ASCII bytes.
+      // This retains decoder coverage without hundreds of thousands of yields.
+      for (let i = 0; i < 511_999; i += 16_384) yield bytes.subarray(i, Math.min(i + 16_384, 511_999));
+      for (let i = 511_999; i < bytes.length; i++) yield bytes.subarray(i, i + 1);
     })()) }));
     await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "succeeded", inputMarkdown: "test" });
     await db.insert(workflowDeliverables).values({ id: deliverableId, companyId, workflowId, workflowRunId: runId, title: "Unicode", contentType: "text/plain", contentBody: stored ? null : text, contentPath: stored ? "private/object" : null });
@@ -439,6 +459,59 @@ if (!support.supported) console.warn(`Skipping MCP integration tests: ${support.
       expect((await call("get_workflow_deliverable", { deliverableId, offset })).isError).toBe(true);
     }
     expect(JSON.parse((await call("get_workflow_deliverable", { deliverableId, offset: 512_000 })).content[0].text)).toMatchObject({ textStatus: "unavailable", nextOffset: null });
+  });
+
+  it("pages deliverables without skipping ties or shifting after new publications", async () => {
+    const runId = randomUUID();
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "awaiting_content_review", inputMarkdown: "test" });
+    const ids = Array.from({ length: 25 }, () => randomUUID()).sort().reverse();
+    await db.insert(workflowDeliverables).values(ids.map(id => ({
+      id, companyId, workflowId, workflowRunId: runId, title: "Result", contentType: "text/plain",
+      contentBody: "Hello", createdAt: new Date("2026-01-01T00:00:00Z"),
+    })));
+    await db.insert(workflowDeliverables).values({ companyId, workflowId, workflowRunId: runId,
+      title: "private\\metadata.json", contentType: "application/json", contentBody: "PRIVATE", createdAt: new Date("2026-02-01T00:00:00Z") });
+    const first = JSON.parse((await call("get_workflow_run", { runId })).content[0].text);
+    expect(first.status).toBe("awaiting_human");
+    expect(first.deliverableLimit).toBe(20);
+    expect(first.deliverables.map((d: { deliverableId: string }) => d.deliverableId)).toEqual(ids.slice(0, 20));
+    expect(first.nextDeliverableCursor).toBe(ids[19]);
+    await db.insert(workflowDeliverables).values({ companyId, workflowId, workflowRunId: runId,
+      title: "New publication", contentType: "text/plain", contentBody: "New" });
+    const second = JSON.parse((await call("get_workflow_run", { runId, deliverablesAfter: first.nextDeliverableCursor })).content[0].text);
+    expect(second.deliverables.map((d: { deliverableId: string }) => d.deliverableId)).toEqual(ids.slice(20));
+    expect(second.nextDeliverableCursor).toBeNull();
+    const empty = JSON.parse((await call("get_workflow_run", { runId, deliverablesAfter: ids[24] })).content[0].text);
+    expect(empty.deliverables).toEqual([]);
+    expect(empty.nextDeliverableCursor).toBeNull();
+    expect((await call("get_workflow_run", { runId, deliverablesAfter: randomUUID() })).isError).toBe(true);
+    expect((await call("get_workflow_run", { runId, deliverablesAfter: "invalid" })).isError).toBe(true);
+    const otherRunId = randomUUID();
+    await db.insert(workflowRuns).values({ id: otherRunId, companyId: otherCompanyId, workflowId: otherWorkflowId, status: "running", inputMarkdown: "test" });
+    expect((await call("get_workflow_run", { runId: otherRunId, deliverablesAfter: ids[19] })).isError).toBe(true);
+  });
+
+  it("does not open storage for offsets beyond a known byte length", async () => {
+    const runId = randomUUID(), deliverableId = randomUUID();
+    await db.insert(workflowRuns).values({ id: runId, companyId, workflowId, status: "succeeded", inputMarkdown: "test" });
+    await db.insert(workflowDeliverables).values({ id: deliverableId, companyId, workflowId, workflowRunId: runId,
+      title: "Small file", contentType: "text/plain", contentPath: "private/small", byteSize: 23 });
+    for (const offset of [23, Number.MAX_SAFE_INTEGER]) {
+      const result = JSON.parse((await call("get_workflow_deliverable", { deliverableId, offset })).content[0].text);
+      expect(result).toMatchObject({ text: "", textStatus: "available", nextOffset: null });
+    }
+    expect(mockGetObject).not.toHaveBeenCalled();
+    await db.update(workflowDeliverables).set({ byteSize: 0 }).where(eq(workflowDeliverables.id, deliverableId));
+    const legacy = JSON.parse((await call("get_workflow_deliverable", { deliverableId, offset: 7 })).content[0].text);
+    expect(legacy.text).toBe("artifact content");
+    expect(mockGetObject).toHaveBeenCalledTimes(1);
+    const stream = Readable.from([Buffer.from("Stored artifact content")]);
+    const read = vi.spyOn(stream, "read");
+    mockGetObject.mockResolvedValue({ stream, contentLength: 23 });
+    const beyond = JSON.parse((await call("get_workflow_deliverable", { deliverableId, offset: Number.MAX_SAFE_INTEGER })).content[0].text);
+    expect(beyond).toMatchObject({ text: "", nextOffset: null });
+    expect(stream.destroyed).toBe(true);
+    expect(read).not.toHaveBeenCalled();
   });
 
   it("stops and closes storage streams at the page limit", async () => {

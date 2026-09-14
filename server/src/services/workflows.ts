@@ -1274,6 +1274,15 @@ export function workflowService(db: Db) {
       });
     },
 
+    getRunSummary: async (runId: string) => {
+      const row = await db.select({
+        id: workflowRuns.id, workflowId: workflowRuns.workflowId,
+        companyId: workflowRuns.companyId, status: workflowRuns.status, summary: workflowRuns.summary,
+      }).from(workflowRuns).where(eq(workflowRuns.id, runId)).then((rows) => rows[0] ?? null);
+      if (!row) return null;
+      return { ...row, status: ["awaiting_content_review", "awaiting_final_review"].includes(row.status) ? "awaiting_human" : row.status };
+    },
+
     getRunDetail: async (runId: string): Promise<WorkflowRunDetail | null> => {
       const runRow = await db.select().from(workflowRuns).where(eq(workflowRuns.id, runId)).then((rows) => rows[0] ?? null);
       if (!runRow) return null;

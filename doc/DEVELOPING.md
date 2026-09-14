@@ -154,7 +154,7 @@ These browser suites are intended for targeted local verification and CI, not th
 `/mcp` is an optional, stateless Streamable HTTP endpoint. It exposes only
 `list_companies()`, `list_workflows(companyId)`,
 `trigger_workflow_run(workflowId, inputMarkdown)`,
-`list_workflow_runs(workflowId)`, `get_workflow_run(runId)`, and
+`list_workflow_runs(workflowId)`, `get_workflow_run(runId, deliverablesAfter?)`, and
 `get_workflow_deliverable(deliverableId, offset?)`.
 It uses existing company/workflow services and a dedicated
 deployment secret, `BIZBOX_MCP_API_KEY`. Unconfigured instances return 503;
@@ -211,8 +211,13 @@ The response includes `outputMarkdown` (the successful run's final `summary`,
 otherwise null) and a generic failure message, never raw runtime errors or logs.
 It also includes `deliverables`, newest first: ID, title, content type, byte size,
 original filename, `text`, `textTruncated` and `textStatus`. Persisted human-facing
-deliverables are available in every run state; an empty list means none have
-been persisted yet. Read these even when `outputMarkdown` is empty. Text types
+deliverables are available in every run state, in pages of at most 20
+(`deliverableLimit`). Pass `nextDeliverableCursor` back as `deliverablesAfter`
+with the same run ID until the cursor is null. This cursor is separate from
+the character offset used to read one file. New publications appear on a fresh
+first page; they do not shift subsequent pages. An empty first page means no
+eligible deliverables have been persisted yet; an empty later page means the
+end of that listing. Read these even when `outputMarkdown` is empty. Text types
 (`text/*` and `application/json`, including charset parameters) are inlined up
 to 64,000 characters each and 256,000 total per response. `textStatus` is
 `available`, `not_inlined` (response budget exhausted), `binary`, or `unavailable`
@@ -227,6 +232,14 @@ UTF-16 code units; use the returned offset unchanged to preserve Unicode
 boundaries. At or beyond EOF, text is empty and `nextOffset` is null. A known
 deliverable ID works directly, independently of other tools. Never rerun a
 workflow merely to retrieve outputs.
+
+Storage-backed text is decoded from the beginning for character-offset paging.
+Offsets at or beyond a known positive byte size return EOF without opening
+storage (UTF-8 bytes upper-bound UTF-16 code units). Legacy zero/unknown sizes
+use the provider's content length when available, closing the stream before
+reading if the offset is beyond it. Valid large offsets still scan preceding
+bytes; this guard does not make storage reads proportional to page size. Avoid concurrent
+bulk extraction; byte-range continuation is not implemented in this increment.
 
 Binary deliverables (images, PDFs) return metadata and `text: null`; MCP does not
 read or convert their contents. Do not claim to have read a binary file. Storage
@@ -278,7 +291,9 @@ Suggested ClickUp Super Agent instructions:
 > without aggressive polling. awaiting_human uses Bizbox's existing approval
 > flow, not MCP approval. Never automatically retry an uncertain submission;
 > history may help investigate but is not proof. Read outputMarkdown and inline
-> deliverable text, even when the summary is empty. Retrieve truncated or
+> deliverable text, even when the summary is empty. Retrieve
+> later deliverable pages by passing nextDeliverableCursor as deliverablesAfter
+> with the same run ID until null. Retrieve truncated or
 > not_inlined text with get_workflow_deliverable; follow nextOffset until null
 > when the whole document is needed. Known IDs can be used directly; tools need
 > not be called in order. Never rerun to retrieve outputs. Binary metadata does
