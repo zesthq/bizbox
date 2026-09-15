@@ -2441,16 +2441,23 @@ describe("ensureRuntimeServicesForRun", () => {
       adapterEnv: {},
     });
 
-    await stopRuntimeServicesForExecutionWorkspace({
-      executionWorkspaceId: "execution-workspace-target",
-      workspaceCwd: targetWorkspaceRoot,
-    });
+    try {
+      await stopRuntimeServicesForExecutionWorkspace({
+        executionWorkspaceId: "execution-workspace-target",
+        workspaceCwd: targetWorkspaceRoot,
+      });
 
-    const response = await fetch(services[0]!.url!);
-    expect(await response.text()).toBe("ok");
-
-    await releaseRuntimeServicesForRun(runId);
-    leasedRunIds.delete(runId);
+      const response = await fetch(services[0]!.url!);
+      expect(await response.text()).toBe("ok");
+    } finally {
+      // This fixture uses manual stop policy, so releasing its lease is not enough.
+      await stopRuntimeServicesForExecutionWorkspace({
+        executionWorkspaceId: "execution-workspace-sibling",
+        workspaceCwd: siblingWorkspaceRoot,
+      });
+      await releaseRuntimeServicesForRun(runId);
+      leasedRunIds.delete(runId);
+    }
   });
 
   it("starts only the selected workspace-controlled runtime service", async () => {
