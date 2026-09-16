@@ -18,6 +18,7 @@ import { issueRoutes } from "./routes/issues.js";
 import { deliverableRoutes } from "./routes/deliverables.js";
 import { routineRoutes } from "./routes/routines.js";
 import { workflowRoutes } from "./routes/workflows.js";
+import { mcpRoutes } from "./routes/mcp.js";
 import { resourceRoutes } from "./routes/resources.js";
 import { executionWorkspaceRoutes } from "./routes/execution-workspaces.js";
 import { goalRoutes } from "./routes/goals.js";
@@ -137,6 +138,14 @@ export async function createApp(
   },
 ) {
   const app = express();
+
+  // MCP owns its authentication, parsing and metadata-only logging. Never fall
+  // through to implicit local-board authentication or REST payload error logs.
+  app.use("/mcp", mcpRoutes(db, {
+    enabled: shouldEnablePrivateHostnameGuard(opts),
+    allowedHostnames: opts.allowedHostnames,
+    bindHost: opts.bindHost,
+  }));
 
   app.use(express.json({
     // Company import/export payloads can inline full portable packages.

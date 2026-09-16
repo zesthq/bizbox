@@ -46,10 +46,8 @@ async function createApp(
     bridgeDeps?: unknown;
   } = {},
 ) {
-  const [{ pluginRoutes }, { errorHandler }] = await Promise.all([
-    vi.importActual<typeof import("../routes/plugins.js")>("../routes/plugins.js"),
-    vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
-  ]);
+  const { pluginRoutes } = await import("../routes/plugins.js");
+  const { errorHandler } = await import("../middleware/index.js");
 
   const loader = {
     installPlugin: vi.fn(),
