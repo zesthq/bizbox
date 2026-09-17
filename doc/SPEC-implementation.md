@@ -615,9 +615,17 @@ Dashboard payload must include:
 - `GET /workflows/:workflowId`
 - `PATCH /workflows/:workflowId` with `{ "status": "archived" | "active" }`
 - `POST /workflows/:workflowId/run`
+- `GET /workflow-invocations/:invocationId/result`
 
 The default workflow list excludes archived workflows. Archived workflow launch attempts return
 `409 Conflict`; direct detail and explicit archived-inclusive listing retain historical access.
+
+Routine workflow invocations may record the authenticated requesting agent. Agent result access
+requires persisted ownership and matching company scope; unknown
+and unauthorized invocations both return `404`. The result endpoint exposes only normalized status,
+summary, sanitized structured output, error, and timing fields. Full workflow-run inputs, context,
+runtime diagnostics, tools, telemetry, and filesystem paths remain board-only through the existing
+workflow-run detail endpoint.
 
 ## 10.10 Error Semantics
 

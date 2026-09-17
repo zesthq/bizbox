@@ -88,8 +88,10 @@ const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockTrackRoutineCreated = vi.hoisted(() => vi.fn());
 const mockGetTelemetryClient = vi.hoisted(() => vi.fn());
 const mockInvokeFromRoutine = vi.hoisted(() => vi.fn());
+const mockGetResultForActor = vi.hoisted(() => vi.fn());
 const mockWorkflowInvocationService = vi.hoisted(() => vi.fn(() => ({
   invokeFromRoutine: mockInvokeFromRoutine,
+  getResultForActor: mockGetResultForActor,
 })));
 
 function registerModuleMocks() {
@@ -171,6 +173,7 @@ describe("routine routes", () => {
     });
     mockAccessService.canUser.mockResolvedValue(false);
     mockLogActivity.mockResolvedValue(undefined);
+    mockGetResultForActor.mockResolvedValue(null);
   });
 
   it("requires tasks:assign permission for non-admin board routine creation", async () => {
@@ -333,6 +336,7 @@ describe("routine routes", () => {
       companyId,
       sourceRoutineId: routineId,
       sourceRoutineRunId: "77777777-7777-4777-8777-777777777777",
+      requestedByAgentId: agentId,
       targetWorkflowId: "88888888-8888-4888-8888-888888888888",
       targetWorkflowKey: "content_strategist",
       targetCapability: null,
@@ -359,6 +363,7 @@ describe("routine routes", () => {
       .post(`/api/routines/${routineId}/workflow-invocations`)
       .send({
         sourceRoutineRunId: "77777777-7777-4777-8777-777777777777",
+        requestedByAgentId: otherAgentId,
         invocation: {
           contractVersion: "workflow-invocation/v1",
           target: {
@@ -375,6 +380,7 @@ describe("routine routes", () => {
     expect(mockInvokeFromRoutine).toHaveBeenCalledWith({
       routineId,
       sourceRoutineRunId: "77777777-7777-4777-8777-777777777777",
+      requestedByAgentId: agentId,
       envelope: expect.objectContaining({
         contractVersion: "workflow-invocation/v1",
         target: {
@@ -424,6 +430,7 @@ describe("routine routes", () => {
       companyId,
       sourceRoutineId: routineId,
       sourceRoutineRunId: "77777777-7777-4777-8777-777777777777",
+      requestedByAgentId: null,
       targetWorkflowId: "88888888-8888-4888-8888-888888888888",
       targetWorkflowKey: "content_strategist",
       targetCapability: null,
@@ -466,6 +473,7 @@ describe("routine routes", () => {
     expect(mockInvokeFromRoutine).toHaveBeenCalledWith({
       routineId,
       sourceRoutineRunId: "77777777-7777-4777-8777-777777777777",
+      requestedByAgentId: agentId,
       envelope: expect.objectContaining({
         contractVersion: "workflow-invocation/v1",
       }),
@@ -531,5 +539,69 @@ describe("routine routes", () => {
       userId: "board-user",
     });
     expect(mockTrackRoutineCreated).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it("returns an owning agent's scoped invocation result", async () => {
+    const result = {
+      invocationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      workflowRunId: "99999999-9999-4999-8999-999999999999",
+      workflowKey: "newsletter",
+      status: "succeeded",
+      summary: "Complete",
+      result: { url: "https://example.test" },
+      error: null,
+      startedAt: "2026-03-20T00:00:00.000Z",
+      finishedAt: "2026-03-20T00:01:00.000Z",
+    };
+    mockGetResultForActor.mockResolvedValue(result);
+    const app = await createApp({ type: "agent", agentId, companyId, source: "agent_api_key" });
+
+    const res = await request(app).get(`/api/workflow-invocations/${result.invocationId}/result`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(result);
+    expect(mockGetResultForActor).toHaveBeenCalledWith({
+      invocationId: result.invocationId,
+      agentId,
+      companyId,
+    });
+  });
+
+  it("returns 404 for unknown and unauthorized invocation results", async () => {
+    const invocationId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const app = await createApp({ type: "agent", agentId: otherAgentId, companyId, source: "agent_api_key" });
+
+    const res = await request(app).get(`/api/workflow-invocations/${invocationId}/result`);
+
+    expect(res.status).toBe(404);
+    expect(mockGetResultForActor).toHaveBeenCalledWith({ invocationId, agentId: otherAgentId, companyId });
+  });
+
+  it("allows a board member to read a sanitized result only through an accessible company", async () => {
+    const invocationId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    mockGetResultForActor.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      invocationId,
+      workflowRunId: null,
+      workflowKey: null,
+      status: "queued",
+      summary: null,
+      result: null,
+      error: null,
+      startedAt: null,
+      finishedAt: null,
+    });
+    const firstCompanyId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      companyIds: [firstCompanyId, companyId],
+    });
+
+    const res = await request(app).get(`/api/workflow-invocations/${invocationId}/result`);
+
+    expect(res.status).toBe(200);
+    expect(mockGetResultForActor).toHaveBeenNthCalledWith(1, { invocationId, agentId: null, companyId: firstCompanyId });
+    expect(mockGetResultForActor).toHaveBeenNthCalledWith(2, { invocationId, agentId: null, companyId });
   });
 });
