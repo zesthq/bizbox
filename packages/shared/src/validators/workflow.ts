@@ -5,7 +5,9 @@ import {
   workflowInvocationJsonPayloadSchema,
   workflowInvocationMarkdownPayloadSchema,
   workflowInvocationTargetSelectorSchema,
+  workflowInvocationResultViewSchema,
   routineWorkflowInvocationRequestSchema,
+  type WorkflowInvocationResultView,
 } from "./workflow-invocation.js";
 import { resourceRunOverridesSchema, workflowResourceManifestSchema } from "./resource.js";
 
@@ -121,7 +123,9 @@ export {
   workflowInvocationJsonPayloadSchema,
   workflowInvocationMarkdownPayloadSchema,
   workflowInvocationTargetSelectorSchema,
+  workflowInvocationResultViewSchema,
   routineWorkflowInvocationRequestSchema,
+  type WorkflowInvocationResultView,
 };
 
 export const runWorkflowSchema = z.object({
