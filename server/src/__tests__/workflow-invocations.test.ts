@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  agents,
   companies,
   createDb,
   routineRuns,
@@ -162,6 +163,17 @@ async function seedWorkflow(
   return workflowId;
 }
 
+async function seedInvocationOwner(db: ReturnType<typeof createDb>, companyId: string) {
+  const agentId = randomUUID();
+  await db.insert(agents).values({
+    id: agentId,
+    companyId,
+    name: "Routine agent",
+    role: "researcher",
+  });
+  return agentId;
+}
+
 describeEmbeddedPostgres("workflow invocation bridge", () => {
   let db!: ReturnType<typeof createDb>;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
@@ -181,6 +193,7 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
     await db.delete(routineRuns);
     await db.delete(routines);
     await db.delete(workflows);
+    await db.delete(agents);
     await db.delete(companies);
   });
 
@@ -287,6 +300,143 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
         sourceRoutineRunId: routineRunId,
       },
     });
+  });
+
+  it("records authenticated agent ownership", async () => {
+    const companyId = await seedCompany(db);
+    const { routineId, routineRunId } = await seedRoutine(db, companyId);
+    const agentId = await seedInvocationOwner(db, companyId);
+    const workflowId = await seedWorkflow(db, companyId, { title: "Owned workflow" });
+
+    const result = await workflowInvocationService(db).invokeFromRoutine({
+      routineId,
+      sourceRoutineRunId: routineRunId,
+      requestedByAgentId: agentId,
+      envelope: {
+        contractVersion: "workflow-invocation/v1",
+        target: { workflowId },
+        payload: { kind: "markdown", inputMarkdown: "Find candidates." },
+      },
+    });
+
+    const invocation = await db.select().from(workflowInvocations)
+      .where(eq(workflowInvocations.id, result.id)).then((rows) => rows[0] ?? null);
+    expect(invocation).toMatchObject({ requestedByAgentId: agentId });
+    expect(result).toMatchObject({ requestedByAgentId: agentId });
+  });
+
+  it("returns only sanitized workflow results to the owning agent and board", async () => {
+    const companyId = await seedCompany(db);
+    const { routineId, routineRunId } = await seedRoutine(db, companyId);
+    const agentId = await seedInvocationOwner(db, companyId);
+    const workflowId = await seedWorkflow(db, companyId, { title: "Result workflow", workflowKey: "result-workflow" });
+    const invocation = await workflowInvocationService(db).invokeFromRoutine({
+      routineId,
+      sourceRoutineRunId: routineRunId,
+      requestedByAgentId: agentId,
+      envelope: {
+        contractVersion: "workflow-invocation/v1",
+        target: { workflowId },
+        payload: { kind: "markdown", inputMarkdown: "Return a result." },
+      },
+    });
+    await vi.waitFor(async () => {
+      const run = await db.select().from(workflowRuns).where(eq(workflowRuns.id, invocation.workflowRunId!))
+        .then((rows) => rows[0] ?? null);
+      expect(run?.status).toBe("succeeded");
+    }, 10_000);
+    await db.update(workflowRuns).set({
+      summary: "# Final answer",
+      contextSnapshot: {
+        inputMarkdown: "secret input",
+        telemetry: { trace: true },
+        resultJson: {
+          articleUrl: "https://example.test/article",
+          stdout: "diagnostic output",
+          stderr: "diagnostic error",
+          nested: { toolCalls: [{ name: "search" }], finalValue: 42 },
+        },
+      },
+    }).where(eq(workflowRuns.id, invocation.workflowRunId!));
+
+    const svc = workflowInvocationService(db);
+    await expect(svc.getResultForActor({
+      invocationId: invocation.id,
+      agentId,
+      companyId,
+    })).resolves.toEqual(expect.objectContaining({
+      invocationId: invocation.id,
+      workflowRunId: invocation.workflowRunId,
+      workflowKey: "result-workflow",
+      status: "succeeded",
+      summary: "# Final answer",
+      result: {
+        articleUrl: "https://example.test/article",
+        nested: { finalValue: 42 },
+      },
+      error: null,
+    }));
+    await expect(svc.getResultForActor({
+      invocationId: invocation.id,
+      agentId: randomUUID(),
+      companyId,
+    })).resolves.toBeNull();
+    await expect(svc.getResultForActor({
+      invocationId: invocation.id,
+      agentId,
+      companyId: randomUUID(),
+    })).resolves.toBeNull();
+    await expect(svc.getResultForActor({
+      invocationId: invocation.id,
+      agentId: null,
+      companyId,
+    })).resolves.toEqual(expect.objectContaining({ status: "succeeded" }));
+  });
+
+  it("returns stable pending and pre-launch failure results without run diagnostics", async () => {
+    const companyId = await seedCompany(db);
+    const { routineId, routineRunId } = await seedRoutine(db, companyId);
+    const agentId = await seedInvocationOwner(db, companyId);
+    const workflowId = await seedWorkflow(db, companyId, { title: "Unlaunched workflow" });
+    const created = await db.insert(workflowInvocations).values([
+      {
+        companyId,
+        sourceRoutineId: routineId,
+        sourceRoutineRunId: routineRunId,
+        requestedByAgentId: agentId,
+        targetWorkflowId: workflowId,
+        contractVersion: "workflow-invocation/v1",
+        inputKind: "markdown",
+        inputMarkdown: "Pending",
+        status: "queued",
+      },
+      {
+        companyId,
+        sourceRoutineId: routineId,
+        sourceRoutineRunId: routineRunId,
+        requestedByAgentId: agentId,
+        targetWorkflowId: workflowId,
+        contractVersion: "workflow-invocation/v1",
+        inputKind: "markdown",
+        inputMarkdown: "Failed",
+        status: "failed",
+        failureReason: "Workflow launch failed",
+      },
+    ]).returning();
+    const pending = created[0];
+    const failed = created[1];
+    if (!pending || !failed) throw new Error("Expected pending and failed invocation fixtures");
+    const svc = workflowInvocationService(db);
+
+    await expect(svc.getResultForActor({ invocationId: pending.id, agentId, companyId }))
+      .resolves.toMatchObject({ status: "queued", workflowRunId: null, result: null, error: null });
+    await expect(svc.getResultForActor({ invocationId: failed.id, agentId, companyId }))
+      .resolves.toMatchObject({ status: "failed", workflowRunId: null, result: null, error: "Workflow launch failed" });
+
+    await db.update(workflowInvocations).set({ requestedByAgentId: null })
+      .where(eq(workflowInvocations.id, pending.id));
+    await expect(svc.getResultForActor({ invocationId: pending.id, agentId, companyId }))
+      .resolves.toBeNull();
   });
 
   it("records structured json invocations while keeping markdown compatibility", async () => {

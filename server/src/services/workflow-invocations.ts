@@ -1,13 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { routineRuns, routines, workflowInvocations } from "@paperclipai/db";
+import { routineRuns, routines, workflowInvocations, workflowRuns } from "@paperclipai/db";
 import type {
   WorkflowInvocationEnvelope,
   WorkflowInvocationResult,
+  WorkflowInvocationResultView,
   WorkflowRunInvocationSummary,
 } from "@paperclipai/shared";
-import { WORKFLOW_INVOCATION_CONTRACT_VERSION } from "@paperclipai/shared";
-import { notFound, unprocessable } from "../errors.js";
+import { WORKFLOW_INVOCATION_CONTRACT_VERSION, workflowInvocationResultViewSchema } from "@paperclipai/shared";
+import { internalError, notFound, unprocessable } from "../errors.js";
 import { workflowService, resolveWorkflowByInvocationTarget } from "./workflows.js";
 
 function toInvocationMarkdown(envelope: WorkflowInvocationEnvelope) {
@@ -61,6 +62,84 @@ function toInvocationSummary(
   };
 }
 
+const RESULT_DIAGNOSTIC_KEYS = new Set([
+  "consoleentries",
+  "consoleevents",
+  "context",
+  "contextsnapshot",
+  "copiedagentpath",
+  "events",
+  "input",
+  "inputjson",
+  "inputmarkdown",
+  "runtimepath",
+  "runtimepaths",
+  "runtimeroot",
+  "spans",
+  "stderr",
+  "stderrexcerpt",
+  "stdout",
+  "stdoutexcerpt",
+  "telemetry",
+  "temproot",
+  "toolcall",
+  "toolcalls",
+  "toolresult",
+  "toolresults",
+  "tools",
+  "trace",
+]);
+
+function sanitizeResultValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeResultValue);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !RESULT_DIAGNOSTIC_KEYS.has(key.replace(/[_-]/g, "").toLowerCase()))
+      .map(([key, nestedValue]) => [key, sanitizeResultValue(nestedValue)]),
+  );
+}
+
+function sanitizeResultJson(contextSnapshot: unknown): Record<string, unknown> | null {
+  if (!contextSnapshot || typeof contextSnapshot !== "object" || Array.isArray(contextSnapshot)) {
+    return null;
+  }
+  const resultJson = (contextSnapshot as Record<string, unknown>).resultJson;
+  if (!resultJson || typeof resultJson !== "object" || Array.isArray(resultJson)) {
+    return null;
+  }
+  return sanitizeResultValue(resultJson) as Record<string, unknown>;
+}
+
+function normalizeResultStatus(
+  runStatus: string | null,
+  invocationStatus: string,
+): WorkflowInvocationResultView["status"] {
+  if (runStatus === null) {
+    return invocationStatus === "failed" ? "failed" : "queued";
+  }
+  if (runStatus === "awaiting_content_review" || runStatus === "awaiting_final_review") {
+    return "awaiting_human";
+  }
+  if (
+    runStatus === "queued" ||
+    runStatus === "running" ||
+    runStatus === "awaiting_human" ||
+    runStatus === "succeeded" ||
+    runStatus === "failed" ||
+    runStatus === "cancelled" ||
+    runStatus === "rejected"
+  ) {
+    return runStatus;
+  }
+  throw internalError(`Unsupported workflow run status: ${runStatus}`);
+}
+
 export function workflowInvocationService(db: Db) {
   const workflowSvc = workflowService(db);
 
@@ -68,6 +147,7 @@ export function workflowInvocationService(db: Db) {
     invokeFromRoutine: async (input: {
       routineId: string;
       sourceRoutineRunId: string;
+      requestedByAgentId?: string | null;
       envelope: WorkflowInvocationEnvelope;
     }): Promise<WorkflowInvocationResult> => {
       if (input.envelope.contractVersion !== WORKFLOW_INVOCATION_CONTRACT_VERSION) {
@@ -93,6 +173,7 @@ export function workflowInvocationService(db: Db) {
       if (!sourceRunRow) {
         throw unprocessable("Source routine run does not belong to this routine");
       }
+      const requestedByAgentId = input.requestedByAgentId ?? null;
 
       const workflowRow = await resolveWorkflowByInvocationTarget(db, routineRow.companyId, input.envelope.target);
       const inputMarkdown = toInvocationMarkdown(input.envelope);
@@ -102,6 +183,7 @@ export function workflowInvocationService(db: Db) {
         companyId: routineRow.companyId,
         sourceRoutineId: routineRow.id,
         sourceRoutineRunId: sourceRunRow.id,
+        requestedByAgentId,
         targetWorkflowId: workflowRow.id,
         targetWorkflowKey: workflowRow.workflowKey ?? null,
         targetCapability: input.envelope.target.capability ?? null,
@@ -142,6 +224,7 @@ export function workflowInvocationService(db: Db) {
           companyId: routineRow.companyId,
           sourceRoutineId: routineRow.id,
           sourceRoutineRunId: sourceRunRow.id,
+          requestedByAgentId,
           targetWorkflowId: workflowRow.id,
           targetWorkflowKey: workflowRow.workflowKey ?? null,
           targetCapability: input.envelope.target.capability ?? null,
@@ -163,6 +246,54 @@ export function workflowInvocationService(db: Db) {
         }).where(eq(workflowInvocations.id, invocationRow.id));
         throw error;
       }
+    },
+    getResultForActor: async (input: {
+      invocationId: string;
+      agentId: string | null;
+      companyId: string | null;
+    }): Promise<WorkflowInvocationResultView | null> => {
+      const conditions = [eq(workflowInvocations.id, input.invocationId)];
+      if (input.companyId) {
+        conditions.push(eq(workflowInvocations.companyId, input.companyId));
+      }
+      if (input.agentId) {
+        conditions.push(eq(workflowInvocations.requestedByAgentId, input.agentId));
+      }
+
+      const row = await db
+        .select({
+          invocationId: workflowInvocations.id,
+          workflowRunId: workflowInvocations.workflowRunId,
+          workflowKey: workflowInvocations.targetWorkflowKey,
+          invocationStatus: workflowInvocations.status,
+          invocationError: workflowInvocations.failureReason,
+          runStatus: workflowRuns.status,
+          summary: workflowRuns.summary,
+          runError: workflowRuns.error,
+          contextSnapshot: workflowRuns.contextSnapshot,
+          startedAt: workflowRuns.startedAt,
+          finishedAt: workflowRuns.finishedAt,
+        })
+        .from(workflowInvocations)
+        .leftJoin(workflowRuns, and(
+          eq(workflowRuns.id, workflowInvocations.workflowRunId),
+          eq(workflowRuns.companyId, workflowInvocations.companyId),
+        ))
+        .where(and(...conditions))
+        .then((rows) => rows[0] ?? null);
+      if (!row) return null;
+
+      return workflowInvocationResultViewSchema.parse({
+        invocationId: row.invocationId,
+        workflowRunId: row.workflowRunId,
+        workflowKey: row.workflowKey,
+        status: normalizeResultStatus(row.runStatus, row.invocationStatus),
+        summary: row.summary,
+        result: sanitizeResultJson(row.contextSnapshot),
+        error: row.runError ?? row.invocationError,
+        startedAt: row.startedAt?.toISOString() ?? null,
+        finishedAt: row.finishedAt?.toISOString() ?? null,
+      });
     },
   };
 }
