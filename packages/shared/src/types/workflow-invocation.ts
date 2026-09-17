@@ -31,6 +31,7 @@ export interface WorkflowInvocationResult {
   companyId: string;
   sourceRoutineId: string;
   sourceRoutineRunId: string;
+  requestedByAgentId: string | null;
   targetWorkflowId: string;
   targetWorkflowKey: string | null;
   targetCapability: string | null;

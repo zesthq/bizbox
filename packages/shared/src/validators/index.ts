@@ -284,6 +284,7 @@ export {
   workflowInvocationJsonPayloadSchema,
   workflowInvocationMarkdownPayloadSchema,
   workflowInvocationTargetSelectorSchema,
+  workflowInvocationResultViewSchema,
   routineWorkflowInvocationRequestSchema,
   type CreateWorkflow,
   type UpdateWorkflow,
@@ -297,6 +298,7 @@ export {
   type CreateWorkflowSchedule,
   type UpdateWorkflowSchedule,
   type WorkflowPromptTemplate,
+  type WorkflowInvocationResultView,
 } from "./workflow.js";
 
 export {

@@ -814,6 +814,8 @@ export {
   workflowPromptTemplateSchema,
   workflowRunnerConfigSchema,
   routineWorkflowInvocationRequestSchema,
+  workflowInvocationResultViewSchema,
+  type WorkflowInvocationResultView,
   createWorkflowSchema,
   createWorkflowScheduleSchema,
   updateWorkflowSchema,

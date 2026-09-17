@@ -12,7 +12,7 @@ import {
 import { trackRoutineCreated } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
 import { accessService, logActivity, routineService, workflowInvocationService } from "../services/index.js";
-import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { assertAuthenticated, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { forbidden, unauthorized } from "../errors.js";
 import { getTelemetryClient } from "../telemetry.js";
 
@@ -333,12 +333,13 @@ export function routineRoutes(db: Db) {
       return;
     }
     await assertBoardCanAssignTasks(req, routine.companyId);
+    const actor = getActorInfo(req);
     const result = await invocationSvc.invokeFromRoutine({
       routineId: routine.id,
       sourceRoutineRunId: req.body.sourceRoutineRunId,
+      requestedByAgentId: actor.agentId,
       envelope: req.body.invocation,
     });
-    const actor = getActorInfo(req);
     await logActivity(db, {
       companyId: routine.companyId,
       actorType: actor.actorType,
@@ -354,6 +355,7 @@ export function routineRoutes(db: Db) {
         invocationId: result.id,
         sourceRoutineId: result.sourceRoutineId,
         sourceRoutineRunId: result.sourceRoutineRunId,
+        requestedByAgentId: result.requestedByAgentId,
         contractVersion: result.contractVersion,
         inputKind: result.inputKind,
         workflowKey: result.targetWorkflowKey,
@@ -361,6 +363,42 @@ export function routineRoutes(db: Db) {
       },
     });
     res.status(201).json(result);
+  });
+
+  router.get("/workflow-invocations/:id/result", async (req, res) => {
+    assertAuthenticated(req);
+    const invocationId = req.params.id as string;
+    let result = null;
+
+    if (req.actor.type === "agent") {
+      if (!req.actor.agentId || !req.actor.companyId) throw unauthorized();
+      result = await invocationSvc.getResultForActor({
+        invocationId,
+        agentId: req.actor.agentId,
+        companyId: req.actor.companyId,
+      });
+    } else if (req.actor.source === "local_implicit") {
+      result = await invocationSvc.getResultForActor({
+        invocationId,
+        agentId: null,
+        companyId: null,
+      });
+    } else {
+      for (const companyId of req.actor.companyIds ?? []) {
+        result = await invocationSvc.getResultForActor({
+          invocationId,
+          agentId: null,
+          companyId,
+        });
+        if (result) break;
+      }
+    }
+
+    if (!result) {
+      res.status(404).json({ error: "Workflow invocation result not found" });
+      return;
+    }
+    res.json(result);
   });
 
   router.post("/routine-triggers/public/:publicId/fire", async (req, res) => {

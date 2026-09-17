@@ -45,3 +45,25 @@ export const routineWorkflowInvocationRequestSchema = z.object({
 });
 
 export type RoutineWorkflowInvocationRequest = z.infer<typeof routineWorkflowInvocationRequestSchema>;
+
+export const workflowInvocationResultViewSchema = z.object({
+  invocationId: z.string().uuid(),
+  workflowRunId: z.string().uuid().nullable(),
+  workflowKey: z.string().nullable(),
+  status: z.enum([
+    "queued",
+    "running",
+    "awaiting_human",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "rejected",
+  ]),
+  summary: z.string().nullable(),
+  result: z.record(z.string(), z.unknown()).nullable(),
+  error: z.string().nullable(),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+});
+
+export type WorkflowInvocationResultView = z.infer<typeof workflowInvocationResultViewSchema>;
