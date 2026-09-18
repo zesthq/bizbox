@@ -1,0 +1,3 @@
+ALTER TABLE "workflow_invocations" ALTER COLUMN "source_routine_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "workflow_invocations" ALTER COLUMN "source_routine_run_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "workflow_invocations" ADD CONSTRAINT "workflow_invocations_source_routine_pair_check" CHECK (("workflow_invocations"."source_routine_id" IS NULL AND "workflow_invocations"."source_routine_run_id" IS NULL) OR ("workflow_invocations"."source_routine_id" IS NOT NULL AND "workflow_invocations"."source_routine_run_id" IS NOT NULL));

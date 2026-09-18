@@ -325,6 +325,22 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
     expect(result).toMatchObject({ requestedByAgentId: agentId });
   });
 
+  it("rejects partially populated routine provenance", async () => {
+    const companyId = await seedCompany(db);
+    const { routineId } = await seedRoutine(db, companyId);
+    const workflowId = await seedWorkflow(db, companyId, { title: "Constraint workflow" });
+
+    await expect(db.insert(workflowInvocations).values({
+      companyId,
+      sourceRoutineId: routineId,
+      sourceRoutineRunId: null,
+      targetWorkflowId: workflowId,
+      contractVersion: "workflow-invocation/v1",
+      inputKind: "markdown",
+      inputMarkdown: "Invalid provenance",
+    })).rejects.toThrow();
+  });
+
   it("returns only sanitized workflow results to the owning agent and board", async () => {
     const companyId = await seedCompany(db);
     const { routineId, routineRunId } = await seedRoutine(db, companyId);
