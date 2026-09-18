@@ -813,6 +813,7 @@ export {
   workflowPipelineDefinitionSchema,
   workflowPromptTemplateSchema,
   workflowRunnerConfigSchema,
+  workflowInvocationEnvelopeSchema,
   routineWorkflowInvocationRequestSchema,
   workflowInvocationResultViewSchema,
   type WorkflowInvocationResultView,
