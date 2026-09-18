@@ -996,6 +996,33 @@ describe("WorkflowDetail page", () => {
     expect(container.textContent).toContain("brief-generator");
     expect(container.textContent).toContain("briefing");
   });
+
+  it("shows direct provenance for agent-invoked runs", async () => {
+    getRunMock.mockResolvedValueOnce({
+      ...latestRunDetail,
+      invocation: {
+        id: "invocation-direct-1",
+        contractVersion: "workflow-invocation/v1",
+        inputKind: "markdown",
+        sourceRoutineId: null,
+        sourceRoutineTitle: null,
+        sourceRoutineRunId: null,
+        sourceRoutineRunSource: null,
+        targetWorkflowId: "workflow-1",
+        targetWorkflowKey: "brief-generator",
+        targetCapability: null,
+      },
+    });
+
+    await renderAt(container, "/workflows/workflow-1");
+    await flushReact();
+    await flushReact();
+
+    expect(container.textContent).toContain("Direct agent invocation");
+    expect(container.textContent).not.toContain("Source routine");
+    expect(container.textContent).not.toContain("Routine run");
+    expect(container.textContent).toContain("brief-generator");
+  });
 });
 
 describe("buildWorkflowGraph", () => {

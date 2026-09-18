@@ -1,4 +1,5 @@
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { agents } from "./agents.js";
 import { routineRuns, routines } from "./routines.js";
@@ -9,8 +10,8 @@ export const workflowInvocations = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
-    sourceRoutineId: uuid("source_routine_id").notNull().references(() => routines.id, { onDelete: "cascade" }),
-    sourceRoutineRunId: uuid("source_routine_run_id").notNull().references(() => routineRuns.id, { onDelete: "cascade" }),
+    sourceRoutineId: uuid("source_routine_id").references(() => routines.id, { onDelete: "cascade" }),
+    sourceRoutineRunId: uuid("source_routine_run_id").references(() => routineRuns.id, { onDelete: "cascade" }),
     requestedByAgentId: uuid("requested_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
     targetWorkflowId: uuid("target_workflow_id").notNull().references(() => workflows.id, { onDelete: "cascade" }),
     targetWorkflowKey: text("target_workflow_key"),
@@ -31,5 +32,9 @@ export const workflowInvocations = pgTable(
     requestedByAgentIdx: index("workflow_invocations_requested_by_agent_idx").on(table.requestedByAgentId),
     targetWorkflowIdx: index("workflow_invocations_target_workflow_idx").on(table.targetWorkflowId, table.createdAt),
     workflowRunUq: uniqueIndex("workflow_invocations_workflow_run_uq").on(table.workflowRunId),
+    sourceRoutinePairCheck: check(
+      "workflow_invocations_source_routine_pair_check",
+      sql`(${table.sourceRoutineId} IS NULL AND ${table.sourceRoutineRunId} IS NULL) OR (${table.sourceRoutineId} IS NOT NULL AND ${table.sourceRoutineRunId} IS NOT NULL)`,
+    ),
   }),
 );

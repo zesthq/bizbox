@@ -35,6 +35,7 @@ import type {
   WorkflowPhase,
   WorkflowRunConsoleChunk,
   WorkflowRunDetail,
+  WorkflowRunInvocationSummary,
   Resource,
   ResourceAttachmentMode,
   ResourceOutputAction,
@@ -2486,6 +2487,7 @@ function WorkflowInvocationCard({
   runDetail: WorkflowRunDetail | null;
 }) {
   const invocation = runDetail?.invocation ?? null;
+  const provenance = invocation ? getInvocationProvenance(invocation) : null;
   return (
     <Card className={workflowPanelClassName}>
       <CardHeader>
@@ -2501,15 +2503,24 @@ function WorkflowInvocationCard({
           </div>
         ) : invocation ? (
           <>
+            {provenance?.kind === "direct" ? (
+              <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-2 text-muted-foreground">
+                Direct agent invocation
+              </div>
+            ) : null}
             <div className="grid gap-2 md:grid-cols-2">
-              <InvocationField
-                label="Source routine"
-                value={invocation.sourceRoutineTitle ?? invocation.sourceRoutineId}
-              />
-              <InvocationField
-                label="Routine run"
-                value={invocation.sourceRoutineRunId}
-              />
+              {provenance?.kind === "routine" ? (
+                <>
+                  <InvocationField
+                    label="Source routine"
+                    value={provenance.sourceRoutineTitle ?? provenance.sourceRoutineId}
+                  />
+                  <InvocationField
+                    label="Routine run"
+                    value={provenance.sourceRoutineRunId}
+                  />
+                </>
+              ) : null}
               <InvocationField
                 label="Contract"
                 value={invocation.contractVersion}
@@ -2529,9 +2540,9 @@ function WorkflowInvocationCard({
                 value={invocation.targetCapability ?? "None"}
               />
             </div>
-            {invocation.sourceRoutineRunSource ? (
+            {provenance?.kind === "routine" && provenance.sourceRoutineRunSource ? (
               <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-                Routed from routine run source: {invocation.sourceRoutineRunSource}
+                Routed from routine run source: {provenance.sourceRoutineRunSource}
               </div>
             ) : null}
           </>
@@ -2543,6 +2554,30 @@ function WorkflowInvocationCard({
       </CardContent>
     </Card>
   );
+}
+
+function getInvocationProvenance(invocation: WorkflowRunInvocationSummary):
+  | { kind: "direct" }
+  | {
+      kind: "routine";
+      sourceRoutineId: string;
+      sourceRoutineTitle: string | null;
+      sourceRoutineRunId: string;
+      sourceRoutineRunSource: string | null;
+    } {
+  if (invocation.sourceRoutineId === null && invocation.sourceRoutineRunId === null) {
+    return { kind: "direct" };
+  }
+  if (invocation.sourceRoutineId !== null && invocation.sourceRoutineRunId !== null) {
+    return {
+      kind: "routine",
+      sourceRoutineId: invocation.sourceRoutineId,
+      sourceRoutineTitle: invocation.sourceRoutineTitle,
+      sourceRoutineRunId: invocation.sourceRoutineRunId,
+      sourceRoutineRunSource: invocation.sourceRoutineRunSource,
+    };
+  }
+  throw new Error("Workflow invocation has invalid routine provenance");
 }
 
 function InvocationField({ label, value }: { label: string; value: string }) {

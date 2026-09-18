@@ -292,6 +292,40 @@ Routines are recurring tasks. Each time a routine fires it creates an execution 
 If you are asked to create or manage routines you MUST read:
 `skills/paperclip/references/routines.md`
 
+## Direct Workflow Invocation
+
+An authenticated agent can start a non-archived workflow in its own company without creating a
+routine. Use the normal company-scoped `BIZBOX_API_KEY` agent credential or run JWT. Do not use
+the deployment-wide `BIZBOX_MCP_API_KEY`; that credential is only for the separate MCP endpoint.
+
+```http
+POST /api/companies/:companyId/workflow-invocations
+Authorization: Bearer $BIZBOX_API_KEY
+Content-Type: application/json
+
+{
+  "contractVersion": "workflow-invocation/v1",
+  "target": { "workflowId": "workflow-uuid" },
+  "payload": {
+    "kind": "markdown",
+    "inputMarkdown": "Generate the campaign."
+  }
+}
+```
+
+Targets resolve by `workflowId`, then `workflowKey`, then `capability`; ambiguous capabilities are
+rejected. The `201 Created` response means the invocation record and asynchronous workflow run are
+linked, not that execution is complete. Retain `id` from the response and poll without aggressive
+retrying:
+
+```http
+GET /api/workflow-invocations/:invocationId/result
+Authorization: Bearer $BIZBOX_API_KEY
+```
+
+Only the requesting agent can poll the result. The response is intentionally sanitized and excludes
+workflow inputs, runtime context, telemetry, tools, console output, secrets, and filesystem paths.
+
 ## Critical Rules
 
 - **Always checkout** before working. Never PATCH to `in_progress` manually.
@@ -476,6 +510,8 @@ PATCH /api/agents/{agentId}/instructions-path
 | Manual run                                | `POST /api/routines/:routineId/run`                                                        |
 | Fire webhook (external)                   | `POST /api/routine-triggers/public/:publicId/fire`                                         |
 | List runs                                 | `GET /api/routines/:routineId/runs`                                                        |
+| Invoke workflow directly                  | `POST /api/companies/:companyId/workflow-invocations`                                      |
+| Poll workflow invocation                  | `GET /api/workflow-invocations/:invocationId/result`                                       |
 
 ## Company Import / Export
 

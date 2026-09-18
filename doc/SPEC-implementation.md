@@ -36,7 +36,7 @@ These decisions close open questions from `SPEC.md` for V1.
 | Org graph | Strict tree (`reports_to` nullable root); no multi-manager reporting |
 | Visibility | Full visibility to board and all agents in same company |
 | Communication | Tasks + comments for work; `agent thread` for direct board-to-agent communication |
-| Workflow invocation | Routine autonomous mode can invoke workflows through a versioned, company-local contract. The contract prefers explicit workflow id, falls back to workflow key or capability, carries either markdown or JSON payloads while keeping markdown as the backward-compatible transport, and can surface a compact `workflowBridge` / `workflowContext` block so downstream routers resolve workflows from workflow records rather than agent-roster visibility |
+| Workflow invocation | Routine autonomous mode and authenticated agents can invoke workflows through a versioned, company-local contract. The contract prefers explicit workflow id, falls back to workflow key or capability, carries either markdown or JSON payloads while keeping markdown as the backward-compatible transport, and can surface a compact `workflowBridge` / `workflowContext` block so downstream routers resolve workflows from workflow records rather than agent-roster visibility |
 | Task ownership | Single assignee; atomic checkout required for `in_progress` transition |
 | Recovery | No automatic reassignment; work recovery stays manual/explicit |
 | Agent adapters | Built-in `process` and `http` adapters |
@@ -615,12 +615,21 @@ Dashboard payload must include:
 - `GET /workflows/:workflowId`
 - `PATCH /workflows/:workflowId` with `{ "status": "archived" | "active" }`
 - `POST /workflows/:workflowId/run`
+- `POST /companies/:companyId/workflow-invocations` (agent-only direct invocation)
 - `GET /workflow-invocations/:invocationId/result`
 
 The default workflow list excludes archived workflows. Archived workflow launch attempts return
 `409 Conflict`; direct detail and explicit archived-inclusive listing retain historical access.
 
-Routine workflow invocations may record the authenticated requesting agent. Agent result access
+An authenticated, non-terminated agent may directly invoke a non-archived workflow in its own
+company without creating a routine. The endpoint accepts the existing `workflow-invocation/v1`
+envelope, derives company and requester ownership exclusively from the authenticated actor, and
+returns `201 Created` after the invocation and asynchronous workflow run are durably created and
+linked. It uses the normal company-scoped agent API key or run JWT, never the deployment-wide
+`BIZBOX_MCP_API_KEY`. Routine-backed invocations retain both routine provenance fields; direct
+invocations retain neither.
+
+Routine and direct workflow invocations record the authenticated requesting agent. Agent result access
 requires persisted ownership and matching company scope; unknown
 and unauthorized invocations both return `404`. The result endpoint exposes only normalized status,
 summary, sanitized structured output, error, and timing fields. Full workflow-run inputs, context,
