@@ -21,7 +21,7 @@ function toInvocationMarkdown(envelope: WorkflowInvocationEnvelope) {
     envelope.target.capability ? `capability: ${envelope.target.capability}` : null,
   ].filter((value): value is string => Boolean(value));
   return [
-    "# Routine workflow invocation",
+    "# Workflow invocation",
     "",
     `Contract: ${envelope.contractVersion}`,
     targetBits.length > 0 ? `Target: ${targetBits.join(", ")}` : null,
@@ -39,8 +39,8 @@ function toInvocationSummary(
     id: string;
     contractVersion: string;
     inputKind: string;
-    sourceRoutineId: string;
-    sourceRoutineRunId: string;
+    sourceRoutineId: string | null;
+    sourceRoutineRunId: string | null;
     sourceRoutineTitle: string | null;
     sourceRoutineRunSource: string | null;
     targetWorkflowId: string;
@@ -143,6 +143,106 @@ function normalizeResultStatus(
 export function workflowInvocationService(db: Db) {
   const workflowSvc = workflowService(db);
 
+  type InvocationProvenance =
+    | {
+        kind: "routine";
+        sourceRoutineId: string;
+        sourceRoutineRunId: string;
+        sourceRoutineTitle: string;
+        sourceRoutineRunSource: string;
+      }
+    | {
+        kind: "direct";
+        sourceRoutineId: null;
+        sourceRoutineRunId: null;
+        sourceRoutineTitle: null;
+        sourceRoutineRunSource: null;
+      };
+
+  async function invoke(input: {
+    companyId: string;
+    requestedByAgentId: string | null;
+    envelope: WorkflowInvocationEnvelope;
+    provenance: InvocationProvenance;
+  }): Promise<WorkflowInvocationResult> {
+    if (input.envelope.contractVersion !== WORKFLOW_INVOCATION_CONTRACT_VERSION) {
+      throw unprocessable(`Unsupported workflow invocation contract: ${input.envelope.contractVersion}`);
+    }
+
+    const workflowRow = await resolveWorkflowByInvocationTarget(db, input.companyId, input.envelope.target);
+    const inputMarkdown = toInvocationMarkdown(input.envelope);
+    const inputJson = input.envelope.payload.kind === "json" ? input.envelope.payload.inputJson : null;
+
+    const invocationRow = await db.insert(workflowInvocations).values({
+      companyId: input.companyId,
+      sourceRoutineId: input.provenance.sourceRoutineId,
+      sourceRoutineRunId: input.provenance.sourceRoutineRunId,
+      requestedByAgentId: input.requestedByAgentId,
+      targetWorkflowId: workflowRow.id,
+      targetWorkflowKey: workflowRow.workflowKey ?? null,
+      targetCapability: input.envelope.target.capability ?? null,
+      contractVersion: input.envelope.contractVersion,
+      inputKind: input.envelope.payload.kind,
+      inputMarkdown,
+      inputJson,
+      status: "queued",
+    }).returning().then((rows) => rows[0] ?? null);
+    if (!invocationRow) {
+      throw unprocessable("Failed to create workflow invocation");
+    }
+
+    try {
+      const run = await workflowSvc.runInvocation(workflowRow.id, {
+        inputMarkdown,
+        invocation: toInvocationSummary({
+          id: invocationRow.id,
+          contractVersion: input.envelope.contractVersion,
+          inputKind: input.envelope.payload.kind,
+          sourceRoutineId: input.provenance.sourceRoutineId,
+          sourceRoutineRunId: input.provenance.sourceRoutineRunId,
+          sourceRoutineTitle: input.provenance.sourceRoutineTitle,
+          sourceRoutineRunSource: input.provenance.sourceRoutineRunSource,
+          targetWorkflowId: workflowRow.id,
+          targetWorkflowKey: workflowRow.workflowKey ?? null,
+          targetCapability: input.envelope.target.capability ?? null,
+        }),
+        invocationInputJson: inputJson,
+      });
+      const updatedAt = new Date();
+      await db.update(workflowInvocations).set({
+        workflowRunId: run.id,
+        status: "linked",
+        updatedAt,
+      }).where(eq(workflowInvocations.id, invocationRow.id));
+      return {
+        id: invocationRow.id,
+        companyId: input.companyId,
+        sourceRoutineId: input.provenance.sourceRoutineId,
+        sourceRoutineRunId: input.provenance.sourceRoutineRunId,
+        requestedByAgentId: input.requestedByAgentId,
+        targetWorkflowId: workflowRow.id,
+        targetWorkflowKey: workflowRow.workflowKey ?? null,
+        targetCapability: input.envelope.target.capability ?? null,
+        contractVersion: input.envelope.contractVersion,
+        inputKind: input.envelope.payload.kind,
+        inputMarkdown,
+        inputJson,
+        workflowRunId: run.id,
+        status: "linked",
+        failureReason: null,
+        createdAt: invocationRow.createdAt,
+        updatedAt,
+      };
+    } catch (error) {
+      await db.update(workflowInvocations).set({
+        status: "failed",
+        failureReason: error instanceof Error ? error.message : String(error),
+        updatedAt: new Date(),
+      }).where(eq(workflowInvocations.id, invocationRow.id));
+      throw error;
+    }
+  }
+
   return {
     invokeFromRoutine: async (input: {
       routineId: string;
@@ -150,10 +250,6 @@ export function workflowInvocationService(db: Db) {
       requestedByAgentId?: string | null;
       envelope: WorkflowInvocationEnvelope;
     }): Promise<WorkflowInvocationResult> => {
-      if (input.envelope.contractVersion !== WORKFLOW_INVOCATION_CONTRACT_VERSION) {
-        throw unprocessable(`Unsupported workflow invocation contract: ${input.envelope.contractVersion}`);
-      }
-
       const routineRow = await db
         .select()
         .from(routines)
@@ -173,79 +269,34 @@ export function workflowInvocationService(db: Db) {
       if (!sourceRunRow) {
         throw unprocessable("Source routine run does not belong to this routine");
       }
-      const requestedByAgentId = input.requestedByAgentId ?? null;
-
-      const workflowRow = await resolveWorkflowByInvocationTarget(db, routineRow.companyId, input.envelope.target);
-      const inputMarkdown = toInvocationMarkdown(input.envelope);
-      const inputJson = input.envelope.payload.kind === "json" ? input.envelope.payload.inputJson : null;
-
-      const invocationRow = await db.insert(workflowInvocations).values({
+      return invoke({
         companyId: routineRow.companyId,
-        sourceRoutineId: routineRow.id,
-        sourceRoutineRunId: sourceRunRow.id,
-        requestedByAgentId,
-        targetWorkflowId: workflowRow.id,
-        targetWorkflowKey: workflowRow.workflowKey ?? null,
-        targetCapability: input.envelope.target.capability ?? null,
-        contractVersion: input.envelope.contractVersion,
-        inputKind: input.envelope.payload.kind,
-        inputMarkdown,
-        inputJson,
-        status: "queued",
-      }).returning().then((rows) => rows[0] ?? null);
-      if (!invocationRow) {
-        throw unprocessable("Failed to create workflow invocation");
-      }
-
-      try {
-        const run = await workflowSvc.runInvocation(workflowRow.id, {
-          inputMarkdown,
-          invocation: toInvocationSummary({
-            id: invocationRow.id,
-            contractVersion: input.envelope.contractVersion,
-            inputKind: input.envelope.payload.kind,
-            sourceRoutineId: routineRow.id,
-            sourceRoutineRunId: sourceRunRow.id,
-            sourceRoutineTitle: routineRow.title,
-            sourceRoutineRunSource: sourceRunRow.source,
-            targetWorkflowId: workflowRow.id,
-            targetWorkflowKey: workflowRow.workflowKey ?? null,
-            targetCapability: input.envelope.target.capability ?? null,
-          }),
-          invocationInputJson: inputJson,
-        });
-        await db.update(workflowInvocations).set({
-          workflowRunId: run.id,
-          status: "linked",
-          updatedAt: new Date(),
-        }).where(eq(workflowInvocations.id, invocationRow.id));
-        return {
-          id: invocationRow.id,
-          companyId: routineRow.companyId,
+        requestedByAgentId: input.requestedByAgentId ?? null,
+        envelope: input.envelope,
+        provenance: {
+          kind: "routine",
           sourceRoutineId: routineRow.id,
           sourceRoutineRunId: sourceRunRow.id,
-          requestedByAgentId,
-          targetWorkflowId: workflowRow.id,
-          targetWorkflowKey: workflowRow.workflowKey ?? null,
-          targetCapability: input.envelope.target.capability ?? null,
-          contractVersion: input.envelope.contractVersion,
-          inputKind: input.envelope.payload.kind,
-          inputMarkdown,
-          inputJson,
-          workflowRunId: run.id,
-          status: "linked",
-          failureReason: null,
-          createdAt: invocationRow.createdAt,
-          updatedAt: new Date(),
-        };
-      } catch (error) {
-        await db.update(workflowInvocations).set({
-          status: "failed",
-          failureReason: error instanceof Error ? error.message : String(error),
-          updatedAt: new Date(),
-        }).where(eq(workflowInvocations.id, invocationRow.id));
-        throw error;
-      }
+          sourceRoutineTitle: routineRow.title,
+          sourceRoutineRunSource: sourceRunRow.source,
+        },
+      });
+    },
+    invokeDirect: async (input: {
+      companyId: string;
+      requestedByAgentId: string;
+      envelope: WorkflowInvocationEnvelope;
+    }): Promise<WorkflowInvocationResult> => {
+      return invoke({
+        ...input,
+        provenance: {
+          kind: "direct",
+          sourceRoutineId: null,
+          sourceRoutineRunId: null,
+          sourceRoutineTitle: null,
+          sourceRoutineRunSource: null,
+        },
+      });
     },
     getResultForActor: async (input: {
       invocationId: string;
