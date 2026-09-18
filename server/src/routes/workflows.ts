@@ -12,14 +12,16 @@ import {
   runWorkflowSchema,
   updateWorkflowSchema,
   updateWorkflowScheduleSchema,
+  workflowInvocationEnvelopeSchema,
   workflowPhaseEventSchema,
   workflowRunFeedbackSchema,
   workflowTelemetryBatchSchema,
 } from "@paperclipai/shared";
 import { z } from "zod";
 import { validate } from "../middleware/validate.js";
-import { logActivity, workflowHandoffBridgeService, workflowScheduleService, workflowService } from "../services/index.js";
-import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
+import { logActivity, workflowHandoffBridgeService, workflowInvocationService, workflowScheduleService, workflowService } from "../services/index.js";
+import { forbidden, unauthorized } from "../errors.js";
+import { assertAuthenticated, assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
 function readRuntimeToken(req: { body?: unknown; query?: unknown }) {
   const bodyToken = req.body && typeof req.body === "object" && req.body !== null && typeof (req.body as { token?: unknown }).token === "string"
@@ -34,6 +36,7 @@ function readRuntimeToken(req: { body?: unknown; query?: unknown }) {
 export function workflowRoutes(db: Db) {
   const router = Router();
   const svc = workflowService(db);
+  const invocationSvc = workflowInvocationService(db);
   const scheduleSvc = workflowScheduleService(db);
   const runtimePhaseEventRequestSchema = workflowPhaseEventSchema.extend({
     token: z.string().trim().min(1),
@@ -181,6 +184,47 @@ export function workflowRoutes(db: Db) {
     });
     res.status(201).json(run);
   });
+
+  router.post(
+    "/companies/:companyId/workflow-invocations",
+    validate(workflowInvocationEnvelopeSchema),
+    async (req, res) => {
+      assertAuthenticated(req);
+      if (req.actor.type !== "agent") throw forbidden("Agent access required");
+      if (!req.actor.agentId || !req.actor.companyId) throw unauthorized();
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+
+      const result = await invocationSvc.invokeDirect({
+        companyId,
+        requestedByAgentId: req.actor.agentId,
+        envelope: req.body,
+      });
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "workflow.run_started",
+        entityType: "workflow_run",
+        entityId: result.workflowRunId ?? result.id,
+        details: {
+          source: "direct",
+          workflowId: result.targetWorkflowId,
+          workflowRunId: result.workflowRunId,
+          invocationId: result.id,
+          requestedByAgentId: result.requestedByAgentId,
+          contractVersion: result.contractVersion,
+          inputKind: result.inputKind,
+          workflowKey: result.targetWorkflowKey,
+          capability: result.targetCapability,
+        },
+      });
+      res.status(201).json(result);
+    },
+  );
 
   router.get("/workflows/:id/schedules", async (req, res) => {
     assertBoard(req);

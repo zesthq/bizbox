@@ -7,6 +7,8 @@ import { HttpError } from "../errors.js";
 const companyId = "22222222-2222-4222-8222-222222222222";
 const runId = "33333333-3333-4333-8333-333333333333";
 const handoffId = "44444444-4444-4444-8444-444444444444";
+const agentId = "55555555-5555-4555-8555-555555555555";
+const workflowId = "66666666-6666-4666-8666-666666666666";
 const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockWorkflowHandoffBridgeService = vi.hoisted(() => vi.fn());
 
@@ -40,28 +42,32 @@ const mockWorkflowScheduleService = vi.hoisted(() => ({
   delete: vi.fn(),
   tickScheduledRuns: vi.fn(),
 }));
+const mockWorkflowInvocationService = vi.hoisted(() => ({
+  invokeDirect: vi.fn(),
+}));
 
 vi.mock("../services/index.js", () => ({
   workflowService: () => mockWorkflowService,
   workflowScheduleService: () => mockWorkflowScheduleService,
+  workflowInvocationService: () => mockWorkflowInvocationService,
   workflowHandoffBridgeService: mockWorkflowHandoffBridgeService,
   logActivity: mockLogActivity,
 }));
 
 import { workflowRoutes } from "../routes/workflows.js";
 
-function createApp() {
+function createApp(actor: Express.Request["actor"] = {
+  type: "board",
+  userId: "board-user",
+  companyIds: [companyId],
+  source: "session",
+  isInstanceAdmin: false,
+  memberships: [{ companyId, status: "active", membershipRole: "admin" }],
+}) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as any).actor = {
-      type: "board",
-      userId: "board-user",
-      companyIds: [companyId],
-      source: "session",
-      isInstanceAdmin: false,
-      memberships: [{ companyId, status: "active", membershipRole: "admin" }],
-    };
+    (req as any).actor = actor;
     next();
   });
   app.use("/api", workflowRoutes({} as any));
@@ -73,6 +79,126 @@ describe("workflow routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockWorkflowHandoffBridgeService.mockReturnValue({ openForHandoff: vi.fn() });
+  });
+
+  it("lets an authenticated agent create a company-scoped direct invocation", async () => {
+    const result = {
+      id: "77777777-7777-4777-8777-777777777777",
+      companyId,
+      sourceRoutineId: null,
+      sourceRoutineRunId: null,
+      requestedByAgentId: agentId,
+      targetWorkflowId: workflowId,
+      targetWorkflowKey: "campaign-generator",
+      targetCapability: null,
+      contractVersion: "workflow-invocation/v1",
+      inputKind: "markdown",
+      inputMarkdown: "Generate the campaign.",
+      inputJson: null,
+      workflowRunId: runId,
+      status: "linked",
+      failureReason: null,
+      createdAt: new Date("2026-09-18T12:00:00.000Z"),
+      updatedAt: new Date("2026-09-18T12:00:00.000Z"),
+    };
+    mockWorkflowInvocationService.invokeDirect.mockResolvedValue(result);
+    const envelope = {
+      contractVersion: "workflow-invocation/v1",
+      target: { workflowId },
+      payload: { kind: "markdown", inputMarkdown: "Generate the campaign." },
+    };
+
+    const res = await request(createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: "heartbeat-run-1",
+      source: "agent_jwt",
+    })).post(`/api/companies/${companyId}/workflow-invocations`).send(envelope);
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      id: result.id,
+      sourceRoutineId: null,
+      sourceRoutineRunId: null,
+      requestedByAgentId: agentId,
+      workflowRunId: runId,
+    });
+    expect(mockWorkflowInvocationService.invokeDirect).toHaveBeenCalledWith({
+      companyId,
+      requestedByAgentId: agentId,
+      envelope,
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      companyId,
+      actorType: "agent",
+      actorId: agentId,
+      agentId,
+      runId: "heartbeat-run-1",
+      action: "workflow.run_started",
+      entityId: runId,
+      details: expect.objectContaining({
+        source: "direct",
+        workflowId,
+        workflowRunId: runId,
+        invocationId: result.id,
+        requestedByAgentId: agentId,
+      }),
+    }));
+  });
+
+  it("rejects non-agent callers and path-company mismatches", async () => {
+    const envelope = {
+      contractVersion: "workflow-invocation/v1",
+      target: { workflowId },
+      payload: { kind: "markdown", inputMarkdown: "Generate the campaign." },
+    };
+    const otherCompanyId = "88888888-8888-4888-8888-888888888888";
+
+    const [anonymous, board, mismatchedAgent] = await Promise.all([
+      request(createApp({ type: "none", source: "none" }))
+        .post(`/api/companies/${companyId}/workflow-invocations`).send(envelope),
+      request(createApp()).post(`/api/companies/${companyId}/workflow-invocations`).send(envelope),
+      request(createApp({ type: "agent", agentId, companyId, source: "agent_key" }))
+        .post(`/api/companies/${otherCompanyId}/workflow-invocations`).send(envelope),
+    ]);
+
+    expect(anonymous.status).toBe(401);
+    expect(board.status).toBe(403);
+    expect(mismatchedAgent.status).toBe(403);
+    expect(mockWorkflowInvocationService.invokeDirect).not.toHaveBeenCalled();
+  });
+
+  it("ignores caller-supplied invocation ownership", async () => {
+    const envelope = {
+      contractVersion: "workflow-invocation/v1",
+      target: { workflowId },
+      payload: { kind: "markdown", inputMarkdown: "Generate the campaign." },
+    };
+    mockWorkflowInvocationService.invokeDirect.mockResolvedValue({
+      id: "77777777-7777-4777-8777-777777777777",
+      workflowRunId: runId,
+      targetWorkflowId: workflowId,
+      requestedByAgentId: agentId,
+      contractVersion: "workflow-invocation/v1",
+      inputKind: "markdown",
+      targetWorkflowKey: null,
+      targetCapability: null,
+    });
+
+    const res = await request(createApp({ type: "agent", agentId, companyId, source: "agent_key" }))
+      .post(`/api/companies/${companyId}/workflow-invocations`)
+      .send({
+        ...envelope,
+        requestedByAgentId: "99999999-9999-4999-8999-999999999999",
+      });
+
+    expect(res.status).toBe(201);
+    expect(mockWorkflowInvocationService.invokeDirect).toHaveBeenCalledWith({
+      companyId,
+      requestedByAgentId: agentId,
+      envelope,
+    });
   });
 
   it("returns the ClickUp bridge error when a runtime handoff cannot be delivered", async () => {
