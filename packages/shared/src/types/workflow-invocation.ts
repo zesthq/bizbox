@@ -29,8 +29,8 @@ export interface WorkflowInvocationEnvelope {
 export interface WorkflowInvocationResult {
   id: string;
   companyId: string;
-  sourceRoutineId: string;
-  sourceRoutineRunId: string;
+  sourceRoutineId: string | null;
+  sourceRoutineRunId: string | null;
   requestedByAgentId: string | null;
   targetWorkflowId: string;
   targetWorkflowKey: string | null;
@@ -50,9 +50,9 @@ export interface WorkflowRunInvocationSummary {
   id: string;
   contractVersion: WorkflowInvocationContractVersion;
   inputKind: WorkflowInvocationPayload["kind"];
-  sourceRoutineId: string;
+  sourceRoutineId: string | null;
   sourceRoutineTitle: string | null;
-  sourceRoutineRunId: string;
+  sourceRoutineRunId: string | null;
   sourceRoutineRunSource: string | null;
   targetWorkflowId: string;
   targetWorkflowKey: string | null;

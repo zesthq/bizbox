@@ -182,8 +182,8 @@ function toWorkflowInvocationSummary(row: {
   id: string;
   contractVersion: string;
   inputKind: string;
-  sourceRoutineId: string;
-  sourceRoutineRunId: string;
+  sourceRoutineId: string | null;
+  sourceRoutineRunId: string | null;
   sourceRoutineTitle: string | null;
   sourceRoutineRunSource: string | null;
   targetWorkflowId: string;

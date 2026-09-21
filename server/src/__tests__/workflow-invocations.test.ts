@@ -325,6 +325,79 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
     expect(result).toMatchObject({ requestedByAgentId: agentId });
   });
 
+  it("records direct agent invocations without routine provenance", async () => {
+    const companyId = await seedCompany(db);
+    const agentId = await seedInvocationOwner(db, companyId);
+    const workflowId = await seedWorkflow(db, companyId, {
+      title: "Direct workflow",
+      workflowKey: "direct-workflow",
+    });
+
+    const result = await workflowInvocationService(db).invokeDirect({
+      companyId,
+      requestedByAgentId: agentId,
+      envelope: {
+        contractVersion: "workflow-invocation/v1",
+        target: { workflowId },
+        payload: { kind: "json", inputJson: { campaign: "fall" } },
+      },
+    });
+
+    const invocation = await db.select().from(workflowInvocations)
+      .where(eq(workflowInvocations.id, result.id)).then((rows) => rows[0] ?? null);
+    expect(invocation).toMatchObject({
+      sourceRoutineId: null,
+      sourceRoutineRunId: null,
+      requestedByAgentId: agentId,
+      inputKind: "json",
+      inputJson: { campaign: "fall" },
+    });
+    expect(result).toMatchObject({
+      companyId,
+      sourceRoutineId: null,
+      sourceRoutineRunId: null,
+      requestedByAgentId: agentId,
+      workflowRunId: expect.any(String),
+      status: "linked",
+    });
+
+    const run = await workflowService(db).getRunDetail(result.workflowRunId!);
+    expect(run?.inputMarkdown).toContain("# Workflow invocation");
+    expect(run?.invocation).toMatchObject({
+      sourceRoutineId: null,
+      sourceRoutineRunId: null,
+      targetWorkflowId: workflowId,
+    });
+
+    const svc = workflowInvocationService(db);
+    await expect(svc.getResultForActor({
+      invocationId: result.id,
+      agentId,
+      companyId,
+    })).resolves.toMatchObject({ invocationId: result.id, workflowRunId: result.workflowRunId });
+    await expect(svc.getResultForActor({
+      invocationId: result.id,
+      agentId: randomUUID(),
+      companyId,
+    })).resolves.toBeNull();
+  });
+
+  it("rejects partially populated routine provenance", async () => {
+    const companyId = await seedCompany(db);
+    const { routineId } = await seedRoutine(db, companyId);
+    const workflowId = await seedWorkflow(db, companyId, { title: "Constraint workflow" });
+
+    await expect(db.insert(workflowInvocations).values({
+      companyId,
+      sourceRoutineId: routineId,
+      sourceRoutineRunId: null,
+      targetWorkflowId: workflowId,
+      contractVersion: "workflow-invocation/v1",
+      inputKind: "markdown",
+      inputMarkdown: "Invalid provenance",
+    })).rejects.toThrow();
+  });
+
   it("returns only sanitized workflow results to the owning agent and board", async () => {
     const companyId = await seedCompany(db);
     const { routineId, routineRunId } = await seedRoutine(db, companyId);

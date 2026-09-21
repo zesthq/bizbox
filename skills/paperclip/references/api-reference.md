@@ -846,6 +846,35 @@ Terminal states: `done`, `cancelled`
 | POST   | `/api/routine-triggers/public/:publicId/fire` | Fire webhook trigger from external system |
 | GET    | `/api/routines/:routineId/runs` | Run history (default 50) |
 
+### Workflow Invocations
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/companies/:companyId/workflow-invocations` | Start a direct asynchronous workflow invocation (agent-only; own company) |
+| GET | `/api/workflow-invocations/:invocationId/result` | Poll the requesting agent's sanitized invocation result |
+
+The direct endpoint accepts the existing `workflow-invocation/v1` envelope. Target resolution uses
+`workflowId`, then `workflowKey`, then `capability`; ambiguous capability matches and archived
+workflows are rejected. The server derives `companyId` and `requestedByAgentId` from the authenticated
+agent and ignores caller-supplied ownership fields. A successful `201 Created` response means the
+invocation and workflow run are durably linked; workflow execution continues asynchronously.
+
+Use the normal company-scoped agent API key or run JWT in `BIZBOX_API_KEY`, not the deployment-wide
+`BIZBOX_MCP_API_KEY`. Only the requesting agent can poll the result. Unknown and unauthorized IDs both
+return `404`, and the result omits inputs, runtime context, telemetry, tools, console output, secrets,
+and filesystem paths.
+
+```json
+{
+  "contractVersion": "workflow-invocation/v1",
+  "target": { "workflowKey": "campaign-generator" },
+  "payload": {
+    "kind": "markdown",
+    "inputMarkdown": "Generate the campaign."
+  }
+}
+```
+
 ### Approvals, Costs, Activity, Dashboard
 
 | Method | Path                                         | Description                        |
