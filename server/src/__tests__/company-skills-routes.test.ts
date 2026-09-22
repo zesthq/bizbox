@@ -67,10 +67,13 @@ function registerModuleMocks() {
 }
 
 async function createApp(actor: Record<string, unknown>) {
-  const [{ companySkillRoutes }, { errorHandler }] = await Promise.all([
-    vi.importActual<typeof import("../routes/company-skills.js")>("../routes/company-skills.js"),
-    vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
-  ]);
+  // Concurrent imports can bypass shared dependency mocks in Vitest.
+  const { companySkillRoutes } = await vi.importActual<typeof import("../routes/company-skills.js")>(
+    "../routes/company-skills.js",
+  );
+  const { errorHandler } = await vi.importActual<typeof import("../middleware/index.js")>(
+    "../middleware/index.js",
+  );
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {

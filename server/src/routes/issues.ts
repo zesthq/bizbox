@@ -3680,7 +3680,7 @@ export function issueRoutes(
     }
     const filename = attachment.originalFilename ?? "attachment";
     const disposition = isInlineAttachmentContentType(responseContentType) ? "inline" : "attachment";
-    res.setHeader("Content-Disposition", `${disposition}; filename=\"${filename.replaceAll("\"", "")}\"`);
+    res.setHeader("Content-Disposition", `${disposition}; filename=\"${filename.replace(/[\u0000-\u001F\u007F"]/g, "")}\"`);
 
     object.stream.on("error", (err) => {
       next(err);

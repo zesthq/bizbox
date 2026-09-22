@@ -68,7 +68,7 @@ describe("GET /invites/:token/logo", () => {
     mockStorage.headObject.mockReset();
   });
 
-  it("serves the company logo for an active invite without company auth", async () => {
+  it.each(["logo.png", 'logo\r\n".png'])("serves company logo %j for an active invite without company auth", async (filename) => {
     const invite = {
       id: "invite-1",
       companyId: "company-1",
@@ -99,7 +99,7 @@ describe("GET /invites/:token/logo", () => {
         objectKey: "assets/companies/logo-1",
         contentType: "image/png",
         byteSize: 3,
-        originalFilename: "logo.png",
+        originalFilename: filename,
       }]),
     );
 
@@ -107,6 +107,7 @@ describe("GET /invites/:token/logo", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toContain("image/png");
+    expect(res.headers["content-disposition"]).toBe('inline; filename="logo.png"');
     expect(mockStorage.headObject).toHaveBeenCalledWith("company-1", "assets/companies/logo-1");
     expect(mockStorage.getObject).toHaveBeenCalledWith("company-1", "assets/companies/logo-1");
   });

@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
@@ -163,6 +164,29 @@ describe("POST /api/companies/:companyId/assets/images", () => {
     expect([200, 201]).toContain(res.status);
     expect(res.body.contentPath).toBe("/api/assets/asset-1/content");
     expect(res.body.contentType).toBe("text/plain");
+  });
+
+  it.each(["assets/images", "logo"])("serves %s uploads with decoded filename characters", async (route) => {
+    const storage = createStorageService("image/png");
+    const app = await createApp(storage);
+    const asset = { ...createAsset(), originalFilename: 'line\r\n"break.png', byteSize: 3 };
+    createAssetMock.mockResolvedValue(asset);
+    getAssetByIdMock.mockResolvedValue(asset);
+    vi.mocked(storage.getObject).mockResolvedValue({
+      stream: Readable.from(Buffer.from("png")),
+      contentLength: 3,
+    });
+
+    const upload = await request(app)
+      .post(`/api/companies/company-1/${route}`)
+      .attach("file", Buffer.from("png"), { filename: "line%0D%0A%22break.png", contentType: "image/png" });
+
+    expect(upload.status).toBe(201);
+    expect(storage.__calls.putFileInputs[0].originalFilename).toBe(asset.originalFilename);
+    const res = await request(app).get(upload.body.contentPath);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-disposition"]).toBe('inline; filename="linebreak.png"');
+    expect(res.body).toEqual(Buffer.from("png"));
   });
 });
 
