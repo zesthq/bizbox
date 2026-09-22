@@ -215,18 +215,15 @@ describe("issue attachment routes", () => {
     expect(res.body.contentType).toBe("application/zip");
   });
 
-  it("serves html attachments as downloads with nosniff", async () => {
+  it.each(["report.html", 'report\r\n".html'])("serves html attachment %j as a download with nosniff", async (filename) => {
     const storage = createStorageService();
-    mockIssueService.getAttachmentById.mockResolvedValue(makeAttachment("text/html", "report.html"));
+    mockIssueService.getAttachmentById.mockResolvedValue(makeAttachment("text/html", filename));
 
     const app = await createApp(storage);
     const res = await request(app).get("/api/attachments/attachment-1/content");
 
     expect(res.status).toBe(200);
-    expect([
-      undefined,
-      'attachment; filename="report.html"',
-    ]).toContain(res.headers["content-disposition"]);
+    expect(res.headers["content-disposition"]).toBe('attachment; filename="report.html"');
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
   });
 

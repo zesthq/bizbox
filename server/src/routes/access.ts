@@ -3074,7 +3074,7 @@ export function accessRoutes(
       res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'");
     }
     const filename = logoAsset.originalFilename ?? "company-logo";
-    res.setHeader("Content-Disposition", `inline; filename=\"${filename.replaceAll("\"", "")}\"`);
+    res.setHeader("Content-Disposition", `inline; filename=\"${filename.replace(/[\u0000-\u001F\u007F"]/g, "")}\"`);
 
     object.stream.on("error", (err) => {
       next(err);

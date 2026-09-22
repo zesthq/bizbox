@@ -328,7 +328,7 @@ export function assetRoutes(db: Db, storage: StorageService) {
       res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'");
     }
     const filename = asset.originalFilename ?? "asset";
-    res.setHeader("Content-Disposition", `inline; filename=\"${filename.replaceAll("\"", "")}\"`);
+    res.setHeader("Content-Disposition", `inline; filename=\"${filename.replace(/[\u0000-\u001F\u007F"]/g, "")}\"`);
 
     object.stream.on("error", (err) => {
       next(err);
