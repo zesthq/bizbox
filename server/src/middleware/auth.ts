@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Request, RequestHandler } from "express";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { agentApiKeys, agents, companyMemberships, instanceUserRoles } from "@paperclipai/db";
+import { agentApiKeys, agents, companyMemberships, instanceUserRoles, workflowRuns } from "@paperclipai/db";
 import { verifyLocalAgentJwt } from "../agent-auth-jwt.js";
 import type { DeploymentMode } from "@paperclipai/shared";
 import type { BetterAuthSessionResult } from "../auth/better-auth.js";
@@ -151,12 +151,27 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         return;
       }
 
+      if (claims.delegation === "workflow") {
+        const run = await db.select({
+          companyId: workflowRuns.companyId,
+          workflowId: workflowRuns.workflowId,
+          contextSnapshot: workflowRuns.contextSnapshot,
+        }).from(workflowRuns).where(eq(workflowRuns.id, claims.run_id)).then((rows) => rows[0] ?? null);
+        const provenance = run?.contextSnapshot as Record<string, unknown> | null | undefined;
+        if (run?.companyId !== claims.company_id || run?.workflowId !== claims.workflow_id ||
+          provenance?.requestedByAgentId !== claims.sub || provenance?.workflowId !== claims.workflow_id ||
+          provenance?.companyId !== claims.company_id) {
+          next();
+          return;
+        }
+      }
+
       req.actor = {
         type: "agent",
         agentId: claims.sub,
         companyId: claims.company_id,
         keyId: undefined,
-        runId: runIdHeader || claims.run_id || undefined,
+        runId: claims.delegation === "workflow" ? claims.run_id : runIdHeader || claims.run_id || undefined,
         source: "agent_jwt",
       };
       next();

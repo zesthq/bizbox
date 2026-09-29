@@ -194,6 +194,7 @@ export function workflowInvocationService(db: Db) {
     try {
       const run = await workflowSvc.runInvocation(workflowRow.id, {
         inputMarkdown,
+        requestedByAgentId: input.requestedByAgentId,
         invocation: toInvocationSummary({
           id: invocationRow.id,
           contractVersion: input.envelope.contractVersion,

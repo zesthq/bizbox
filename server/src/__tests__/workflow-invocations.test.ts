@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import express from "express";
+import request from "supertest";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -31,7 +33,7 @@ const mockGetStorageService = vi.hoisted(() => vi.fn(() => ({
   headObject: vi.fn(),
   deleteObject: vi.fn(),
 })));
-const mockInvokeGoogleAdk = vi.hoisted(() => vi.fn(async () => ({
+const mockInvokeGoogleAdk = vi.hoisted(() => vi.fn(async (_input?: { runId: string; authToken?: string }) => ({
   summary: "done",
   resultJson: { ok: true },
   errorMessage: null,
@@ -98,6 +100,8 @@ vi.mock("../workflow-run-jwt.js", () => ({
 
 import { workflowService, resolveWorkflowByInvocationTarget } from "../services/workflows.ts";
 import { workflowInvocationService } from "../services/workflow-invocations.ts";
+import { createWorkflowDelegatedAgentJwt, verifyLocalAgentJwt } from "../agent-auth-jwt.js";
+import { actorMiddleware } from "../middleware/auth.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -177,6 +181,7 @@ async function seedInvocationOwner(db: ReturnType<typeof createDb>, companyId: s
 describeEmbeddedPostgres("workflow invocation bridge", () => {
   let db!: ReturnType<typeof createDb>;
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+  const originalSecret = process.env.BIZBOX_AGENT_JWT_SECRET;
 
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-workflow-invocations-");
@@ -185,6 +190,7 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.BIZBOX_AGENT_JWT_SECRET = "workflow-invocation-test-secret";
   });
 
   afterEach(async () => {
@@ -199,7 +205,103 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
 
   afterAll(async () => {
     await tempDb?.cleanup();
+    if (originalSecret === undefined) delete process.env.BIZBOX_AGENT_JWT_SECRET;
+    else process.env.BIZBOX_AGENT_JWT_SECRET = originalSecret;
   });
+
+  it("persists requester before ADK launch and passes a fresh agent credential", async () => {
+    const companyId = await seedCompany(db);
+    const workflowId = await seedWorkflow(db, companyId, { title: "Delegated" });
+    const agentId = await seedInvocationOwner(db, companyId);
+    let observedSnapshot: unknown;
+    mockInvokeGoogleAdk.mockImplementationOnce(async (input) => {
+      if (!input) throw new Error("Missing ADK input");
+      const [run] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, input.runId));
+      observedSnapshot = run?.contextSnapshot;
+      return { summary: "done", resultJson: { ok: true }, errorMessage: null, provider: "google", model: "gemini", usage: null };
+    });
+    const result = await workflowInvocationService(db).invokeDirect({
+      companyId, requestedByAgentId: agentId,
+      envelope: { contractVersion: "workflow-invocation/v1", target: { workflowId }, payload: { kind: "markdown", inputMarkdown: "produce newsletter" } },
+    });
+    await vi.waitFor(() => expect(mockInvokeGoogleAdk).toHaveBeenCalledTimes(1));
+    const input = mockInvokeGoogleAdk.mock.calls[0]?.[0];
+    if (!input) throw new Error("ADK was not invoked");
+    expect(verifyLocalAgentJwt(input.authToken ?? "")).toMatchObject({
+      sub: agentId, company_id: companyId, workflow_id: workflowId,
+      run_id: result.workflowRunId, delegation: "workflow",
+    });
+    expect(observedSnapshot).toMatchObject({ requestedByAgentId: agentId, companyId, workflowId });
+    await vi.waitFor(async () => {
+      const [run] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, result.workflowRunId!));
+      expect(run?.contextSnapshot).toMatchObject({ requestedByAgentId: agentId, companyId, workflowId });
+    });
+  });
+
+  it("authenticates only the persisted agent/run/workflow/company binding after completion", async () => {
+    const companyId = await seedCompany(db);
+    const workflowId = await seedWorkflow(db, companyId, { title: "Bound" });
+    const agentId = await seedInvocationOwner(db, companyId);
+    const runId = randomUUID();
+    await db.insert(workflowRuns).values({
+      id: runId, companyId, workflowId, status: "succeeded", inputMarkdown: "done",
+      contextSnapshot: { requestedByAgentId: agentId, workflowId, companyId },
+    });
+    const app = express();
+    app.use(actorMiddleware(db, { deploymentMode: "authenticated" }));
+    app.get("/actor", (req, res) => res.json(req.actor));
+    const token = createWorkflowDelegatedAgentJwt(agentId, companyId, workflowId, runId);
+    if (!token) throw new Error("Missing delegated token");
+    const actor = () => request(app).get("/actor").set("Authorization", `Bearer ${token}`);
+    expect((await actor()).body).toMatchObject({ type: "agent", agentId, companyId, runId });
+    for (const altered of [
+      createWorkflowDelegatedAgentJwt(agentId, companyId, workflowId, randomUUID()),
+      createWorkflowDelegatedAgentJwt(agentId, companyId, randomUUID(), runId),
+      createWorkflowDelegatedAgentJwt(agentId, randomUUID(), workflowId, runId),
+      createWorkflowDelegatedAgentJwt(randomUUID(), companyId, workflowId, runId),
+    ]) {
+      expect((await request(app).get("/actor").set("Authorization", `Bearer ${altered}`)).body.type).toBe("none");
+    }
+    await db.update(workflowRuns).set({ contextSnapshot: { requestedByAgentId: randomUUID(), workflowId, companyId } }).where(eq(workflowRuns.id, runId));
+    expect((await actor()).body.type).toBe("none");
+    await db.update(workflowRuns).set({ contextSnapshot: { requestedByAgentId: agentId, workflowId, companyId } }).where(eq(workflowRuns.id, runId));
+    await db.update(agents).set({ status: "terminated" }).where(eq(agents.id, agentId));
+    expect((await actor()).body.type).toBe("none");
+  });
+
+  it("fails runs for ineligible requesters or missing signing configuration before starting ADK", async () => {
+    const companyId = await seedCompany(db);
+    const otherCompanyId = await seedCompany(db, "Other");
+    const workflowId = await seedWorkflow(db, companyId, { title: "Protected" });
+    const foreignAgent = await seedInvocationOwner(db, otherCompanyId);
+    const localAgent = await seedInvocationOwner(db, companyId);
+    const svc = workflowService(db);
+    const launch = (requestedByAgentId: string) => svc.runInvocation(workflowId, {
+      inputMarkdown: "test", requestedByAgentId, invocation: null,
+    });
+    const expectFailed = async (requestedByAgentId: string) => {
+      const run = await launch(requestedByAgentId);
+      await vi.waitFor(async () => {
+        const [row] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, run.id));
+        expect(row?.status).toBe("failed");
+      }, { timeout: 10_000 });
+    };
+    await expectFailed(foreignAgent);
+    await db.update(agents).set({ status: "pending_approval" }).where(eq(agents.id, localAgent));
+    await expectFailed(localAgent);
+    await db.update(agents).set({ status: "active" }).where(eq(agents.id, localAgent));
+    const originalBetterAuth = process.env.BETTER_AUTH_SECRET;
+    delete process.env.BIZBOX_AGENT_JWT_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+    try {
+      await expectFailed(localAgent);
+    } finally {
+      process.env.BIZBOX_AGENT_JWT_SECRET = "workflow-invocation-test-secret";
+      if (originalBetterAuth === undefined) delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = originalBetterAuth;
+    }
+    expect(mockInvokeGoogleAdk).not.toHaveBeenCalled();
+  }, 30_000);
 
   it("resolves workflows by id, key, and capability while rejecting ambiguous targets", async () => {
     const companyId = await seedCompany(db);
@@ -323,6 +425,11 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
       .where(eq(workflowInvocations.id, result.id)).then((rows) => rows[0] ?? null);
     expect(invocation).toMatchObject({ requestedByAgentId: agentId });
     expect(result).toMatchObject({ requestedByAgentId: agentId });
+    await vi.waitFor(() => expect(mockInvokeGoogleAdk).toHaveBeenCalledTimes(1));
+    const token = mockInvokeGoogleAdk.mock.calls[0]?.[0]?.authToken;
+    expect(verifyLocalAgentJwt(token ?? "")).toMatchObject({
+      sub: agentId, company_id: companyId, workflow_id: workflowId, run_id: result.workflowRunId,
+    });
   });
 
   it("records direct agent invocations without routine provenance", async () => {

@@ -181,6 +181,7 @@ describeEmbeddedPostgres("workflowService.runManual", () => {
     });
     expect(mockInvokeGoogleAdk).toHaveBeenCalledWith(expect.objectContaining({
       config: expect.objectContaining({ timeoutSec: 86400 }),
+      authToken: undefined,
     }));
 
     const phases = await db.select().from(workflowRunPhases).where(eq(workflowRunPhases.workflowRunId, run.id));

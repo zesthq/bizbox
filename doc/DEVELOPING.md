@@ -45,6 +45,23 @@ This starts:
 
 ## Workflow Observability Safety
 
+### Workflow API credentials
+
+ADK workflow children always receive `BIZBOX_WORKFLOW_RUN_TOKEN` for workflow
+runtime endpoints. Every workflow invoked directly or through a routine by an
+authenticated eligible agent also receives a freshly minted `BIZBOX_API_KEY`
+for agent-authorized Bizbox API calls. Bizbox does not forward the caller's
+original key. Manual, scheduled, and agent-less routine runs have no agent key,
+even when one is configured on the workflow or inherited by the server. Other
+inherited environment variables remain available to the child process.
+
+`BIZBOX_WORKFLOW_AGENT_JWT_TTL_SECONDS` sets the delegated token lifetime
+(default 28800 seconds, eight hours) independently of ordinary agent JWTs and
+workflow runtime tokens. Workflows can run for up to 24 hours: configure a
+longer TTL if they need API access later in the run. Agent-invoked workflows
+require `BIZBOX_AGENT_JWT_SECRET` or `BETTER_AUTH_SECRET` on the server and fail
+closed without a signing secret.
+
 Workflow telemetry and runtime phase observations are best-effort. They use a
 bounded background queue and a short delivery timeout, so an unavailable Bizbox
 API cannot block or fail workflow execution. When the queue is full or delivery

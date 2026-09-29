@@ -108,8 +108,6 @@ export async function invokeGoogleAdk(input: InvokeGoogleAdkInput): Promise<Adap
   const query = queryOverride ?? joinPromptSections([instructionsPrefix, wakePrompt, sessionHandoffNote, renderedPrompt]);
 
   const envConfig = typeof config.env === "object" && config.env !== null ? (config.env as Record<string, unknown>) : {};
-  const hasExplicitApiKey =
-    typeof envConfig.BIZBOX_API_KEY === "string" && envConfig.BIZBOX_API_KEY.trim().length > 0;
   const env: Record<string, string> = { ...buildPaperclipEnv(agent) };
   env.BIZBOX_RUN_ID = runId;
   const wakeTaskId =
@@ -130,14 +128,15 @@ export async function invokeGoogleAdk(input: InvokeGoogleAdkInput): Promise<Adap
   if (wakePayloadJson) env.BIZBOX_WAKE_PAYLOAD_JSON = wakePayloadJson;
 
   for (const [key, value] of Object.entries(envConfig)) {
+    if (key === "BIZBOX_API_KEY") continue;
     if (typeof value === "string") env[key] = value;
   }
-  if (!hasExplicitApiKey && authToken) {
-    env.BIZBOX_API_KEY = authToken;
-  }
+  if (authToken) env.BIZBOX_API_KEY = authToken;
 
+  const inheritedEnv = { ...process.env };
+  delete inheritedEnv.BIZBOX_API_KEY;
   const runtimeEnv = Object.fromEntries(
-    Object.entries(ensurePathInEnv({ ...process.env, ...env })).filter(
+    Object.entries(ensurePathInEnv({ ...inheritedEnv, ...env })).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
     ),
   );
@@ -195,7 +194,8 @@ export async function invokeGoogleAdk(input: InvokeGoogleAdkInput): Promise<Adap
 
   const proc = await runChildProcess(runId, command, args, {
     cwd,
-    env,
+    // An explicit undefined removes an inherited key in Node's spawn environment.
+    env: { ...env, BIZBOX_API_KEY: authToken },
     timeoutSec: timeoutSec + 5,
     graceSec,
     onLog,
