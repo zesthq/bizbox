@@ -64,6 +64,7 @@ import { resourceRuntimeService } from "./resource-runtime.js";
 
 type WorkflowRunLaunchContext = {
   requestedByAgentId?: string | null;
+  originHeartbeatRunId?: string | null;
   invocation?: WorkflowRunInvocationSummary | null;
   invocationInputJson?: Record<string, unknown> | null;
   resourceOverrides?: ResourceRunOverride[];
@@ -1042,6 +1043,7 @@ export function workflowService(db: Db) {
       inputMarkdown,
       contextSnapshot: {
         requestedByAgentId: launchContext?.requestedByAgentId ?? null,
+        ...(launchContext?.originHeartbeatRunId ? { originHeartbeatRunId: launchContext.originHeartbeatRunId } : {}),
         workflowId: workflow.id,
         companyId: workflow.companyId,
       },
@@ -1273,7 +1275,7 @@ export function workflowService(db: Db) {
 
     runInvocation: async (
       workflowId: string,
-      input: { inputMarkdown: string; requestedByAgentId: string | null; invocation: WorkflowRunLaunchContext["invocation"]; invocationInputJson?: Record<string, unknown> | null },
+      input: { inputMarkdown: string; requestedByAgentId: string | null; originHeartbeatRunId?: string | null; invocation: WorkflowRunLaunchContext["invocation"]; invocationInputJson?: Record<string, unknown> | null },
     ) => {
       const workflowRow = await db.select().from(workflows).where(eq(workflows.id, workflowId)).then((rows) => rows[0] ?? null);
       if (!workflowRow) {
@@ -1290,6 +1292,7 @@ export function workflowService(db: Db) {
       if (!resourceOverrides.success) throw unprocessable("Invalid Resource run overrides", resourceOverrides.error.flatten());
       return launchWorkflowRun(refreshed.workflow, refreshed.analysis, input.inputMarkdown, {
         requestedByAgentId: input.requestedByAgentId,
+        originHeartbeatRunId: input.originHeartbeatRunId,
         invocation: input.invocation ?? null,
         invocationInputJson: input.invocationInputJson ?? null,
         resourceManifest: resourceManifest.success ? resourceManifest.data : undefined,

@@ -1,5 +1,7 @@
 import { type Request, type Response, Router } from "express";
 import type { Db } from "@paperclipai/db";
+import { heartbeatRuns } from "@paperclipai/db";
+import { and, eq } from "drizzle-orm";
 import {
   type CreateWorkflowHandoff,
   type CreateWorkflowSchedule,
@@ -195,9 +197,23 @@ export function workflowRoutes(db: Db) {
       const companyId = req.params.companyId as string;
       assertCompanyAccess(req, companyId);
 
+      // A run header is only a candidate: agent API keys can supply one themselves.
+      // Only a currently running heartbeat belonging to this agent may be carried
+      // forward as document-write provenance for the child workflow.
+      const originHeartbeatRunId = req.actor.runId?.trim();
+      const verifiedOrigin = originHeartbeatRunId
+        ? await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(and(
+            eq(heartbeatRuns.id, originHeartbeatRunId),
+            eq(heartbeatRuns.agentId, req.actor.agentId),
+            eq(heartbeatRuns.companyId, companyId),
+            eq(heartbeatRuns.status, "running"),
+          )).then((rows) => rows[0] ?? null)
+        : null;
+
       const result = await invocationSvc.invokeDirect({
         companyId,
         requestedByAgentId: req.actor.agentId,
+        originHeartbeatRunId: verifiedOrigin?.id ?? null,
         envelope: req.body,
       });
       const actor = getActorInfo(req);

@@ -154,6 +154,7 @@ function makeIssue(overrides: Record<string, unknown> = {}) {
     goalId: null,
     parentId: null,
     assigneeAgentId: ownerAgentId,
+    checkoutRunId: ownerRunId,
     assigneeUserId: null,
     createdByUserId: "board-user",
     identifier: "PAP-1649",
@@ -400,6 +401,43 @@ describe("agent issue mutation checkout ownership", () => {
         createdByRunId: ownerRunId,
       }),
     );
+  });
+
+  it("allows only document PUTs for a workflow delegated by the unchanged checkout owner", async () => {
+    const app = await createApp({
+      type: "agent", agentId: ownerAgentId, companyId,
+      source: "agent_jwt", originHeartbeatRunId: ownerRunId,
+    });
+
+    await request(app).put(`/api/issues/${issueId}/documents/result`)
+      .send({ format: "markdown", body: "generated" }).expect(200);
+    expect(mockDocumentService.upsertIssueDocument).toHaveBeenCalledWith(expect.objectContaining({
+      issueId, key: "result", createdByAgentId: ownerAgentId, createdByRunId: null,
+    }));
+    expect(mockIssueService.assertCheckoutOwner).not.toHaveBeenCalled();
+
+    await request(app).patch(`/api/issues/${issueId}`).send({ title: "No checkout takeover" }).expect(401);
+    await request(app).post(`/api/issues/${issueId}/comments`).send({ body: "No checkout takeover" }).expect(401);
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+    expect(mockIssueService.addComment).not.toHaveBeenCalled();
+  });
+
+  it("denies workflow document writes without matching checkout provenance", async () => {
+    const delegatedActor = {
+      type: "agent", agentId: ownerAgentId, companyId,
+      source: "agent_jwt", originHeartbeatRunId: ownerRunId,
+    };
+    const put = async (actor: Record<string, unknown>) => request(await createApp(actor))
+      .put(`/api/issues/${issueId}/documents/result`).send({ format: "markdown", body: "generated" });
+
+    expect((await put({ ...delegatedActor, originHeartbeatRunId: undefined })).status).toBe(401);
+    mockIssueService.getById.mockResolvedValue(makeIssue({ checkoutRunId: "new-checkout" }));
+    expect((await put(delegatedActor)).status).toBe(401);
+    mockIssueService.getById.mockResolvedValue(makeIssue({ assigneeAgentId: peerAgentId }));
+    expect((await put(delegatedActor)).status).toBe(409);
+    mockIssueService.getById.mockResolvedValue(makeIssue());
+    expect((await put({ ...delegatedActor, companyId: "other-company" })).status).toBe(403);
+    expect(mockDocumentService.upsertIssueDocument).not.toHaveBeenCalled();
   });
 
   it("preserves board mutations on active checkouts", async () => {

@@ -162,6 +162,7 @@ export function workflowInvocationService(db: Db) {
   async function invoke(input: {
     companyId: string;
     requestedByAgentId: string | null;
+    originHeartbeatRunId?: string | null;
     envelope: WorkflowInvocationEnvelope;
     provenance: InvocationProvenance;
   }): Promise<WorkflowInvocationResult> {
@@ -195,6 +196,7 @@ export function workflowInvocationService(db: Db) {
       const run = await workflowSvc.runInvocation(workflowRow.id, {
         inputMarkdown,
         requestedByAgentId: input.requestedByAgentId,
+        originHeartbeatRunId: input.originHeartbeatRunId ?? null,
         invocation: toInvocationSummary({
           id: invocationRow.id,
           contractVersion: input.envelope.contractVersion,
@@ -286,6 +288,7 @@ export function workflowInvocationService(db: Db) {
     invokeDirect: async (input: {
       companyId: string;
       requestedByAgentId: string;
+      originHeartbeatRunId?: string | null;
       envelope: WorkflowInvocationEnvelope;
     }): Promise<WorkflowInvocationResult> => {
       return invoke({

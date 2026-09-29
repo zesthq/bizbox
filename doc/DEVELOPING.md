@@ -62,6 +62,17 @@ longer TTL if they need API access later in the run. Agent-invoked workflows
 require `BIZBOX_AGENT_JWT_SECRET` or `BETTER_AUTH_SECRET` on the server and fail
 closed without a signing secret.
 
+A direct invocation from an agent heartbeat may carry a verified running
+heartbeat ID into the workflow run. The delegated workflow key still has no
+heartbeat `runId`, but it can PUT an issue document on an `in_progress` issue
+assigned to that agent while the issue's `checkoutRunId` remains the verified
+origin. The original heartbeat can finish before the document write; reassignment
+or checkout adoption revokes this limited permission. **Only issue-document PUTs**
+use this exception for now, to limit blast radius to the validated use case.
+Other issue mutations retain their normal checkout requirements. Invocations
+without a valid originating heartbeat do not receive this permission, and
+workflow-generated document revisions have a null `created_by_run_id`.
+
 Workflow telemetry and runtime phase observations are best-effort. They use a
 bounded background queue and a short delivery timeout, so an unavailable Bizbox
 API cannot block or fail workflow execution. When the queue is full or delivery

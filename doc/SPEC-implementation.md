@@ -649,6 +649,15 @@ agent API writes made with this credential keep the requesting agent's identity 
 leave heartbeat-only `created_by_run_id` fields empty (including issue-document
 revisions); the workflow run remains linked through its workflow invocation. Such
 credentials do not confer ownership of an issue's heartbeat checkout lock.
+For direct invocations only, Bizbox may persist the invoking agent's verified
+running heartbeat ID as separate workflow-run provenance. While the delegated
+token remains valid, **only** `PUT /issues/:issueId/documents/:key` can use that
+origin to write an `in_progress` issue assigned to the same agent and company,
+provided `checkoutRunId` is still exactly that origin. The origin heartbeat may
+have finished; a changed or cleared checkout removes the permission. The
+document revision's `created_by_run_id` remains null. This is limited to
+issue-document PUTs because that is the only validated workflow write use case;
+it grants no general checkout ownership or permission for other issue mutations.
 
 ## 10.10 Error Semantics
 

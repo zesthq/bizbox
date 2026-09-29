@@ -45,6 +45,7 @@ const mockWorkflowScheduleService = vi.hoisted(() => ({
 const mockWorkflowInvocationService = vi.hoisted(() => ({
   invokeDirect: vi.fn(),
 }));
+const mockHeartbeatRows = vi.hoisted(() => vi.fn(async () => [] as Array<{ id: string }>));
 
 vi.mock("../services/index.js", () => ({
   workflowService: () => mockWorkflowService,
@@ -70,7 +71,12 @@ function createApp(actor: Express.Request["actor"] = {
     (req as any).actor = actor;
     next();
   });
-  app.use("/api", workflowRoutes({} as any));
+  const db = {
+    select: () => ({
+      from: () => ({ where: () => ({ then: (resolve: (rows: Array<{ id: string }>) => unknown) => mockHeartbeatRows().then(resolve) }) }),
+    }),
+  };
+  app.use("/api", workflowRoutes(db as any));
   app.use(errorHandler);
   return app;
 }
@@ -78,6 +84,7 @@ function createApp(actor: Express.Request["actor"] = {
 describe("workflow routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockHeartbeatRows.mockResolvedValue([]);
     mockWorkflowHandoffBridgeService.mockReturnValue({ openForHandoff: vi.fn() });
   });
 
@@ -102,6 +109,7 @@ describe("workflow routes", () => {
       updatedAt: new Date("2026-09-18T12:00:00.000Z"),
     };
     mockWorkflowInvocationService.invokeDirect.mockResolvedValue(result);
+    mockHeartbeatRows.mockResolvedValue([{ id: "heartbeat-run-1" }]);
     const envelope = {
       contractVersion: "workflow-invocation/v1",
       target: { workflowId },
@@ -127,6 +135,7 @@ describe("workflow routes", () => {
     expect(mockWorkflowInvocationService.invokeDirect).toHaveBeenCalledWith({
       companyId,
       requestedByAgentId: agentId,
+      originHeartbeatRunId: "heartbeat-run-1",
       envelope,
     });
     expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
@@ -197,6 +206,7 @@ describe("workflow routes", () => {
     expect(mockWorkflowInvocationService.invokeDirect).toHaveBeenCalledWith({
       companyId,
       requestedByAgentId: agentId,
+      originHeartbeatRunId: null,
       envelope,
     });
   });

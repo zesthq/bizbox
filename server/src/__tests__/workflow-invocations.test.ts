@@ -4,9 +4,15 @@ import request from "supertest";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  activityLog,
   agents,
   companies,
   createDb,
+  documentRevisions,
+  documents,
+  heartbeatRuns,
+  issueDocuments,
+  issues,
   routineRuns,
   routines,
   workflowInvocations,
@@ -102,6 +108,9 @@ import { workflowService, resolveWorkflowByInvocationTarget } from "../services/
 import { workflowInvocationService } from "../services/workflow-invocations.ts";
 import { createLocalAgentJwt, createWorkflowDelegatedAgentJwt, verifyLocalAgentJwt } from "../agent-auth-jwt.js";
 import { actorMiddleware } from "../middleware/auth.js";
+import { workflowRoutes } from "../routes/workflows.js";
+import { issueRoutes } from "../routes/issues.js";
+import { errorHandler } from "../middleware/index.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -194,8 +203,14 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
   });
 
   afterEach(async () => {
+    await db.delete(activityLog);
+    await db.delete(issueDocuments);
+    await db.delete(documentRevisions);
+    await db.delete(documents);
+    await db.delete(issues);
     await db.delete(workflowInvocations);
     await db.delete(workflowRuns);
+    await db.delete(heartbeatRuns);
     await db.delete(routineRuns);
     await db.delete(routines);
     await db.delete(workflows);
@@ -236,6 +251,83 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
       const [run] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, result.workflowRunId!));
       expect(run?.contextSnapshot).toMatchObject({ requestedByAgentId: agentId, companyId, workflowId });
     });
+  });
+
+  it("carries only a verified running origin into a direct invocation, even after its heartbeat finishes", async () => {
+    const companyId = await seedCompany(db);
+    const workflowId = await seedWorkflow(db, companyId, { title: "Delegated" });
+    const agentId = await seedInvocationOwner(db, companyId);
+    const heartbeatRunId = randomUUID();
+    await db.insert(heartbeatRuns).values({
+      id: heartbeatRunId, companyId, agentId, status: "running",
+    });
+    const app = express();
+    app.use(express.json());
+    app.use(actorMiddleware(db, { deploymentMode: "authenticated" }));
+    app.use("/api", workflowRoutes(db));
+    app.use("/api", issueRoutes(db, mockGetStorageService() as any));
+    app.get("/actor", (req, res) => res.json(req.actor));
+    app.use(errorHandler);
+    const envelope = {
+      contractVersion: "workflow-invocation/v1",
+      target: { workflowId },
+      payload: { kind: "markdown", inputMarkdown: "generate result" },
+    };
+    const heartbeatToken = createLocalAgentJwt(agentId, companyId, "pi_local", heartbeatRunId);
+    if (!heartbeatToken) throw new Error("Missing heartbeat token");
+    const launched = await request(app).post(`/api/companies/${companyId}/workflow-invocations`)
+      .set("Authorization", `Bearer ${heartbeatToken}`).send(envelope);
+    expect(launched.status, JSON.stringify(launched.body)).toBe(201);
+    const workflowRunId = launched.body.workflowRunId as string;
+    const [run] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, workflowRunId));
+    expect(run?.contextSnapshot).toMatchObject({
+      originHeartbeatRunId: heartbeatRunId, requestedByAgentId: agentId,
+    });
+
+    const issueId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId, companyId, title: "Generate result", status: "in_progress",
+      assigneeAgentId: agentId, checkoutRunId: heartbeatRunId,
+      executionRunId: heartbeatRunId,
+    });
+
+    await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, heartbeatRunId));
+    const delegatedToken = createWorkflowDelegatedAgentJwt(agentId, companyId, workflowId, workflowRunId);
+    const actor = await request(app).get("/actor")
+      .set("Authorization", `Bearer ${delegatedToken}`)
+      .set("x-paperclip-run-id", randomUUID());
+    expect(actor.body).toMatchObject({
+      type: "agent", agentId, companyId, originHeartbeatRunId: heartbeatRunId,
+    });
+    expect(actor.body.runId).toBeUndefined();
+
+    const write = () => request(app).put(`/api/issues/${issueId}/documents/result`)
+      .set("Authorization", `Bearer ${delegatedToken}`)
+      .send({ format: "markdown", body: "# Generated result" });
+    const written = await write();
+    expect(written.status, JSON.stringify(written.body)).toBe(201);
+    const [revision] = await db.select().from(documentRevisions).where(eq(documentRevisions.companyId, companyId));
+    expect(revision).toMatchObject({ createdByAgentId: agentId, createdByRunId: null });
+
+    await db.update(issues).set({ checkoutRunId: null }).where(eq(issues.id, issueId));
+    const afterCheckoutChange = await write();
+    expect(afterCheckoutChange.status).toBe(401);
+
+    const otherAgentId = await seedInvocationOwner(db, companyId);
+    const otherRunId = randomUUID();
+    await db.insert(heartbeatRuns).values({ id: otherRunId, companyId, agentId: otherAgentId, status: "running" });
+    const forged = await request(app).post(`/api/companies/${companyId}/workflow-invocations`)
+      .set("Authorization", `Bearer ${heartbeatToken}`)
+      .set("x-paperclip-run-id", otherRunId).send(envelope);
+    expect(forged.status).toBe(201);
+    const [forgedRun] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, forged.body.workflowRunId));
+    expect(forgedRun?.contextSnapshot).not.toHaveProperty("originHeartbeatRunId");
+
+    const fromFinishedRun = await request(app).post(`/api/companies/${companyId}/workflow-invocations`)
+      .set("Authorization", `Bearer ${heartbeatToken}`).send(envelope);
+    expect(fromFinishedRun.status).toBe(201);
+    const [secondRun] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, fromFinishedRun.body.workflowRunId));
+    expect(secondRun?.contextSnapshot).not.toHaveProperty("originHeartbeatRunId");
   });
 
   it("authenticates only the persisted agent/run/workflow/company binding after completion", async () => {
