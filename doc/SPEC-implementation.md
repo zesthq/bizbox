@@ -644,6 +644,11 @@ to the child. Manual, scheduled, and agent-less routine runs receive no agent
 key, regardless of configured or inherited environment. Delegated credentials
 remain valid after completion or cancellation until expiry, subject to the
 requesting agent's current eligibility.
+The delegated token's `run_id` identifies a workflow run, not a heartbeat run. General
+agent API writes made with this credential keep the requesting agent's identity but
+leave heartbeat-only `created_by_run_id` fields empty (including issue-document
+revisions); the workflow run remains linked through its workflow invocation. Such
+credentials do not confer ownership of an issue's heartbeat checkout lock.
 
 ## 10.10 Error Semantics
 

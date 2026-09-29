@@ -100,7 +100,7 @@ vi.mock("../workflow-run-jwt.js", () => ({
 
 import { workflowService, resolveWorkflowByInvocationTarget } from "../services/workflows.ts";
 import { workflowInvocationService } from "../services/workflow-invocations.ts";
-import { createWorkflowDelegatedAgentJwt, verifyLocalAgentJwt } from "../agent-auth-jwt.js";
+import { createLocalAgentJwt, createWorkflowDelegatedAgentJwt, verifyLocalAgentJwt } from "../agent-auth-jwt.js";
 import { actorMiddleware } from "../middleware/auth.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
@@ -253,7 +253,15 @@ describeEmbeddedPostgres("workflow invocation bridge", () => {
     const token = createWorkflowDelegatedAgentJwt(agentId, companyId, workflowId, runId);
     if (!token) throw new Error("Missing delegated token");
     const actor = () => request(app).get("/actor").set("Authorization", `Bearer ${token}`);
-    expect((await actor()).body).toMatchObject({ type: "agent", agentId, companyId, runId });
+    const workflowActor = (await actor()).body;
+    expect(workflowActor).toMatchObject({ type: "agent", agentId, companyId });
+    expect(workflowActor).not.toHaveProperty("runId");
+    expect((await actor().set("x-paperclip-run-id", randomUUID())).body).not.toHaveProperty("runId");
+    const heartbeatRunId = randomUUID();
+    const heartbeatToken = createLocalAgentJwt(agentId, companyId, "claude_local", heartbeatRunId);
+    expect((await request(app).get("/actor").set("Authorization", `Bearer ${heartbeatToken}`)).body).toMatchObject({
+      type: "agent", agentId, companyId, runId: heartbeatRunId,
+    });
     for (const altered of [
       createWorkflowDelegatedAgentJwt(agentId, companyId, workflowId, randomUUID()),
       createWorkflowDelegatedAgentJwt(agentId, companyId, randomUUID(), runId),

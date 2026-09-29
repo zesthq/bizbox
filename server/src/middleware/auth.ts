@@ -171,7 +171,7 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         agentId: claims.sub,
         companyId: claims.company_id,
         keyId: undefined,
-        runId: claims.delegation === "workflow" ? claims.run_id : runIdHeader || claims.run_id || undefined,
+        runId: claims.delegation === "workflow" ? undefined : runIdHeader || claims.run_id || undefined,
         source: "agent_jwt",
       };
       next();
