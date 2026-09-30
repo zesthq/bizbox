@@ -1530,7 +1530,7 @@ export async function runChildProcess(
   args: string[],
   opts: {
     cwd: string;
-    env: Record<string, string>;
+    env: NodeJS.ProcessEnv;
     timeoutSec: number;
     graceSec: number;
     onLog: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;

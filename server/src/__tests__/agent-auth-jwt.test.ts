@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLocalAgentJwt, verifyLocalAgentJwt } from "../agent-auth-jwt.js";
+import { createLocalAgentJwt, createWorkflowDelegatedAgentJwt, verifyLocalAgentJwt } from "../agent-auth-jwt.js";
 
 describe("agent local JWT", () => {
   const secretEnv = "BIZBOX_AGENT_JWT_SECRET";
@@ -7,6 +7,7 @@ describe("agent local JWT", () => {
   const ttlEnv = "BIZBOX_AGENT_JWT_TTL_SECONDS";
   const issuerEnv = "BIZBOX_AGENT_JWT_ISSUER";
   const audienceEnv = "BIZBOX_AGENT_JWT_AUDIENCE";
+  const delegationTtlEnv = "BIZBOX_WORKFLOW_AGENT_JWT_TTL_SECONDS";
 
   const originalEnv = {
     secret: process.env[secretEnv],
@@ -14,6 +15,7 @@ describe("agent local JWT", () => {
     ttl: process.env[ttlEnv],
     issuer: process.env[issuerEnv],
     audience: process.env[audienceEnv],
+    delegationTtl: process.env[delegationTtlEnv],
   };
 
   beforeEach(() => {
@@ -22,6 +24,7 @@ describe("agent local JWT", () => {
     process.env[ttlEnv] = "3600";
     delete process.env[issuerEnv];
     delete process.env[audienceEnv];
+    delete process.env[delegationTtlEnv];
     vi.useFakeTimers();
   });
 
@@ -37,6 +40,8 @@ describe("agent local JWT", () => {
     else process.env[issuerEnv] = originalEnv.issuer;
     if (originalEnv.audience === undefined) delete process.env[audienceEnv];
     else process.env[audienceEnv] = originalEnv.audience;
+    if (originalEnv.delegationTtl === undefined) delete process.env[delegationTtlEnv];
+    else process.env[delegationTtlEnv] = originalEnv.delegationTtl;
   });
 
   it("creates and verifies a token", () => {
@@ -96,5 +101,22 @@ describe("agent local JWT", () => {
     process.env[issuerEnv] = "paperclip";
     process.env[audienceEnv] = "paperclip-api";
     expect(verifyLocalAgentJwt(token!)).toBeNull();
+  });
+
+  it("binds workflow delegations and expires them independently of heartbeat JWTs", () => {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const delegated = createWorkflowDelegatedAgentJwt("agent-1", "company-1", "workflow-1", "run-1");
+    const ordinary = createLocalAgentJwt("agent-1", "company-1", "claude_local", "heartbeat-1");
+    expect(verifyLocalAgentJwt(delegated ?? "")).toMatchObject({
+      delegation: "workflow", workflow_id: "workflow-1", run_id: "run-1", sub: "agent-1", company_id: "company-1",
+      exp: Math.floor(Date.now() / 1000) + 28800,
+    });
+    expect(verifyLocalAgentJwt(ordinary ?? "")?.delegation).toBeUndefined();
+    process.env[delegationTtlEnv] = "2";
+    const short = createWorkflowDelegatedAgentJwt("agent-1", "company-1", "workflow-1", "run-2");
+    vi.setSystemTime(new Date("2026-01-01T00:00:04.000Z"));
+    expect(verifyLocalAgentJwt(short ?? "")).toBeNull();
+    expect(verifyLocalAgentJwt(ordinary ?? "")?.run_id).toBe("heartbeat-1");
+    expect(verifyLocalAgentJwt(`${delegated?.slice(0, -2)}xx`)).toBeNull();
   });
 });

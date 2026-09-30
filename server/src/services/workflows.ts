@@ -12,6 +12,7 @@ import {
   workflowRunEvents,
   workflowExtensionRequests,
   workflowRuns,
+  agents,
   workflows,
   routines,
   routineRuns,
@@ -50,6 +51,7 @@ import { logger } from "../middleware/logger.js";
 import { getStorageService } from "../storage/index.js";
 import { type StorageService } from "../storage/types.js";
 import { createWorkflowRunJwt, verifyWorkflowRunJwt } from "../workflow-run-jwt.js";
+import { createWorkflowDelegatedAgentJwt } from "../agent-auth-jwt.js";
 import { invokeGoogleAdk } from "@paperclipai/adapter-google-adk/server";
 import { runningProcesses } from "../adapters/index.js";
 import {
@@ -61,6 +63,8 @@ import { workflowHandoffBridgeService } from "./workflow-handoff-bridge.js";
 import { resourceRuntimeService } from "./resource-runtime.js";
 
 type WorkflowRunLaunchContext = {
+  requestedByAgentId?: string | null;
+  originHeartbeatRunId?: string | null;
   invocation?: WorkflowRunInvocationSummary | null;
   invocationInputJson?: Record<string, unknown> | null;
   resourceOverrides?: ResourceRunOverride[];
@@ -763,6 +767,18 @@ export function workflowService(db: Db) {
     if (!runToken) {
       throw new Error("Missing workflow JWT secret");
     }
+    const requester = (runRow.contextSnapshot as { requestedByAgentId?: unknown } | null)?.requestedByAgentId;
+    let agentToken: string | undefined;
+    if (typeof requester === "string") {
+      const agent = await db.select({ status: agents.status }).from(agents).where(and(
+        eq(agents.id, requester), eq(agents.companyId, workflow.companyId),
+      )).then((rows) => rows[0] ?? null);
+      if (!agent || agent.status === "terminated" || agent.status === "pending_approval") {
+        throw new Error("Workflow requesting agent is unavailable");
+      }
+      agentToken = createWorkflowDelegatedAgentJwt(requester, workflow.companyId, workflow.id, runId) ?? undefined;
+      if (!agentToken) throw new Error("Missing agent JWT secret for workflow delegation");
+    }
 
     const resourceManifest = launchContext?.resourceManifest;
     const runnerConfigWithoutResourceManifest = { ...workflow.runnerConfig };
@@ -808,6 +824,7 @@ export function workflowService(db: Db) {
     }
 
     const contextSnapshot: Record<string, unknown> = {
+      ...((runRow.contextSnapshot as Record<string, unknown> | null) ?? {}),
       runtimeRoot: prepared.runtimeRoot,
       tempRoot: prepared.tempRoot,
       copiedAgentPath: prepared.copiedAgentPath,
@@ -910,6 +927,7 @@ export function workflowService(db: Db) {
           adapterConfig: prepared.patchedRunnerConfig,
         },
         config: prepared.patchedRunnerConfig,
+        authToken: agentToken,
         context: {
           workflowId: workflow.id,
           workflowRunId: runId,
@@ -1023,6 +1041,12 @@ export function workflowService(db: Db) {
       workflowId: workflow.id,
       status: "queued",
       inputMarkdown,
+      contextSnapshot: {
+        requestedByAgentId: launchContext?.requestedByAgentId ?? null,
+        ...(launchContext?.originHeartbeatRunId ? { originHeartbeatRunId: launchContext.originHeartbeatRunId } : {}),
+        workflowId: workflow.id,
+        companyId: workflow.companyId,
+      },
     }).returning().then((rows) => rows[0] ?? null);
     if (!runRow) throw unprocessable("Failed to create workflow run");
     const phases = analysis.pipelineDefinition.phases;
@@ -1057,8 +1081,8 @@ export function workflowService(db: Db) {
     void executeRun(runRow.id, {
       workflow,
       analysis,
-    }, launchContext).catch((err) => {
-      void db.update(workflowRuns).set({
+    }, launchContext).catch(async (err) => {
+      await db.update(workflowRuns).set({
         status: "failed",
         error: err instanceof Error ? err.message : String(err),
         finishedAt: new Date(),
@@ -1251,7 +1275,7 @@ export function workflowService(db: Db) {
 
     runInvocation: async (
       workflowId: string,
-      input: { inputMarkdown: string; invocation: WorkflowRunLaunchContext["invocation"]; invocationInputJson?: Record<string, unknown> | null },
+      input: { inputMarkdown: string; requestedByAgentId: string | null; originHeartbeatRunId?: string | null; invocation: WorkflowRunLaunchContext["invocation"]; invocationInputJson?: Record<string, unknown> | null },
     ) => {
       const workflowRow = await db.select().from(workflows).where(eq(workflows.id, workflowId)).then((rows) => rows[0] ?? null);
       if (!workflowRow) {
@@ -1267,6 +1291,8 @@ export function workflowService(db: Db) {
       const resourceOverrides = resourceRunOverridesSchema.safeParse(input.invocationInputJson?.resourceOverrides ?? []);
       if (!resourceOverrides.success) throw unprocessable("Invalid Resource run overrides", resourceOverrides.error.flatten());
       return launchWorkflowRun(refreshed.workflow, refreshed.analysis, input.inputMarkdown, {
+        requestedByAgentId: input.requestedByAgentId,
+        originHeartbeatRunId: input.originHeartbeatRunId,
         invocation: input.invocation ?? null,
         invocationInputJson: input.invocationInputJson ?? null,
         resourceManifest: resourceManifest.success ? resourceManifest.data : undefined,

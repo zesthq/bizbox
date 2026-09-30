@@ -636,6 +636,29 @@ summary, sanitized structured output, error, and timing fields. Full workflow-ru
 runtime diagnostics, tools, telemetry, and filesystem paths remain board-only through the existing
 workflow-run detail endpoint.
 
+Workflow runs always receive `BIZBOX_WORKFLOW_RUN_TOKEN` for workflow runtime endpoints.
+Every invocation by an authenticated agent also gives the ADK child a fresh
+`BIZBOX_API_KEY` bound to that requesting agent, company, workflow, and run for
+general agent-authorized API calls. The caller's original key is never passed
+to the child. Manual, scheduled, and agent-less routine runs receive no agent
+key, regardless of configured or inherited environment. Delegated credentials
+remain valid after completion or cancellation until expiry, subject to the
+requesting agent's current eligibility.
+The delegated token's `run_id` identifies a workflow run, not a heartbeat run. General
+agent API writes made with this credential keep the requesting agent's identity but
+leave heartbeat-only `created_by_run_id` fields empty (including issue-document
+revisions); the workflow run remains linked through its workflow invocation. Such
+credentials do not confer ownership of an issue's heartbeat checkout lock.
+For direct invocations only, Bizbox may persist the invoking agent's verified
+running heartbeat ID as separate workflow-run provenance. While the delegated
+token remains valid, **only** `PUT /issues/:issueId/documents/:key` can use that
+origin to write an `in_progress` issue assigned to the same agent and company,
+provided `checkoutRunId` is still exactly that origin. The origin heartbeat may
+have finished; a changed or cleared checkout removes the permission. The
+document revision's `created_by_run_id` remains null. This is limited to
+issue-document PUTs because that is the only validated workflow write use case;
+it grants no general checkout ownership or permission for other issue mutations.
+
 ## 10.10 Error Semantics
 
 - `400` validation error

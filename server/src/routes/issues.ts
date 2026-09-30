@@ -566,7 +566,8 @@ export function issueRoutes(
   async function assertAgentIssueMutationAllowed(
     req: Request,
     res: Response,
-    issue: { id: string; companyId: string; status: string; assigneeAgentId: string | null },
+    issue: { id: string; companyId: string; status: string; assigneeAgentId: string | null; checkoutRunId?: string | null },
+    allowOriginWorkflowDocumentWrite = false,
   ) {
     if (req.actor.type !== "agent") return true;
     const actorAgentId = req.actor.agentId;
@@ -590,6 +591,13 @@ export function issueRoutes(
         },
       });
       return false;
+    }
+    // Workflow provenance is deliberately usable only for document PUTs. It is
+    // not a heartbeat run ID and must never adopt or mutate the checkout lock.
+    if (allowOriginWorkflowDocumentWrite && req.actor.originHeartbeatRunId &&
+      issue.companyId === req.actor.companyId &&
+      issue.checkoutRunId === req.actor.originHeartbeatRunId) {
+      return true;
     }
     const runId = requireAgentRunId(req, res);
     if (!runId) return false;
@@ -1143,7 +1151,7 @@ export function issueRoutes(
       return;
     }
     assertCompanyAccess(req, issue.companyId);
-    if (!(await assertAgentIssueMutationAllowed(req, res, issue))) return;
+    if (!(await assertAgentIssueMutationAllowed(req, res, issue, true))) return;
     const keyParsed = issueDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
     if (!keyParsed.success) {
       res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });

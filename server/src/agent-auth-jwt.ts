@@ -15,6 +15,8 @@ export interface LocalAgentJwtClaims {
   iss?: string;
   aud?: string;
   jti?: string;
+  delegation?: "workflow";
+  workflow_id?: string;
 }
 
 const JWT_ALGORITHM = "HS256";
@@ -92,6 +94,26 @@ export function createLocalAgentJwt(agentId: string, companyId: string, adapterT
   return `${signingInput}.${signature}`;
 }
 
+export function createWorkflowDelegatedAgentJwt(agentId: string, companyId: string, workflowId: string, runId: string) {
+  const config = jwtConfig();
+  if (!config) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const claims: LocalAgentJwtClaims = {
+    sub: agentId,
+    company_id: companyId,
+    adapter_type: "google_adk",
+    run_id: runId,
+    workflow_id: workflowId,
+    delegation: "workflow",
+    iat: now,
+    exp: now + parseNumber(process.env.BIZBOX_WORKFLOW_AGENT_JWT_TTL_SECONDS, 60 * 60 * 8),
+    iss: config.issuer,
+    aud: config.audience,
+  };
+  const signingInput = `${base64UrlEncode(JSON.stringify({ alg: JWT_ALGORITHM, typ: "JWT" }))}.${base64UrlEncode(JSON.stringify(claims))}`;
+  return `${signingInput}.${signPayload(config.secret, signingInput)}`;
+}
+
 export function verifyLocalAgentJwt(token: string): LocalAgentJwtClaims | null {
   if (!token) return null;
   const config = jwtConfig();
@@ -118,9 +140,12 @@ export function verifyLocalAgentJwt(token: string): LocalAgentJwtClaims | null {
   const iat = typeof claims.iat === "number" ? claims.iat : null;
   const exp = typeof claims.exp === "number" ? claims.exp : null;
   if (!sub || !companyId || !adapterType || !runId || !iat || !exp) return null;
+  if (claims.delegation !== undefined && (claims.delegation !== "workflow" ||
+    typeof claims.workflow_id !== "string" || !claims.workflow_id || adapterType !== "google_adk")) return null;
+  if (claims.workflow_id !== undefined && claims.delegation !== "workflow") return null;
 
   const now = Math.floor(Date.now() / 1000);
-  if (exp < now) return null;
+  if (claims.delegation === "workflow" ? exp <= now : exp < now) return null;
 
   const issuer = typeof claims.iss === "string" ? claims.iss : undefined;
   const audience = typeof claims.aud === "string" ? claims.aud : undefined;
@@ -137,5 +162,6 @@ export function verifyLocalAgentJwt(token: string): LocalAgentJwtClaims | null {
     ...(issuer ? { iss: issuer } : {}),
     ...(audience ? { aud: audience } : {}),
     jti: typeof claims.jti === "string" ? claims.jti : undefined,
+    ...(claims.delegation === "workflow" ? { delegation: "workflow" as const, workflow_id: claims.workflow_id as string } : {}),
   };
 }

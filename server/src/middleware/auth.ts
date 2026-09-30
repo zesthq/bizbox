@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import type { Request, RequestHandler } from "express";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { agentApiKeys, agents, companyMemberships, instanceUserRoles } from "@paperclipai/db";
+import {
+  agentApiKeys,
+  agents,
+  companyMemberships,
+  instanceUserRoles,
+  workflowRuns,
+} from "@paperclipai/db";
 import { verifyLocalAgentJwt } from "../agent-auth-jwt.js";
 import type { DeploymentMode } from "@paperclipai/shared";
 import type { BetterAuthSessionResult } from "../auth/better-auth.js";
@@ -19,7 +25,10 @@ interface ActorMiddlewareOptions {
   resolveSession?: (req: Request) => Promise<BetterAuthSessionResult | null>;
 }
 
-export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
+export function actorMiddleware(
+  db: Db,
+  opts: ActorMiddlewareOptions,
+): RequestHandler {
   const boardAuth = boardAuthService(db);
   return async (req, _res, next) => {
     req.actor =
@@ -56,7 +65,12 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
             db
               .select({ id: instanceUserRoles.id })
               .from(instanceUserRoles)
-              .where(and(eq(instanceUserRoles.userId, userId), eq(instanceUserRoles.role, "instance_admin")))
+              .where(
+                and(
+                  eq(instanceUserRoles.userId, userId),
+                  eq(instanceUserRoles.role, "instance_admin"),
+                ),
+              )
               .then((rows) => rows[0] ?? null),
             db
               .select({
@@ -125,7 +139,12 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     const key = await db
       .select()
       .from(agentApiKeys)
-      .where(and(eq(agentApiKeys.keyHash, tokenHash), isNull(agentApiKeys.revokedAt)))
+      .where(
+        and(
+          eq(agentApiKeys.keyHash, tokenHash),
+          isNull(agentApiKeys.revokedAt),
+        ),
+      )
       .then((rows) => rows[0] ?? null);
 
     if (!key) {
@@ -146,9 +165,42 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         return;
       }
 
-      if (agentRecord.status === "terminated" || agentRecord.status === "pending_approval") {
+      if (
+        agentRecord.status === "terminated" ||
+        agentRecord.status === "pending_approval"
+      ) {
         next();
         return;
+      }
+
+      let originHeartbeatRunId: string | undefined;
+      if (claims.delegation === "workflow") {
+        const run = await db
+          .select({
+            companyId: workflowRuns.companyId,
+            workflowId: workflowRuns.workflowId,
+            contextSnapshot: workflowRuns.contextSnapshot,
+          })
+          .from(workflowRuns)
+          .where(eq(workflowRuns.id, claims.run_id))
+          .then((rows) => rows[0] ?? null);
+        const provenance = run?.contextSnapshot as
+          | Record<string, unknown>
+          | null
+          | undefined;
+        if (
+          run?.companyId !== claims.company_id ||
+          run?.workflowId !== claims.workflow_id ||
+          provenance?.requestedByAgentId !== claims.sub ||
+          provenance?.workflowId !== claims.workflow_id ||
+          provenance?.companyId !== claims.company_id
+        ) {
+          next();
+          return;
+        }
+        if (typeof provenance.originHeartbeatRunId === "string") {
+          originHeartbeatRunId = provenance.originHeartbeatRunId;
+        }
       }
 
       req.actor = {
@@ -156,7 +208,11 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         agentId: claims.sub,
         companyId: claims.company_id,
         keyId: undefined,
-        runId: runIdHeader || claims.run_id || undefined,
+        runId:
+          claims.delegation === "workflow"
+            ? undefined
+            : runIdHeader || claims.run_id || undefined,
+        originHeartbeatRunId,
         source: "agent_jwt",
       };
       next();
@@ -174,7 +230,11 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
       .where(eq(agents.id, key.agentId))
       .then((rows) => rows[0] ?? null);
 
-    if (!agentRecord || agentRecord.status === "terminated" || agentRecord.status === "pending_approval") {
+    if (
+      !agentRecord ||
+      agentRecord.status === "terminated" ||
+      agentRecord.status === "pending_approval"
+    ) {
       next();
       return;
     }
