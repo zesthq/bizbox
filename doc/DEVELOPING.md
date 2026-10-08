@@ -57,7 +57,7 @@ inherited environment variables remain available to the child process.
 
 `BIZBOX_WORKFLOW_AGENT_JWT_TTL_SECONDS` sets the delegated token lifetime
 (default 28800 seconds, eight hours) independently of ordinary agent JWTs and
-workflow runtime tokens. Workflows can run for up to 24 hours: configure a
+workflow runtime tokens. Workflows can run for up to seven days: configure a
 longer TTL if they need API access later in the run. Agent-invoked workflows
 require `BIZBOX_AGENT_JWT_SECRET` or `BETTER_AUTH_SECRET` on the server and fail
 closed without a signing secret.

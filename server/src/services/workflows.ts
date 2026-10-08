@@ -618,7 +618,7 @@ async function selectLatestDeliverableMap(db: Db, workflowIds: string[]) {
 const WORKFLOW_DETAIL_RUN_LIMIT = 20;
 const WORKFLOW_RUN_CONSOLE_ENTRY_LIMIT = 600;
 const WORKFLOW_RUN_EXCERPT_CHAR_LIMIT = 16_000;
-const WORKFLOW_ADK_TIMEOUT_SEC = 24 * 60 * 60;
+const WORKFLOW_ADK_TIMEOUT_SEC = 7 * 24 * 60 * 60;
 const WORKFLOW_INTERRUPTED_ERROR = "Workflow process was interrupted before completion.";
 const WORKFLOW_CANCELLED_ERROR = "Workflow run was cancelled by the board.";
 
