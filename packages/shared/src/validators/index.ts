@@ -100,6 +100,7 @@ export {
   portabilityAgentManifestEntrySchema,
   portabilitySkillManifestEntrySchema,
   portabilityManifestSchema,
+  portabilityWorkflowSchedulesSchema,
   portabilitySourceSchema,
   portabilityTargetSchema,
   portabilityAgentSelectionSchema,

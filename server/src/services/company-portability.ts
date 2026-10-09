@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
+import { parse as parseYaml } from "yaml";
 import type { Db } from "@paperclipai/db";
 import type {
   CompanyPortabilityAgentManifestEntry,
@@ -45,6 +46,7 @@ import {
   envConfigSchema,
   normalizeAgentUrlKey,
   workflowPromptTemplateSchema,
+  portabilityWorkflowSchedulesSchema,
 } from "@paperclipai/shared";
 import {
   readPaperclipSkillSyncPreference,
@@ -63,12 +65,13 @@ import { generateReadme } from "./company-export-readme.js";
 import { renderOrgChartPng, type OrgNode } from "../routes/org-chart-svg.js";
 import { companySkillService } from "./company-skills.js";
 import { companyService } from "./companies.js";
-import { validateCron } from "./cron.js";
+import { nextCronTickFromExpression, validateCron } from "./cron.js";
 import { issueService } from "./issues.js";
 import { projectService } from "./projects.js";
 import { routineService } from "./routines.js";
 import { secretService } from "./secrets.js";
 import { workflowService } from "./workflows.js";
+import { workflowScheduleService } from "./workflow-schedules.js";
 import { resolveManagedWorkflowDir } from "../home-paths.js";
 
 /** Build OrgNode tree from manifest agent list (slug + reportsToSlug). */
@@ -2778,7 +2781,14 @@ function buildManifestFromPackageFiles(
       warnings.push(`Referenced workflow file is missing from package: ${workflowPath}`);
       continue;
     }
-    const parsed = parseYamlFile(yamlRaw) as Record<string, unknown>;
+    let parsed: Record<string, unknown>;
+    try {
+      const value: unknown = parseYaml(yamlRaw);
+      if (!isPlainRecord(value)) throw new Error("Expected a workflow mapping");
+      parsed = value;
+    } catch (err) {
+      throw unprocessable(`Invalid workflow YAML in ${workflowPath}: ${err instanceof Error ? err.message : String(err)}`);
+    }
     const title = asString(parsed.title);
     const workflowKey = asString(parsed.workflowKey);
     const capabilities = Array.isArray(parsed.capabilities)
@@ -2806,6 +2816,19 @@ function buildManifestFromPackageFiles(
     const promptTemplates = normalizeWorkflowPromptTemplates(parsed);
     if (promptTemplates !== undefined) {
       entry.promptTemplates = promptTemplates;
+    }
+    if (parsed.schedules !== undefined) {
+      const schedules = portabilityWorkflowSchedulesSchema.safeParse(parsed.schedules);
+      if (!schedules.success) {
+        throw unprocessable(`Invalid workflow schedules in ${workflowPath}`, schedules.error.flatten());
+      }
+      for (const schedule of schedules.data) {
+        const cronError = validateCron(schedule.cronExpression);
+        if (cronError || !nextCronTickFromExpression(schedule.cronExpression, new Date())) {
+          throw unprocessable(`Invalid schedule "${schedule.title}" in ${workflowPath}: ${cronError ?? "Cron expression does not produce a future fire time"}`);
+        }
+      }
+      entry.schedules = schedules.data;
     }
     manifest.workflows.push(entry);
   }
@@ -2886,6 +2909,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
   const companySkills = companySkillService(db);
   const secrets = secretService(db);
   const workflows = workflowService(db);
+  const workflowSchedules = workflowScheduleService(db);
   const strictSecretsMode = process.env.BIZBOX_SECRETS_STRICT_MODE === "true";
 
   function assertKnownImportAdapterType(type: string | null | undefined): string {
@@ -3668,6 +3692,13 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         if (promptTemplates !== undefined) {
           workflowEntry.promptTemplates = promptTemplates;
         }
+        workflowEntry.schedules = (await workflowSchedules.listForWorkflow(wf.id)).map((schedule) => ({
+          title: schedule.title,
+          cronExpression: schedule.cronExpression,
+          templateMarkdown: schedule.templateMarkdown,
+          status: schedule.status,
+          timezone: "UTC",
+        }));
         files[workflowPath] = buildYamlFile(workflowEntry);
 
         // Bundle managed workflow directory files (mirrors import materializeWorkflowBundle)
@@ -3848,6 +3879,10 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     }
     const warnings = [...source.warnings];
     const errors: string[] = [];
+
+    if (include.workflows && mode === "agent_safe" && manifest.workflows.some((workflow) => workflow.schedules !== undefined)) {
+      errors.push("Workflow schedules can only be imported through board-managed company import.");
+    }
 
     if (include.company && !manifest.company) {
       errors.push("Manifest does not include company metadata.");
@@ -4157,6 +4192,9 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     if (include.workflows) {
       for (const manifestWorkflow of manifest.workflows) {
         const existingId = existingWorkflowTitleToId.get(manifestWorkflow.title) ?? null;
+        if (manifestWorkflow.schedules !== undefined && !(existingId && collisionStrategy === "skip")) {
+          warnings.push(`Workflow "${manifestWorkflow.title}" will ${existingId ? "replace its schedules with" : "create"} ${manifestWorkflow.schedules.length} configured schedule(s). Active schedules become eligible after import; times are UTC.`);
+        }
         if (!existingId) {
           workflowPlans.push({
             title: manifestWorkflow.title,
@@ -4863,6 +4901,9 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
               warnings.push(`Failed to materialize workflow bundle for ${manifestWorkflow.title}: ${err instanceof Error ? err.message : String(err)}`);
             }
           }
+          if (manifestWorkflow.schedules !== undefined) {
+            await workflowSchedules.replaceForWorkflow(wp.existingWorkflowId, manifestWorkflow.schedules, { userId: actorUserId ?? null });
+          }
           continue;
         }
 
@@ -4894,6 +4935,9 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           } catch (err) {
             warnings.push(`Failed to materialize workflow bundle for ${manifestWorkflow.title}: ${err instanceof Error ? err.message : String(err)}`);
           }
+        }
+        if (manifestWorkflow.schedules !== undefined) {
+          await workflowSchedules.replaceForWorkflow(created.id, manifestWorkflow.schedules, { userId: actorUserId ?? null });
         }
       }
     }

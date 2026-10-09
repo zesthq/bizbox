@@ -55,6 +55,58 @@ export function workflowScheduleService(db: Db) {
 
     get: getWorkflowScheduleById,
 
+    // An explicit package list owns all schedules for this workflow. Reconcile by
+    // title to retain IDs and firing history across repeated imports.
+    replaceForWorkflow: async (workflowId: string, inputs: CreateWorkflowSchedule[], actor: WorkflowScheduleActor) => {
+      return db.transaction(async (tx) => {
+        const [workflow] = await tx.select().from(workflows).where(eq(workflows.id, workflowId)).for("update");
+        if (!workflow) throw notFound("Workflow not found");
+        const svc = workflowScheduleService(tx as unknown as Db);
+        const existing = await svc.listForWorkflow(workflowId);
+        const retainedIds = new Set<string>();
+        for (const input of inputs) {
+          const match = existing.find((schedule) => schedule.title === input.title && !retainedIds.has(schedule.id));
+          if (match) {
+            const unchanged = match.cronExpression === input.cronExpression
+              && match.templateMarkdown === input.templateMarkdown
+              && match.status === (input.status ?? "active");
+            if (!unchanged) {
+              await svc.update(match.id, {
+                ...input,
+                status: input.status ?? "active",
+                // Leave the fire cursor intact when only the body/status changed.
+                cronExpression: match.cronExpression === input.cronExpression ? undefined : input.cronExpression,
+              }, actor);
+              await logActivity(tx as unknown as Db, {
+                companyId: workflow.companyId, actorType: "user", actorId: actor.userId ?? "board",
+                action: "workflow.schedule_updated", entityType: "workflow_schedule", entityId: match.id,
+                details: { workflowId, source: "company_import" },
+              });
+            }
+            retainedIds.add(match.id);
+          } else {
+            const created = await svc.create(workflowId, input, actor);
+            retainedIds.add(created.id);
+            await logActivity(tx as unknown as Db, {
+              companyId: workflow.companyId, actorType: "user", actorId: actor.userId ?? "board",
+              action: "workflow.schedule_created", entityType: "workflow_schedule", entityId: created.id,
+              details: { workflowId, source: "company_import" },
+            });
+          }
+        }
+        for (const schedule of existing) {
+          if (retainedIds.has(schedule.id)) continue;
+          await svc.delete(schedule.id);
+          await logActivity(tx as unknown as Db, {
+            companyId: workflow.companyId, actorType: "user", actorId: actor.userId ?? "board",
+            action: "workflow.schedule_deleted", entityType: "workflow_schedule", entityId: schedule.id,
+            details: { workflowId, source: "company_import" },
+          });
+        }
+        return svc.listForWorkflow(workflowId);
+      });
+    },
+
     create: async (workflowId: string, input: CreateWorkflowSchedule, actor: WorkflowScheduleActor) => {
       const workflow = await db.select().from(workflows).where(eq(workflows.id, workflowId)).then((rows) => rows[0] ?? null);
       if (!workflow) throw notFound("Workflow not found");

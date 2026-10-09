@@ -8,6 +8,8 @@ Target specification for the Bizbox control plane. Living document — updated i
 
 A Company is a first-order object. One Bizbox instance runs multiple Companies. A Company does not have a standalone "goal" field — its direction is defined by its set of Initiatives (see Task Hierarchy Mapping). A Company also owns company-scoped Workflows for multi-step agent runs and deliverables.
 
+Workflow schedules can be version-controlled in a company's `WORKFLOW.yaml` files and applied through board-managed company import. An explicit `schedules` list is authoritative, omission preserves existing schedules, and `[]` clears them. Schedules use UTC cron expressions and literal Markdown input; export preserves configuration without runtime IDs or fire history. See [ADR-0003](../docs/adr/0003-repository-managed-workflow-schedules.md).
+
 ### Fields (Draft)
 
 | Field       | Type          | Notes                             |

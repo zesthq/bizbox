@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { routineVariableSchema } from "./routine.js";
-import { workflowPromptTemplateSchema } from "./workflow.js";
+import { createWorkflowScheduleSchema, workflowPromptTemplateSchema } from "./workflow.js";
 
 export const portabilityIncludeSchema = z
   .object({
@@ -152,6 +152,18 @@ export const portabilityIssueManifestEntrySchema = z.object({
   metadata: z.record(z.unknown()).nullable(),
 });
 
+export const portabilityWorkflowSchedulesSchema = z.array(
+  createWorkflowScheduleSchema.extend({ timezone: z.literal("UTC").optional() }).strict(),
+).superRefine((schedules, ctx) => {
+  const titles = new Set<string>();
+  schedules.forEach((schedule, index) => {
+    if (titles.has(schedule.title)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, "title"], message: "Schedule titles must be unique within a workflow." });
+    }
+    titles.add(schedule.title);
+  });
+});
+
 export const portabilityWorkflowManifestEntrySchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().nullable().optional(),
@@ -161,6 +173,7 @@ export const portabilityWorkflowManifestEntrySchema = z.object({
   command: z.string().nullable().optional(),
   model: z.string().nullable().optional(),
   promptTemplates: z.array(workflowPromptTemplateSchema).optional(),
+  schedules: portabilityWorkflowSchedulesSchema.optional(),
   path: z.string().optional().default(""),
 });
 
