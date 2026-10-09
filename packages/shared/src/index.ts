@@ -954,6 +954,7 @@ export {
   portabilitySidebarOrderSchema,
   portabilityAgentManifestEntrySchema,
   portabilityManifestSchema,
+  portabilityWorkflowSchedulesSchema,
   portabilitySourceSchema,
   portabilityTargetSchema,
   portabilityAgentSelectionSchema,

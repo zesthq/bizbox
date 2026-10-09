@@ -105,6 +105,75 @@ Callers that manage retries themselves can pass `idempotency_key`,
 generation/revision context and post to the exact handoff resource:
 `/api/workflow-runs/:runId/extensions/citro-social-cms/v1/handoffs/:handoffId/feedback`.
 
+## Repository-managed workflow schedules
+
+Company packages configure ADK workflow schedules in
+`workflows/<workflow>/WORKFLOW.yaml`. Add `schedules` beside `title`, `adkPath`,
+and the other workflow configuration fields:
+
+```yaml
+schedules:
+  - title: Weekday articles
+    cronExpression: "0 9 * * 1-5"
+    timezone: UTC
+    status: paused
+    templateMarkdown: |
+      Article count: 1
+
+      Approved opportunity:
+      Explain practical ways Australians aged 50+ can recognise scam messages.
+
+      Audience / reader:
+      Citro readers aged 50+ in Australia.
+
+      Evidence to ground the article:
+      Use current Australian government scam-prevention guidance.
+
+      Additional constraints:
+      Produce one evidence-backed article for editorial review.
+```
+
+This example fits Citro's Content Strategist contract, including its required
+`Article count: N` line. Review the brief/cadence before setting `status: active`.
+The expression means 09:00 **UTC** Monday–Friday; `0 9 * * *` means every day.
+
+For a config repository such as `citro-box`, edit
+`companies/citro-google-adk/workflows/content_strategist/WORKFLOW.yaml` and use
+its existing `scripts/import-citro-company.sh` process with
+`--company citro-google-adk --target existing` and the usual target/auth options.
+Its `--dry-run` previews the changes. Workflow inclusion must be enabled
+(`include.workflows: true` for direct API imports). The existing bundle builder
+retains nested schedule YAML; no separate scheduling script is needed.
+
+Product Placement Rewriter accepts the same schedule fields in
+`workflows/product_placement_rewriter/WORKFLOW.yaml`, but the body must supply
+a specific existing article, the approved opportunity, and approved placement/
+claims constraints. A schedule repeats the exact body; it does not choose a
+new article or fill `{{article_source}}` automatically. Landing-page and other
+workflows likewise need complete workflow-specific input in `templateMarkdown`.
+
+Configuration semantics:
+
+- `title`, `cronExpression`, and nonblank `templateMarkdown` are required.
+  Titles must be unique per workflow and identify schedules on re-import.
+- `status` defaults to `active`; use `paused` to retain configuration without
+  firing. The existing `archived` schedule status is also retained.
+- `timezone` is optional but only `UTC` is supported. Local schedules require
+  converting the desired time to UTC, including daylight-saving changes.
+- Omitted `schedules` preserves existing schedules. An explicit list replaces
+  **all** schedules for that workflow, including board-created ones. Removing
+  entries deletes them; `schedules: []` clears the list.
+- Matching titles retain IDs/history. Unchanged schedules retain their next-run
+  time; cron changes and reactivation compute a new future tick.
+- `skip` collisions leave existing workflows/schedules untouched. Company export
+  includes configuration, not schedule IDs or fire history.
+- Only board-managed imports can apply schedules. Preview does not save changes.
+  Repository edits take effect on import, not automatically on Git push.
+- Active schedules require a running Bizbox scheduler and an active workflow.
+  Missed windows are not replayed as a backlog.
+
+See [ADR-0003](../docs/adr/0003-repository-managed-workflow-schedules.md).
+
 ## Storybook
 
 The board UI Storybook keeps stories and Storybook config under `ui/storybook/` so component review files stay out of the app source routes.

@@ -996,3 +996,4 @@ Export/import behavior in V1:
 - import supports collision strategies: `rename`, `skip`, `replace`
 - import supports preview (dry-run) before apply
 - GitHub imports warn on unpinned refs instead of blocking
+- Workflow `WORKFLOW.yaml` files optionally declare `schedules` entries with unique titles, five-field `cronExpression`, literal nonblank `templateMarkdown`, status (default `active`), and optional UTC-only `timezone`. Board-managed import applies explicit lists transactionally per workflow, matching titles to preserve IDs/history; omission preserves existing schedules and `[]` clears all schedules. Skip collisions do not apply schedules. Agent-safe imports cannot manage them. Export includes configuration without IDs/fire timestamps. Active imported schedules become eligible on future ticks; repository edits require re-import. See `docs/adr/0003-repository-managed-workflow-schedules.md`.

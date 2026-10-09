@@ -127,6 +127,47 @@ describeEmbeddedPostgres("workflowScheduleService", () => {
     expect(updated?.lastFiredAt).toBeInstanceOf(Date);
   });
 
+  it("reconciles a package schedule list idempotently, preserves fire history and scopes removal to its workflow", async () => {
+    const { workflowId } = await seedWorkflow();
+    const other = await seedWorkflow();
+    const svc = workflowScheduleService(db);
+    const actor = { userId: "board-user" };
+    const input = { title: "Weekday articles", cronExpression: "0 9 * * 1-5", templateMarkdown: "Article count: 1", status: "active" as const };
+    const [created] = await svc.replaceForWorkflow(workflowId, [input], actor);
+    const firedAt = new Date("2026-06-10T09:00:00Z");
+    const nextRunAt = new Date("2026-06-11T09:00:00Z");
+    await db.update(workflowSchedules).set({ lastFiredAt: firedAt, nextRunAt }).where(eq(workflowSchedules.id, created.id));
+    await svc.create(workflowId, { ...input, title: "Remove me" }, actor);
+    const otherSchedule = await svc.create(other.workflowId, input, actor);
+    vi.clearAllMocks();
+
+    const [updated] = await svc.replaceForWorkflow(workflowId, [{ ...input, templateMarkdown: "Article count: 2" }], actor);
+    expect(updated).toMatchObject({ id: created.id, lastFiredAt: firedAt, nextRunAt, templateMarkdown: "Article count: 2" });
+    expect(await svc.listForWorkflow(workflowId)).toHaveLength(1);
+    expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: "workflow.schedule_updated" }));
+    expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: "workflow.schedule_deleted" }));
+    vi.clearAllMocks();
+    expect(await svc.replaceForWorkflow(workflowId, [{ ...input, templateMarkdown: "Article count: 2" }], actor)).toEqual([updated]);
+    expect(mockLogActivity).not.toHaveBeenCalled();
+    expect(mockRunManual).not.toHaveBeenCalled();
+
+    await svc.replaceForWorkflow(workflowId, [], actor);
+    expect(await svc.listForWorkflow(workflowId)).toEqual([]);
+    expect(await svc.get(otherSchedule.id)).not.toBeNull();
+  });
+
+  it("rolls back the entire schedule replacement if one schedule cannot be created", async () => {
+    const { workflowId } = await seedWorkflow();
+    const svc = workflowScheduleService(db);
+    const input = { title: "Keep me", cronExpression: "0 9 * * *", templateMarkdown: "Original", status: "active" as const };
+    const [original] = await svc.replaceForWorkflow(workflowId, [input], { userId: "board" });
+    await expect(svc.replaceForWorkflow(workflowId, [
+      { ...input, templateMarkdown: "Changed" },
+      { ...input, title: "Invalid", cronExpression: "invalid" },
+    ], { userId: "board" })).rejects.toThrow();
+    expect(await svc.listForWorkflow(workflowId)).toEqual([original]);
+  });
+
   it("does not stamp lastFiredAt when dispatch fails", async () => {
     const { workflowId } = await seedWorkflow("active");
     const svc = workflowScheduleService(db);

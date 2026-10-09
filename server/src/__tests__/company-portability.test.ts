@@ -66,6 +66,11 @@ const workflowSvc = {
   update: vi.fn(),
 };
 
+const workflowScheduleSvc = {
+  listForWorkflow: vi.fn(),
+  replaceForWorkflow: vi.fn(),
+};
+
 const secretSvc = {
   create: vi.fn(),
   normalizeAdapterConfigForPersistence: vi.fn(async (_companyId: string, config: Record<string, unknown>) => config),
@@ -113,6 +118,10 @@ vi.mock("../services/workflows.js", () => ({
   workflowService: () => workflowSvc,
 }));
 
+vi.mock("../services/workflow-schedules.js", () => ({
+  workflowScheduleService: () => workflowScheduleSvc,
+}));
+
 vi.mock("../services/secrets.js", () => ({
   secretService: () => secretSvc,
 }));
@@ -138,6 +147,8 @@ describe("company portability", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    workflowScheduleSvc.listForWorkflow.mockResolvedValue([]);
+    workflowScheduleSvc.replaceForWorkflow.mockResolvedValue([]);
     secretSvc.normalizeAdapterConfigForPersistence.mockImplementation(async (_companyId, config) => config);
     secretSvc.resolveAdapterConfigForRuntime.mockImplementation(async (_companyId, config) => ({
       config,
@@ -2589,6 +2600,128 @@ describe("company portability", () => {
       }
       await fs.rm(tempHome, { recursive: true, force: true });
     }
+  });
+
+  it("exports and imports workflow schedules through WORKFLOW.yaml without runtime IDs or fire history", async () => {
+    const portability = companyPortabilityService({} as any);
+    workflowSvc.list.mockResolvedValueOnce([{
+      id: "workflow-existing", title: "Content Strategist",
+      runnerConfig: { agentPath: "content_strategist" },
+    }]);
+    const schedule = {
+      title: "Weekday articles", cronExpression: "0 9 * * 1-5",
+      templateMarkdown: "Article count: 1\n\nWrite the approved brief.", status: "paused", timezone: "UTC",
+    };
+    workflowScheduleSvc.listForWorkflow.mockResolvedValueOnce([{
+      ...schedule, id: "source-schedule", companyId: "company-1", workflowId: "workflow-existing",
+      lastFiredAt: new Date(), nextRunAt: new Date(), createdByUserId: "source-user",
+    }]);
+    const include = { company: true, agents: false, workflows: true };
+    const exported = await portability.exportBundle("company-1", { include });
+    expect(exported.manifest.workflows[0].schedules).toEqual([schedule]);
+    const yaml = asTextFile(exported.files[`${exported.manifest.workflows[0].path}/WORKFLOW.yaml`]);
+    expect(yaml).toContain("schedules:");
+    expect(yaml).not.toContain("source-schedule");
+    expect(yaml).not.toContain("nextRunAt");
+    companySvc.create.mockResolvedValueOnce({ id: "company-imported", name: "Imported" });
+    await portability.importBundle({
+      source: { type: "inline", files: exported.files }, include,
+      target: { mode: "new_company" }, collisionStrategy: "rename",
+    }, "user-1");
+    expect(workflowScheduleSvc.replaceForWorkflow).toHaveBeenCalledWith("workflow-created", [schedule], { userId: "user-1" });
+  });
+
+  it.each([
+    ["omitted", "", false],
+    ["empty", "schedules: []\n", true],
+    ["configured", 'schedules:\n  - title: Weekdays\n    cronExpression: "0 9 * * 1-5"\n    templateMarkdown: "Article count: 1"\n', true],
+  ])("handles %s schedules when updating an existing workflow", async (_label, yamlSchedules, shouldReplace) => {
+    const portability = companyPortabilityService({} as any);
+    workflowSvc.list.mockResolvedValue([{
+      id: "workflow-existing", title: "Content Strategist", runnerConfig: { agentPath: "content_strategist" },
+    }]);
+    await portability.importBundle({
+      source: { type: "inline", files: {
+        "COMPANY.md": "---\nname: Citro\n---\n",
+        "workflows/content_strategist/WORKFLOW.yaml": `title: Content Strategist\nadkPath: content_strategist\n${yamlSchedules}`,
+      } },
+      include: { company: false, agents: false, workflows: true },
+      target: { mode: "existing_company", companyId: "company-1" }, collisionStrategy: "replace",
+    }, "user-1");
+    if (shouldReplace) {
+      expect(workflowScheduleSvc.replaceForWorkflow).toHaveBeenCalledWith("workflow-existing", expect.any(Array), { userId: "user-1" });
+      if (_label === "empty") expect(workflowScheduleSvc.replaceForWorkflow.mock.calls[0][1]).toEqual([]);
+      if (_label === "configured") expect(workflowScheduleSvc.replaceForWorkflow.mock.calls[0][1][0].status).toBe("active");
+    } else {
+      expect(workflowScheduleSvc.replaceForWorkflow).not.toHaveBeenCalled();
+    }
+  });
+
+  it("preserves literal multiline schedule input, indentation, blank lines and Markdown comments from config repo YAML", async () => {
+    const portability = companyPortabilityService({} as any);
+    companySvc.create.mockResolvedValueOnce({ id: "company-imported", name: "Citro" });
+    const input = {
+      source: { type: "inline" as const, files: {
+        "COMPANY.md": "---\nname: Citro\n---\n",
+        "workflows/content_strategist/WORKFLOW.yaml": [
+          "title: Content Strategist", "adkPath: content_strategist", "schedules:",
+          "  - title: 'Weekday articles'", '    cronExpression: "0 9 * * 1-5" # Monday to Friday',
+          "    status: paused", "    templateMarkdown: |", "      Article count: 1", "",
+          "      # Approved opportunity", "      Explain scam prevention.", "",
+          "      ```json", '        {"audience": "50+"}', "      ```", "",
+        ].join("\n"),
+      } },
+      include: { company: true, agents: false, workflows: true }, target: { mode: "new_company" as const },
+    };
+    const preview = await portability.previewImport(input);
+    expect(preview.manifest.workflows[0].schedules?.[0].templateMarkdown).toBe(
+      'Article count: 1\n\n# Approved opportunity\nExplain scam prevention.\n\n```json\n  {"audience": "50+"}\n```\n',
+    );
+    expect(workflowScheduleSvc.replaceForWorkflow).not.toHaveBeenCalled();
+    await portability.importBundle(input, "user-1");
+    expect(workflowScheduleSvc.replaceForWorkflow).toHaveBeenCalledWith("workflow-created", [expect.objectContaining({
+      title: "Weekday articles", cronExpression: "0 9 * * 1-5", status: "paused",
+      templateMarkdown: preview.manifest.workflows[0].schedules?.[0].templateMarkdown,
+    })], { userId: "user-1" });
+  });
+
+  it.each([
+    'schedules: invalid',
+    'schedules:\n  - title: Weekdays\n    cronExpression: "not cron"\n    templateMarkdown: Run',
+    'schedules:\n  - title: Weekdays\n    cronExpression: "0 9 * * *"\n    templateMarkdown: " "',
+    'schedules:\n  - title: Weekdays\n    cronExpression: "0 9 * * *"\n    templateMarkdown: Run\n    timezone: Australia/Sydney',
+    'schedules:\n  - title: Same\n    cronExpression: "0 9 * * *"\n    templateMarkdown: Run\n  - title: Same\n    cronExpression: "0 10 * * *"\n    templateMarkdown: Run',
+  ])("rejects invalid YAML schedules before creating or updating company state: %s", async (yamlSchedules) => {
+    const portability = companyPortabilityService({} as any);
+    await expect(portability.importBundle({
+      source: { type: "inline", files: {
+        "COMPANY.md": "---\nname: Citro\n---\n",
+        "workflows/content_strategist/WORKFLOW.yaml": `title: Content Strategist\nadkPath: content_strategist\n${yamlSchedules}\n`,
+      } },
+      include: { company: true, agents: false, workflows: true }, target: { mode: "new_company" },
+    }, "user-1")).rejects.toThrow(/Invalid .*schedule/i);
+    expect(companySvc.create).not.toHaveBeenCalled();
+    expect(workflowSvc.create).not.toHaveBeenCalled();
+    expect(workflowScheduleSvc.replaceForWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("keeps schedules unchanged under skip collisions and rejects agent-safe schedule imports", async () => {
+    const portability = companyPortabilityService({} as any);
+    workflowSvc.list.mockResolvedValue([{
+      id: "workflow-existing", title: "Content Strategist", runnerConfig: { agentPath: "content_strategist" },
+    }]);
+    const input = {
+      source: { type: "inline" as const, files: {
+        "COMPANY.md": "---\nname: Citro\n---\n",
+        "workflows/content_strategist/WORKFLOW.yaml": "title: Content Strategist\nadkPath: content_strategist\nschedules: []\n",
+      } },
+      include: { company: false, agents: false, workflows: true },
+      target: { mode: "existing_company" as const, companyId: "company-1" }, collisionStrategy: "skip" as const,
+    };
+    await portability.importBundle(input, "user-1");
+    expect(workflowSvc.update).not.toHaveBeenCalled();
+    expect(workflowScheduleSvc.replaceForWorkflow).not.toHaveBeenCalled();
+    await expect(portability.importBundle(input, "user-1", { mode: "agent_safe" })).rejects.toThrow(/board-managed/);
   });
 
   it("exports and imports workflow prompt templates through the portability manifest", async () => {

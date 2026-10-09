@@ -1,5 +1,6 @@
 import type { AgentEnvConfig } from "./secrets.js";
 import type { RoutineVariable } from "./routine.js";
+import type { WorkflowSchedule } from "./workflow.js";
 
 export interface CompanyPortabilityInclude {
   company: boolean;
@@ -22,6 +23,11 @@ export interface CompanyPortabilityWorkflowManifestEntry {
   promptTemplates?: Array<{
     label: string;
     promptMarkdown: string;
+  }>;
+  /** Omitted preserves schedules; an explicit list replaces the workflow's schedules. */
+  schedules?: Array<Pick<WorkflowSchedule, "title" | "cronExpression" | "templateMarkdown"> & {
+    status: "active" | "paused" | "archived";
+    timezone?: "UTC";
   }>;
   /** Directory path within the source bundle (e.g. "workflows/content-strategist"). */
   path: string;
