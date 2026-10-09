@@ -87,7 +87,7 @@
     "sharp": "^0.35.0",
     "ws": "^8.21.3",
     "yaml": "^2.8.1",
-    "zod": "^3.24.2"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
