@@ -177,10 +177,10 @@ describeEmbeddedPostgres("workflowService.runManual", () => {
       analysis: expect.objectContaining({ sourceHash: "hash-1" }),
     });
     expect(mockPrepareInstrumentedWorkflowRuntime.mock.calls[0]?.[0]).toMatchObject({
-      runnerConfig: expect.objectContaining({ timeoutSec: 86400 }),
+      runnerConfig: expect.objectContaining({ timeoutSec: 604800 }),
     });
     expect(mockInvokeGoogleAdk).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({ timeoutSec: 86400 }),
+      config: expect.objectContaining({ timeoutSec: 604800 }),
       authToken: undefined,
     }));
 
