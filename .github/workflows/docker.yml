@@ -6,10 +6,22 @@ on:
       - "master"
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Image platforms (single architecture is useful for provenance validation)
+        type: choice
+        default: linux/amd64,linux/arm64
+        options:
+          - linux/amd64,linux/arm64
+          - linux/amd64
+          - linux/arm64
 
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   build-and-push:
@@ -32,6 +44,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set up QEMU for multi-platform builds
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
@@ -44,12 +59,45 @@ jobs:
             type=sha
 
       - name: Build and push
+        id: image
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Attest image provenance
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Verify and print provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/provenance"
+          gh attestation verify "oci://$IMAGE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/docker.yml" \
+            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners \
+            --format json > "$RUNNER_TEMP/provenance/verification.json"
+          cp "$BUNDLE_PATH" "$RUNNER_TEMP/provenance/bizbox.sigstore.json"
+          jq -r '.dsseEnvelope.payload' "$BUNDLE_PATH" | base64 --decode | jq . > "$RUNNER_TEMP/provenance/bizbox.provenance.json"
+          cat "$RUNNER_TEMP/provenance/bizbox.provenance.json"
+
+      - name: Upload provenance files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bizbox-image-provenance
+          path: ${{ runner.temp }}/provenance/
+          if-no-files-found: error
